@@ -45,6 +45,10 @@ export function clearStoredToken() {
 
 export function getApiErrorMessage(error: unknown) {
   if (axios.isAxiosError(error)) {
+    if (error.code === "ERR_NETWORK") {
+      return `Cannot reach the AutoAudit API at ${API_URL}, or the browser blocked the request. Make sure npm run dev:api is running, then refresh and try again.`;
+    }
+
     return error.response?.data?.error?.message ?? error.message;
   }
 
@@ -54,4 +58,3 @@ export function getApiErrorMessage(error: unknown) {
 
   return "Something went wrong";
 }
-

@@ -107,3 +107,12 @@ export type AuditSummary = {
   }>;
 };
 
+export type AiEmailGoal = "cancel" | "renegotiate" | "reduce_seats";
+
+export type AiTextMetadata = {
+  mode?: string;
+  vendorId?: string;
+  vendorName?: string;
+  generatedAt?: string;
+  savedReportId?: string;
+};

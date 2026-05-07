@@ -10,7 +10,7 @@ export function createApp() {
   app.use(
     cors({
       origin(origin, callback) {
-        if (!origin || env.corsOrigins.includes(origin)) {
+        if (!origin || isAllowedCorsOrigin(origin)) {
           callback(null, true);
           return;
         }
@@ -32,6 +32,18 @@ export function createApp() {
   return app;
 }
 
+function isAllowedCorsOrigin(origin) {
+  if (env.corsOrigins.includes(origin)) {
+    return true;
+  }
+
+  if (env.nodeEnv !== "production") {
+    return /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+  }
+
+  return false;
+}
+
 function healthCheck(_req, res) {
   res.json({
     status: "ok",
@@ -39,4 +51,3 @@ function healthCheck(_req, res) {
     timestamp: new Date().toISOString(),
   });
 }
-

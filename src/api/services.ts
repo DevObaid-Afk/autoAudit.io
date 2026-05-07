@@ -58,5 +58,19 @@ export const aiApi = {
     const { data } = await apiClient.post<{ draft: string }>("/api/ai/cancel-email", input);
     return data.draft;
   },
-};
 
+  async renegotiateEmail(input: { vendorId?: string; vendorName?: string; renewalId?: string; tone?: string; negotiationGoal?: string }) {
+    const { data } = await apiClient.post<{ draft: string }>("/api/ai/renegotiate-email", input);
+    return data.draft;
+  },
+
+  async monthlyReport(input: { periodStart?: string; periodEnd?: string; audience?: string } = {}) {
+    const { data } = await apiClient.post<{ report: string; savedReportId?: string; summary: AuditSummary }>("/api/ai/monthly-report", input);
+    return data;
+  },
+
+  async vendorAnalysis(input: { vendorId?: string; vendorName?: string; mode?: "duplicate_tools" | "waste_explanation" }) {
+    const { data } = await apiClient.post<{ analysis: string }>("/api/ai/vendor-analysis", input);
+    return data.analysis;
+  },
+};

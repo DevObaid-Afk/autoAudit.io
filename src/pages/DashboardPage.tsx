@@ -29,13 +29,16 @@ import {
   Filter,
   Inbox,
   LayoutDashboard,
+  LogOut,
   Mail,
   Menu,
+  Moon,
   RefreshCw,
   Search,
   Settings,
   ShieldCheck,
   Sparkles,
+  Sun,
   Trash2,
   Users,
   X,
@@ -48,7 +51,8 @@ import type { ReactNode } from "react";
 import { aiApi, auditApi, renewalApi, vendorApi } from "../api/services";
 import { getApiErrorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
-import type { ApiRenewal, ApiVendor, AuditSummary, CreateVendorInput } from "../types/api";
+import { useTheme } from "../theme/ThemeContext";
+import type { AiEmailGoal, ApiRenewal, ApiVendor, AuditSummary, CreateVendorInput } from "../types/api";
 
 type PageId = "overview" | "vendors" | "waste" | "renewals" | "reports" | "email" | "billing" | "settings";
 type RiskLevel = "critical" | "high" | "medium" | "low";
@@ -112,6 +116,7 @@ type DuplicateToolRow = {
 };
 
 type WasteSignal = {
+  vendorId?: string;
   title: string;
   vendor: string;
   impact: number;
@@ -170,6 +175,12 @@ const integrations = [
   { name: "Okta", status: "Not connected", detail: "Login activity and seats" },
 ];
 
+const emailGoalOptions: Array<{ value: AiEmailGoal; label: string; actionLabel: string }> = [
+  { value: "cancel", label: "Cancel subscription", actionLabel: "cancel renewal" },
+  { value: "renegotiate", label: "Renegotiate contract", actionLabel: "reduce renewal cost" },
+  { value: "reduce_seats", label: "Reduce seat count", actionLabel: "right-size seat count" },
+];
+
 const defaultDraft = `Hi Clearbit team,
 
 We are reviewing our SaaS stack and found no meaningful Clearbit usage in the last quarter.
@@ -194,6 +205,10 @@ export function DashboardPage() {
   const [auditSummary, setAuditSummary] = useState<AuditSummary | null>(null);
   const [isDataLoading, setDataLoading] = useState(true);
   const [dataError, setDataError] = useState("");
+  const [monthlyReportDraft, setMonthlyReportDraft] = useState("");
+  const [isReportGenerating, setReportGenerating] = useState(false);
+  const [wasteAnalysis, setWasteAnalysis] = useState("");
+  const [isWasteAnalyzing, setWasteAnalyzing] = useState(false);
   const toastTimer = useRef<number | undefined>(undefined);
 
   const pageTitle = navItems.find((item) => item.id === activePage)?.label ?? "Overview";
@@ -291,6 +306,48 @@ export function DashboardPage() {
     }
   };
 
+  const handleGenerateMonthlyReport = async () => {
+    setReportGenerating(true);
+
+    try {
+      const { report } = await aiApi.monthlyReport({ audience: "CFO" });
+      setMonthlyReportDraft(report);
+      showToast("AI CFO report generated.");
+    } catch (error) {
+      showToast(getApiErrorMessage(error));
+    } finally {
+      setReportGenerating(false);
+    }
+  };
+
+  const handleSuggestDuplicateTools = async () => {
+    setWasteAnalyzing(true);
+
+    try {
+      const analysis = await aiApi.vendorAnalysis({ mode: "duplicate_tools" });
+      setWasteAnalysis(analysis);
+      showToast("AI duplicate-tool suggestions generated.");
+    } catch (error) {
+      showToast(getApiErrorMessage(error));
+    } finally {
+      setWasteAnalyzing(false);
+    }
+  };
+
+  const handleExplainWaste = async (signal: WasteSignal) => {
+    setWasteAnalyzing(true);
+
+    try {
+      const analysis = await aiApi.vendorAnalysis({ vendorId: signal.vendorId, vendorName: signal.vendor, mode: "waste_explanation" });
+      setWasteAnalysis(analysis);
+      showToast(`${signal.vendor} waste explanation generated.`);
+    } catch (error) {
+      showToast(getApiErrorMessage(error));
+    } finally {
+      setWasteAnalyzing(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-canvas text-ink">
       <div className="lg:grid lg:grid-cols-[286px_minmax(0,1fr)]">
@@ -305,9 +362,20 @@ export function DashboardPage() {
               {isDataLoading && <LoadingState label="Loading live audit data" />}
               {activePage === "overview" && <OverviewPage categoryData={dashboardCategorySpend} duplicateTools={duplicateToolRows} totals={totals} unusedSeats={unusedSeatRows} onToast={showToast} />}
               {activePage === "vendors" && <VendorsPage isLoading={isDataLoading} vendors={dashboardVendors} onCreateVendor={handleCreateVendor} onDeleteVendor={handleDeleteVendor} onToast={showToast} />}
-              {activePage === "waste" && <WasteDetectionPage duplicateTools={duplicateToolRows} unusedSeats={unusedSeatRows} wasteSignals={dashboardWasteSignals} onToast={showToast} />}
+              {activePage === "waste" && (
+                <WasteDetectionPage
+                  aiAnalysis={wasteAnalysis}
+                  duplicateTools={duplicateToolRows}
+                  isAnalyzing={isWasteAnalyzing}
+                  unusedSeats={unusedSeatRows}
+                  wasteSignals={dashboardWasteSignals}
+                  onExplainWaste={handleExplainWaste}
+                  onRunDetection={handleSuggestDuplicateTools}
+                  onToast={showToast}
+                />
+              )}
               {activePage === "renewals" && <RenewalsPage renewalChartData={dashboardRenewalChart} renewalRows={renewalRows} onToast={showToast} />}
-              {activePage === "reports" && <ReportsPage onToast={showToast} />}
+              {activePage === "reports" && <ReportsPage isGenerating={isReportGenerating} reportDraft={monthlyReportDraft} onGenerateReport={handleGenerateMonthlyReport} onToast={showToast} />}
               {activePage === "email" && (
                 <EmailGeneratorPage
                   vendors={dashboardVendors}
@@ -315,9 +383,13 @@ export function DashboardPage() {
                   emailTone={emailTone}
                   onCopyDraft={copyDraft}
                   onDraftChange={setDraft}
-                  onGenerate={async (vendorName, tone) => {
+                  onGenerate={async (vendorName, tone, goal) => {
                     const apiVendor = apiVendors.find((vendor) => vendor.name === vendorName);
-                    const generatedDraft = await aiApi.cancelEmail({ vendorId: apiVendor?._id, vendorName, tone: tone.toLowerCase() });
+                    const goalConfig = emailGoalOptions.find((item) => item.value === goal) ?? emailGoalOptions[0];
+                    const generatedDraft =
+                      goal === "cancel"
+                        ? await aiApi.cancelEmail({ vendorId: apiVendor?._id, vendorName, tone: tone.toLowerCase(), requestedAction: goalConfig.actionLabel })
+                        : await aiApi.renegotiateEmail({ vendorId: apiVendor?._id, vendorName, tone: tone.toLowerCase(), negotiationGoal: goalConfig.actionLabel });
                     setDraft(generatedDraft);
                     showToast("AI draft refreshed with company context.");
                   }}
@@ -349,7 +421,7 @@ function Sidebar({
 }) {
   return (
     <>
-      <div className={`fixed inset-0 z-40 bg-ink/30 backdrop-blur-sm transition-opacity lg:hidden ${isOpen ? "opacity-100" : "pointer-events-none opacity-0"}`} onClick={onClose} />
+      <div className={`fixed inset-0 z-40 bg-inverse/35 backdrop-blur-sm transition-opacity lg:hidden ${isOpen ? "opacity-100" : "pointer-events-none opacity-0"}`} onClick={onClose} />
       <aside
         className={`fixed inset-y-0 left-0 z-50 flex w-[286px] flex-col border-r border-line bg-panel/95 shadow-2xl backdrop-blur-xl transition-transform duration-300 lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:translate-x-0 lg:shadow-none ${
           isOpen ? "translate-x-0" : "-translate-x-full"
@@ -393,7 +465,7 @@ function Sidebar({
         </nav>
 
         <div className="mt-auto grid gap-3 p-4">
-          <div className="rounded-lg border border-line bg-[#fbfcfd] p-4">
+          <div className="rounded-lg border border-line bg-panel-subtle p-4">
             <div className="flex items-center justify-between">
               <span className="text-xs font-extrabold uppercase text-quiet">Audit coverage</span>
               <span className="rounded-full bg-brand-soft px-2 py-1 text-xs font-extrabold text-brand-strong">82%</span>
@@ -404,7 +476,7 @@ function Sidebar({
             <p className="mt-3 text-sm leading-6 text-quiet">Finance exports connected. Email and SSO need approval.</p>
           </div>
 
-          <button className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-ink px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong" type="button">
+          <button className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-inverse px-4 text-sm font-extrabold text-inverse-ink shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-strong hover:shadow-lg active:translate-y-0" type="button">
             <Zap aria-hidden="true" size={17} />
             Run new audit
           </button>
@@ -431,6 +503,7 @@ function Topbar({
   onRefresh: () => void;
   onToast: (message: string) => void;
 }) {
+  const { theme, toggleTheme } = useTheme();
   const initialsLabel = initials(userName || companyName);
 
   return (
@@ -450,22 +523,37 @@ function Topbar({
           <span>Search vendors, renewals, reports</span>
         </div>
 
-        <button className="hidden min-h-10 items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm font-extrabold text-ink transition hover:bg-panel-muted sm:inline-flex" type="button" onClick={onRefresh}>
+        <button className="hidden min-h-10 items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand sm:inline-flex" type="button" onClick={onRefresh}>
           <RefreshCw aria-hidden="true" size={17} />
           Sync
         </button>
 
-        <button className="relative grid size-10 place-items-center rounded-lg border border-line bg-panel text-quiet transition hover:bg-panel-muted" type="button" aria-label="Notifications" onClick={() => onToast("3 renewal alerts need review.")}>
+        <button
+          className="grid size-10 place-items-center rounded-lg border border-line bg-panel text-quiet transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand"
+          type="button"
+          aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          onClick={toggleTheme}
+        >
+          {theme === "dark" ? <Sun aria-hidden="true" size={18} /> : <Moon aria-hidden="true" size={18} />}
+        </button>
+
+        <button className="relative grid size-10 place-items-center rounded-lg border border-line bg-panel text-quiet transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand" type="button" aria-label="Notifications" onClick={() => onToast("3 renewal alerts need review.")}>
           <Bell aria-hidden="true" size={18} />
           <span className="absolute right-2 top-2 size-2 rounded-full bg-risk" />
         </button>
 
-        <button className="flex items-center gap-2 rounded-lg border border-line bg-panel p-1.5 pr-3 transition hover:bg-panel-muted" type="button" onClick={() => onToast(`${companyName} workspace active.`)}>
+        <button className="flex items-center gap-2 rounded-lg border border-line bg-panel p-1.5 pr-3 transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted" type="button" onClick={() => onToast(`${companyName} workspace active.`)}>
           <span className="grid size-8 place-items-center rounded-md bg-brand text-xs font-extrabold text-white">{initialsLabel}</span>
           <span className="hidden text-sm font-extrabold sm:block">{companyName}</span>
         </button>
 
-        <button className="hidden min-h-10 rounded-lg border border-line bg-panel px-3 text-sm font-extrabold text-quiet transition hover:bg-panel-muted hover:text-ink sm:inline-flex sm:items-center" type="button" onClick={onLogout}>
+        <button
+          className="group hidden min-h-10 items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm font-extrabold text-quiet shadow-sm transition hover:-translate-y-0.5 hover:border-risk hover:bg-risk-soft hover:text-risk hover:shadow-md active:translate-y-0 sm:inline-flex"
+          type="button"
+          onClick={onLogout}
+        >
+          <LogOut aria-hidden="true" size={17} className="transition group-hover:-translate-x-0.5" />
           Logout
         </button>
       </div>
@@ -691,7 +779,7 @@ function VendorsPage({
             </thead>
             <tbody>
               {filteredVendors.map((vendor) => (
-                <tr className="rounded-lg bg-[#fbfcfd] shadow-sm transition hover:-translate-y-0.5 hover:shadow-md" key={vendor.id}>
+                <tr className="rounded-lg bg-panel-subtle shadow-sm transition hover:-translate-y-0.5 hover:shadow-md" key={vendor.id}>
                   <td className="rounded-l-lg border-y border-l border-line px-3 py-3">
                     <VendorIdentity vendor={vendor} />
                   </td>
@@ -727,14 +815,22 @@ function VendorsPage({
 }
 
 function WasteDetectionPage({
+  aiAnalysis,
   duplicateTools,
+  isAnalyzing,
   unusedSeats,
   wasteSignals,
+  onExplainWaste,
+  onRunDetection,
   onToast,
 }: {
+  aiAnalysis: string;
   duplicateTools: DuplicateToolRow[];
+  isAnalyzing: boolean;
   unusedSeats: UnusedSeatRow[];
   wasteSignals: WasteSignal[];
+  onExplainWaste: (signal: WasteSignal) => Promise<void>;
+  onRunDetection: () => Promise<void>;
   onToast: (message: string) => void;
 }) {
   return (
@@ -743,7 +839,7 @@ function WasteDetectionPage({
         eyebrow="AI detection"
         title="Waste signals"
         detail="AutoAudit maps spend, receipts, usage, seats, and renewal windows to prioritize the highest-value actions."
-        action={<PrimaryButton onClick={() => onToast("New waste scan started.")}>Run detection</PrimaryButton>}
+        action={<PrimaryButton onClick={onRunDetection}>{isAnalyzing ? "Analyzing..." : "Run AI detection"}</PrimaryButton>}
       />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -751,7 +847,7 @@ function WasteDetectionPage({
           <div className="grid gap-3">
             {wasteSignals.length === 0 && <EmptyState title="No waste signals yet" detail="Add vendors with spend, seats, usage, and renewal data to generate live waste findings." />}
             {wasteSignals.map((signal) => (
-              <article className="rounded-lg border border-line bg-[#fbfcfd] p-4 transition hover:-translate-y-0.5 hover:border-brand/50 hover:shadow-md" key={signal.title}>
+              <article className="rounded-lg border border-line bg-panel-subtle p-4 transition hover:-translate-y-0.5 hover:border-brand/50 hover:shadow-md" key={signal.title}>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -767,13 +863,21 @@ function WasteDetectionPage({
                   </div>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <SecondaryButton onClick={() => onToast(`${signal.vendor} evidence opened.`)}>View evidence</SecondaryButton>
+                  <SecondaryButton onClick={() => onExplainWaste(signal)}>Explain waste</SecondaryButton>
                   <PrimaryButton onClick={() => onToast(`${signal.vendor} action queued.`)}>Create action</PrimaryButton>
                 </div>
               </article>
             ))}
           </div>
         </Panel>
+
+        {aiAnalysis && (
+          <Panel title="AI analysis" eyebrow="OpenAI response">
+            <div className="max-h-[360px] overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-panel-subtle p-4 text-sm leading-6 text-ink">
+              {aiAnalysis}
+            </div>
+          </Panel>
+        )}
 
         <Panel title="Detection mix" eyebrow="Waste by class">
           <div className="h-[280px]">
@@ -835,7 +939,7 @@ function RenewalsPage({
           <div className="grid gap-3">
             {renewalRows.length === 0 && <EmptyState title="No upcoming renewals" detail="Renewals will appear here when vendors or subscriptions include renewal dates." />}
             {renewalRows.map((renewal) => (
-              <article className="rounded-lg border border-line bg-[#fbfcfd] p-4" key={renewal.id}>
+              <article className="rounded-lg border border-line bg-panel-subtle p-4" key={renewal.id}>
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <strong className="block font-extrabold">{renewal.vendor}</strong>
@@ -861,14 +965,24 @@ function RenewalsPage({
   );
 }
 
-function ReportsPage({ onToast }: { onToast: (message: string) => void }) {
+function ReportsPage({
+  isGenerating,
+  reportDraft,
+  onGenerateReport,
+  onToast,
+}: {
+  isGenerating: boolean;
+  reportDraft: string;
+  onGenerateReport: () => Promise<void>;
+  onToast: (message: string) => void;
+}) {
   return (
     <div className="grid gap-4">
       <PageHeader
         eyebrow="Board-ready output"
         title="Reports"
         detail="Generate monthly CFO packets, savings recaps, renewal briefs, and IT cleanup lists from the same audit data."
-        action={<PrimaryButton onClick={() => onToast("Report builder opened.")}>Create report</PrimaryButton>}
+        action={<PrimaryButton onClick={onGenerateReport}>{isGenerating ? "Generating..." : "Create AI report"}</PrimaryButton>}
       />
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -906,6 +1020,14 @@ function ReportsPage({ onToast }: { onToast: (message: string) => void }) {
           </ResponsiveContainer>
         </div>
       </Panel>
+
+      {reportDraft && (
+        <Panel title="AI monthly CFO waste report" eyebrow="Generated from live backend data" action={<PanelAction label="Copy" onClick={() => copyText(reportDraft, onToast)} />}>
+          <div className="max-h-[520px] overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-panel-subtle p-4 text-sm leading-7 text-ink">
+            {reportDraft}
+          </div>
+        </Panel>
+      )}
     </div>
   );
 }
@@ -924,11 +1046,14 @@ function EmailGeneratorPage({
   vendors: Vendor[];
   onCopyDraft: () => void;
   onDraftChange: (draft: string) => void;
-  onGenerate: (vendorName: string, tone: string) => Promise<void>;
+  onGenerate: (vendorName: string, tone: string, goal: AiEmailGoal) => Promise<void>;
   onToneChange: (tone: string) => void;
 }) {
   const [selectedVendor, setSelectedVendor] = useState(vendors[0]?.name ?? "Clearbit");
+  const [selectedGoal, setSelectedGoal] = useState<AiEmailGoal>("cancel");
   const [isGenerating, setGenerating] = useState(false);
+  const [error, setError] = useState("");
+  const selectedVendorRecord = vendors.find((vendor) => vendor.name === selectedVendor);
 
   useEffect(() => {
     if (!selectedVendor && vendors[0]) {
@@ -938,8 +1063,12 @@ function EmailGeneratorPage({
 
   async function handleGenerate() {
     setGenerating(true);
+    setError("");
+
     try {
-      await onGenerate(selectedVendor || vendors[0]?.name || "Vendor", emailTone);
+      await onGenerate(selectedVendor || vendors[0]?.name || "Vendor", emailTone, selectedGoal);
+    } catch (err) {
+      setError(getApiErrorMessage(err));
     } finally {
       setGenerating(false);
     }
@@ -957,6 +1086,7 @@ function EmailGeneratorPage({
       <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
         <Panel title="Prompt controls" eyebrow="Company context">
           <div className="grid gap-4">
+            {error && <div className="rounded-lg border border-risk/20 bg-risk-soft px-3 py-2 text-sm font-bold text-risk">{error}</div>}
             <Field label="Vendor">
               <select className="input" value={selectedVendor} onChange={(event) => setSelectedVendor(event.target.value)}>
                 {vendors.length === 0 ? (
@@ -971,11 +1101,12 @@ function EmailGeneratorPage({
               </select>
             </Field>
             <Field label="Goal">
-              <select className="input">
-                <option>Cancel subscription</option>
-                <option>Renegotiate contract</option>
-                <option>Reduce seat count</option>
-                <option>Ask owner to confirm usage</option>
+              <select className="input" value={selectedGoal} onChange={(event) => setSelectedGoal(event.target.value as AiEmailGoal)}>
+                {emailGoalOptions.map((goal) => (
+                  <option key={goal.value} value={goal.value}>
+                    {goal.label}
+                  </option>
+                ))}
               </select>
             </Field>
             <Field label="Tone">
@@ -999,14 +1130,18 @@ function EmailGeneratorPage({
                 <Sparkles aria-hidden="true" size={18} />
                 <strong className="text-sm">Evidence attached</strong>
               </div>
-              <p className="mt-2 text-sm leading-6 text-brand-strong">No logins in 117 days, no API calls, renewal on Jul 01, projected savings of $14,400.</p>
+              <p className="mt-2 text-sm leading-6 text-brand-strong">
+                {selectedVendorRecord
+                  ? `${selectedVendorRecord.status} status, ${selectedVendorRecord.activeSeats}/${selectedVendorRecord.seats} seats active, ${currency(selectedVendorRecord.savings)} estimated annual savings, renewal ${selectedVendorRecord.renewal}.`
+                  : "Vendor status, seat usage, spend, renewal, and waste findings will be sent to the backend AI route."}
+              </p>
             </div>
           </div>
         </Panel>
 
         <Panel title="Vendor email draft" eyebrow="Editable output" action={<PanelAction label="Copy" onClick={onCopyDraft} />}>
           <textarea
-            className="min-h-[420px] w-full resize-y rounded-lg border border-line bg-[#fbfcfd] p-4 leading-7 text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand-soft"
+            className="min-h-[420px] w-full resize-y rounded-lg border border-line bg-panel-subtle p-4 leading-7 text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand-soft"
             value={draft}
             spellCheck={false}
             onChange={(event) => onDraftChange(event.target.value)}
@@ -1034,13 +1169,13 @@ function BillingPage({ onToast }: { onToast: (message: string) => void }) {
             <PlanMetric label="Tracked spend" value="$112.4k" />
             <PlanMetric label="Success fee" value="20%" />
           </div>
-          <div className="mt-5 rounded-lg border border-line bg-[#fbfcfd] p-4">
+          <div className="mt-5 rounded-lg border border-line bg-panel-subtle p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <strong className="block text-lg font-extrabold">Savings-based billing</strong>
                 <p className="mt-1 text-sm text-quiet">20% of first-year savings after finance approval.</p>
               </div>
-              <span className="rounded-full bg-[#e7f4eb] px-3 py-1.5 text-sm font-extrabold text-good">$9,664 pending approval</span>
+              <span className="rounded-full bg-good-soft px-3 py-1.5 text-sm font-extrabold text-good">$9,664 pending approval</span>
             </div>
           </div>
         </Panel>
@@ -1048,7 +1183,7 @@ function BillingPage({ onToast }: { onToast: (message: string) => void }) {
         <Panel title="Invoices" eyebrow="Recent activity">
           <div className="grid gap-3">
             {["May 2026", "Apr 2026", "Mar 2026"].map((invoice, index) => (
-              <div className="flex items-center justify-between rounded-lg border border-line bg-[#fbfcfd] p-3" key={invoice}>
+              <div className="flex items-center justify-between rounded-lg border border-line bg-panel-subtle p-3" key={invoice}>
                 <div>
                   <strong className="block text-sm font-extrabold">{invoice}</strong>
                   <span className="text-sm text-quiet">{index === 0 ? "Open" : "Paid"}</span>
@@ -1079,12 +1214,12 @@ function SettingsPage({ onToast }: { onToast: (message: string) => void }) {
         <Panel title="Integrations" eyebrow="Data sources">
           <div className="grid gap-3">
             {integrations.map((integration) => (
-              <div className="flex flex-col gap-3 rounded-lg border border-line bg-[#fbfcfd] p-4 sm:flex-row sm:items-center sm:justify-between" key={integration.name}>
+              <div className="flex flex-col gap-3 rounded-lg border border-line bg-panel-subtle p-4 sm:flex-row sm:items-center sm:justify-between" key={integration.name}>
                 <div>
                   <strong className="block font-extrabold">{integration.name}</strong>
                   <span className="mt-1 block text-sm text-quiet">{integration.detail}</span>
                 </div>
-                <span className={`rounded-full px-3 py-1.5 text-sm font-extrabold ${integration.status === "Connected" ? "bg-[#e7f4eb] text-good" : integration.status === "Pending" ? "bg-warning-soft text-warning" : "bg-panel-muted text-quiet"}`}>
+                <span className={`rounded-full px-3 py-1.5 text-sm font-extrabold ${integration.status === "Connected" ? "bg-good-soft text-good" : integration.status === "Pending" ? "bg-warning-soft text-warning" : "bg-panel-muted text-quiet"}`}>
                   {integration.status}
                 </span>
               </div>
@@ -1101,42 +1236,70 @@ function SettingsPage({ onToast }: { onToast: (message: string) => void }) {
           </div>
         </Panel>
       </div>
+
+      <Panel title="How to use AutoAudit.ai" eyebrow="Manual">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {[
+            {
+              title: "1. Add vendors",
+              detail: "Open Vendors, add each SaaS tool, monthly spend, owner, seats, last-used date, and renewal date.",
+            },
+            {
+              title: "2. Review waste",
+              detail: "Use Waste Detection to find zombie subscriptions, unused seats, duplicate tools, and savings estimates.",
+            },
+            {
+              title: "3. Work renewals",
+              detail: "Check Renewals before notice windows close, then decide whether to cancel, reduce, or renegotiate.",
+            },
+            {
+              title: "4. Send actions",
+              detail: "Use the AI Email Generator to draft cancellation or negotiation emails with vendor context.",
+            },
+          ].map((item) => (
+            <article className="rounded-lg border border-line bg-panel-subtle p-4 transition hover:-translate-y-1 hover:border-brand hover:shadow-md" key={item.title}>
+              <strong className="block text-sm font-extrabold">{item.title}</strong>
+              <p className="mt-2 text-sm leading-6 text-quiet">{item.detail}</p>
+            </article>
+          ))}
+        </div>
+      </Panel>
     </div>
   );
 }
 
 function HeroBand({ onToast }: { onToast: (message: string) => void }) {
   return (
-    <section className="w-full max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-line bg-ink text-white shadow-[0_24px_70px_rgba(23,32,38,0.18)] sm:max-w-full">
+    <section className="w-full max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-line bg-inverse text-inverse-ink shadow-[0_24px_70px_rgba(23,32,38,0.18)] sm:max-w-full">
       <div className="grid min-w-0 max-w-full gap-6 p-5 sm:p-6 xl:grid-cols-[minmax(0,1fr)_390px] xl:items-center">
         <div className="min-w-0 max-w-[calc(100vw-4.5rem)] sm:max-w-none">
-          <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-sm font-extrabold text-white">
+          <div className="inline-flex items-center gap-2 rounded-full bg-inverse-ink/10 px-3 py-1.5 text-sm font-extrabold text-inverse-ink">
             <Bot aria-hidden="true" size={17} />
             AI audit complete
           </div>
           <h2 className="mt-5 max-w-full break-words text-2xl font-extrabold tracking-normal sm:max-w-3xl sm:text-4xl">Found $48,320 in annual SaaS savings across 7 high-priority actions.</h2>
-          <p className="mt-4 max-w-full text-sm leading-6 text-white/70 sm:max-w-2xl">
+          <p className="mt-4 max-w-full text-sm leading-6 text-inverse-ink/70 sm:max-w-2xl">
             AutoAudit matched finance spend, renewal notices, and usage signals to rank cancellations, unused seats, duplicate tools, and contract risk.
           </p>
           <div className="mt-5 flex flex-wrap gap-2.5">
-            <button className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-white px-4 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 sm:w-auto" type="button" onClick={() => onToast("Waste action queue opened.")}>
+            <button className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-inverse-action px-4 text-sm font-extrabold text-inverse-action-ink shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg sm:w-auto" type="button" onClick={() => onToast("Waste action queue opened.")}>
               Review actions
               <ChevronRight aria-hidden="true" size={17} />
             </button>
-            <button className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-white/20 px-4 text-center text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-white/10 sm:w-auto" type="button" onClick={() => onToast("CFO report generated.")}>
+            <button className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-inverse-ink/20 px-4 text-center text-sm font-extrabold text-inverse-ink transition hover:-translate-y-0.5 hover:bg-inverse-ink/10 sm:w-auto" type="button" onClick={() => onToast("CFO report generated.")}>
               Generate CFO report
             </button>
           </div>
         </div>
 
-        <div className="min-w-0 max-w-[calc(100vw-4.5rem)] rounded-lg border border-white/10 bg-white/[0.08] p-4 sm:max-w-none">
-          <span className="text-xs font-extrabold uppercase text-white/60">Next best action</span>
+        <div className="min-w-0 max-w-[calc(100vw-4.5rem)] rounded-lg border border-inverse-ink/10 bg-inverse-ink/[0.08] p-4 sm:max-w-none">
+          <span className="text-xs font-extrabold uppercase text-inverse-ink/60">Next best action</span>
           <strong className="mt-3 block text-2xl font-extrabold">Cancel Clearbit</strong>
-          <p className="mt-2 text-sm leading-6 text-white/70">No usage in 117 days. Expected first-year savings: $14,400.</p>
-          <div className="mt-4 h-2 rounded-full bg-white/10">
+          <p className="mt-2 text-sm leading-6 text-inverse-ink/70">No usage in 117 days. Expected first-year savings: $14,400.</p>
+          <div className="mt-4 h-2 rounded-full bg-inverse-ink/10">
             <div className="h-2 w-[96%] rounded-full bg-brand-soft" />
           </div>
-          <span className="mt-2 block text-xs font-bold text-white/60">96% confidence</span>
+          <span className="mt-2 block text-xs font-bold text-inverse-ink/60">96% confidence</span>
         </div>
       </div>
     </section>
@@ -1217,7 +1380,7 @@ function DuplicateToolsPanel({ rows, onToast }: { rows: DuplicateToolRow[]; onTo
       <div className="grid gap-3">
         {rows.length === 0 && <EmptyState title="No duplicate tools detected" detail="Duplicate categories will appear when multiple active vendors share the same category." />}
         {rows.map((alert) => (
-          <article className="rounded-lg border border-line bg-[#fbfcfd] p-4 transition hover:-translate-y-0.5 hover:shadow-md" key={alert.group}>
+          <article className="rounded-lg border border-line bg-panel-subtle p-4 transition hover:-translate-y-0.5 hover:shadow-md" key={alert.group}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <strong className="block font-extrabold">{alert.group}</strong>
@@ -1276,7 +1439,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function SearchBox({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
-    <label className="flex min-h-10 min-w-[240px] items-center gap-2 rounded-lg border border-line bg-[#fbfcfd] px-3 text-sm text-quiet">
+    <label className="flex min-h-10 min-w-[240px] items-center gap-2 rounded-lg border border-line bg-panel-subtle px-3 text-sm text-quiet">
       <Search aria-hidden="true" size={17} />
       <input className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-quiet" value={value} placeholder="Search vendors" onChange={(event) => onChange(event.target.value)} />
     </label>
@@ -1285,7 +1448,7 @@ function SearchBox({ value, onChange }: { value: string; onChange: (value: strin
 
 function SelectPill({ value, values, onChange }: { value: string; values: string[]; onChange: (value: string) => void }) {
   return (
-    <label className="flex min-h-10 items-center gap-2 rounded-lg border border-line bg-[#fbfcfd] px-3 text-sm font-bold text-quiet">
+    <label className="flex min-h-10 items-center gap-2 rounded-lg border border-line bg-panel-subtle px-3 text-sm font-bold text-quiet">
       <Filter aria-hidden="true" size={17} />
       <select className="bg-transparent text-ink outline-none" value={value} onChange={(event) => onChange(event.target.value)}>
         {values.map((item) => (
@@ -1310,7 +1473,7 @@ function VendorIdentity({ vendor }: { vendor: Vendor }) {
 
 function PlanMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-line bg-[#fbfcfd] p-4">
+    <div className="rounded-lg border border-line bg-panel-subtle p-4">
       <span className="text-xs font-extrabold uppercase text-quiet">{label}</span>
       <strong className="mt-2 block text-2xl font-extrabold">{value}</strong>
     </div>
@@ -1319,7 +1482,7 @@ function PlanMetric({ label, value }: { label: string; value: string }) {
 
 function ToggleRow({ title, enabled }: { title: string; enabled: boolean }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-line bg-[#fbfcfd] p-4">
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-line bg-panel-subtle p-4">
       <span className="text-sm font-extrabold">{title}</span>
       <span className={`flex h-7 w-12 items-center rounded-full p-1 transition ${enabled ? "bg-brand" : "bg-panel-muted"}`}>
         <span className={`size-5 rounded-full bg-white shadow transition ${enabled ? "translate-x-5" : "translate-x-0"}`} />
@@ -1330,7 +1493,7 @@ function ToggleRow({ title, enabled }: { title: string; enabled: boolean }) {
 
 function PanelAction({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button className="inline-flex min-h-9 items-center justify-center rounded-lg border border-line bg-[#fbfcfd] px-3 text-sm font-extrabold text-ink transition hover:bg-panel-muted" type="button" onClick={onClick}>
+    <button className="inline-flex min-h-9 items-center justify-center rounded-lg border border-line bg-panel-subtle px-3 text-sm font-extrabold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0" type="button" onClick={onClick}>
       {label}
     </button>
   );
@@ -1338,7 +1501,7 @@ function PanelAction({ label, onClick }: { label: string; onClick: () => void })
 
 function PrimaryButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
   return (
-    <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgba(8,127,140,0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong" type="button" onClick={onClick}>
+    <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong hover:shadow-[0_16px_32px_rgb(var(--color-brand)/0.28)] active:translate-y-0" type="button" onClick={onClick}>
       {children}
     </button>
   );
@@ -1346,7 +1509,7 @@ function PrimaryButton({ children, onClick }: { children: ReactNode; onClick: ()
 
 function SecondaryButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
   return (
-    <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line bg-panel px-4 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:bg-panel-muted" type="button" onClick={onClick}>
+    <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line bg-panel px-4 text-sm font-extrabold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0" type="button" onClick={onClick}>
       {children}
     </button>
   );
@@ -1354,7 +1517,7 @@ function SecondaryButton({ children, onClick }: { children: ReactNode; onClick: 
 
 function IconButton({ children, label, onClick }: { children: ReactNode; label: string; onClick: () => void }) {
   return (
-    <button className="grid size-9 place-items-center rounded-lg border border-line bg-panel text-quiet transition hover:border-brand hover:text-brand" type="button" aria-label={label} title={label} onClick={onClick}>
+    <button className="grid size-9 place-items-center rounded-lg border border-line bg-panel text-quiet shadow-sm transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0" type="button" aria-label={label} title={label} onClick={onClick}>
       {children}
     </button>
   );
@@ -1365,7 +1528,7 @@ function RiskPill({ risk, label }: { risk: RiskLevel; label: string }) {
     critical: "bg-risk-soft text-risk",
     high: "bg-warning-soft text-warning",
     medium: "bg-brand-soft text-brand-strong",
-    low: "bg-[#e7f4eb] text-good",
+    low: "bg-good-soft text-good",
   }[risk];
 
   return <span className={`inline-flex min-h-7 items-center justify-center rounded-full px-2.5 text-xs font-extrabold ${tone}`}>{label}</span>;
@@ -1396,10 +1559,19 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
 
 function Toast({ message }: { message: string }) {
   return (
-    <div className={`fixed bottom-5 right-5 z-[60] max-w-[calc(100vw-40px)] rounded-lg bg-ink px-4 py-3 text-sm font-extrabold text-white shadow-2xl transition duration-200 ${message ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0"}`} role="status" aria-live="polite">
+    <div className={`fixed bottom-5 right-5 z-[60] max-w-[calc(100vw-40px)] rounded-lg bg-inverse px-4 py-3 text-sm font-extrabold text-inverse-ink shadow-2xl transition duration-200 ${message ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0"}`} role="status" aria-live="polite">
       {message}
     </div>
   );
+}
+
+async function copyText(text: string, onToast: (message: string) => void) {
+  try {
+    await navigator.clipboard.writeText(text);
+    onToast("Generated report copied.");
+  } catch {
+    onToast("Select the report text to copy it.");
+  }
 }
 
 function LoadingState({ label }: { label: string }) {
@@ -1424,7 +1596,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 
 function EmptyState({ title, detail }: { title: string; detail: string }) {
   return (
-    <div className="rounded-lg border border-dashed border-line bg-[#fbfcfd] p-6 text-center">
+    <div className="rounded-lg border border-dashed border-line bg-panel-subtle p-6 text-center">
       <strong className="block text-sm font-extrabold">{title}</strong>
       <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-quiet">{detail}</p>
     </div>
@@ -1470,6 +1642,7 @@ function buildDuplicateToolRows(summary: AuditSummary | null): DuplicateToolRow[
 
 function buildWasteSignals(summary: AuditSummary | null): WasteSignal[] {
   return (summary?.wasteSignals ?? []).map((signal) => ({
+    vendorId: signal.vendorId,
     title: signal.recommendation,
     vendor: signal.vendorName ?? signal.category ?? "Multiple vendors",
     impact: signal.annualImpact,
@@ -1596,7 +1769,7 @@ function isPageId(value: unknown): value is PageId {
 function metricTone(tone: string) {
   if (tone === "risk") return "bg-risk-soft text-risk";
   if (tone === "warning") return "bg-warning-soft text-warning";
-  if (tone === "good") return "bg-[#e7f4eb] text-good";
+  if (tone === "good") return "bg-good-soft text-good";
   return "bg-brand-soft text-brand";
 }
 
@@ -1616,3 +1789,5 @@ function initials(name: string) {
     .slice(0, 2)
     .toUpperCase();
 }
+
+

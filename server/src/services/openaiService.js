@@ -1,0 +1,59 @@
+import { env } from "../config/env.js";
+import { AppError } from "../utils/AppError.js";
+
+const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
+
+export async function generateAiText({ instructions, input, maxOutputTokens = 900 }) {
+  if (!env.openaiApiKey) {
+    throw new AppError("OPENAI_API_KEY is not configured. Add it to .env and restart the API server.", 503);
+  }
+
+  const response = await fetch(OPENAI_RESPONSES_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.openaiApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: env.openaiModel,
+      instructions,
+      input,
+      max_output_tokens: maxOutputTokens,
+      text: {
+        format: {
+          type: "text",
+        },
+      },
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const message = payload?.error?.message ?? "OpenAI request failed";
+    throw new AppError(message, response.status === 429 ? 429 : 502);
+  }
+
+  const text = extractOutputText(payload).trim();
+  if (!text) {
+    throw new AppError("OpenAI returned an empty response", 502);
+  }
+
+  return text;
+}
+
+function extractOutputText(payload) {
+  if (typeof payload.output_text === "string") {
+    return payload.output_text;
+  }
+
+  if (!Array.isArray(payload.output)) {
+    return "";
+  }
+
+  return payload.output
+    .flatMap((item) => item.content ?? [])
+    .filter((content) => content.type === "output_text" && typeof content.text === "string")
+    .map((content) => content.text)
+    .join("\n");
+}

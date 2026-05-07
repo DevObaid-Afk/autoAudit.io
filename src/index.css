@@ -3,6 +3,57 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --color-canvas: 245 247 249;
+    --color-panel: 255 255 255;
+    --color-panel-muted: 238 243 245;
+    --color-panel-subtle: 251 252 253;
+    --color-ink: 23 32 38;
+    --color-inverse: 23 32 38;
+    --color-inverse-ink: 255 255 255;
+    --color-inverse-action: 255 255 255;
+    --color-inverse-action-ink: 23 32 38;
+    --color-quiet: 102 116 125;
+    --color-line: 220 228 232;
+    --color-brand: 8 127 140;
+    --color-brand-strong: 6 95 105;
+    --color-brand-soft: 223 243 244;
+    --color-risk: 179 38 30;
+    --color-risk-soft: 252 232 230;
+    --color-warning: 138 90 0;
+    --color-warning-soft: 255 242 204;
+    --color-good: 19 115 51;
+    --color-good-soft: 231 244 235;
+    --cursor-color: 23 32 38;
+    --cursor-outline: 255 255 255;
+  }
+
+  .dark {
+    color-scheme: dark;
+    --color-canvas: 10 15 20;
+    --color-panel: 16 23 30;
+    --color-panel-muted: 26 36 45;
+    --color-panel-subtle: 20 29 37;
+    --color-ink: 235 242 246;
+    --color-inverse: 7 11 16;
+    --color-inverse-ink: 245 251 255;
+    --color-inverse-action: 245 251 255;
+    --color-inverse-action-ink: 10 15 20;
+    --color-quiet: 143 158 168;
+    --color-line: 43 58 69;
+    --color-brand: 33 174 188;
+    --color-brand-strong: 91 216 225;
+    --color-brand-soft: 14 60 68;
+    --color-risk: 255 135 126;
+    --color-risk-soft: 69 24 27;
+    --color-warning: 255 205 104;
+    --color-warning-soft: 72 52 18;
+    --color-good: 99 208 131;
+    --color-good-soft: 20 58 34;
+    --cursor-color: 245 251 255;
+    --cursor-outline: 10 15 20;
+  }
+
   html {
     color-scheme: light;
     scroll-behavior: smooth;
@@ -12,10 +63,10 @@
     min-width: 0;
     min-height: 100vh;
     margin: 0;
-    color: theme("colors.ink");
+    color: rgb(var(--color-ink));
     background:
-      linear-gradient(180deg, rgba(223, 243, 244, 0.72), rgba(245, 247, 249, 0) 360px),
-      theme("colors.canvas");
+      linear-gradient(180deg, rgb(var(--color-brand-soft) / 0.72), rgb(var(--color-canvas) / 0) 360px),
+      rgb(var(--color-canvas));
     font-family:
       Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
@@ -35,10 +86,10 @@
     min-height: 2.75rem;
     width: 100%;
     border-radius: 0.5rem;
-    border: 1px solid theme("colors.line");
-    background: #fbfcfd;
+    border: 1px solid rgb(var(--color-line));
+    background: rgb(var(--color-panel-subtle));
     padding: 0 0.875rem;
-    color: theme("colors.ink");
+    color: rgb(var(--color-ink));
     outline: none;
     transition:
       border-color 180ms ease,
@@ -46,8 +97,15 @@
   }
 
   .input:focus {
-    border-color: theme("colors.brand");
-    box-shadow: 0 0 0 3px theme("colors.brand-soft");
+    border-color: rgb(var(--color-brand));
+    box-shadow: 0 0 0 3px rgb(var(--color-brand-soft));
+  }
+}
+
+@media (pointer: fine) {
+  .custom-cursor-enabled,
+  .custom-cursor-enabled * {
+    cursor: none !important;
   }
 }
 
