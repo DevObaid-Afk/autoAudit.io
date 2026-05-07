@@ -9,7 +9,7 @@
   }
 
   body {
-    min-width: 320px;
+    min-width: 0;
     min-height: 100vh;
     margin: 0;
     color: theme("colors.ink");

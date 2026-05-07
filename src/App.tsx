@@ -527,7 +527,7 @@ function OverviewPage({ totals, onToast }: { totals: DashboardTotals; onToast: (
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.8fr)]">
         <Panel title="Spend, waste, and savings" eyebrow="Monthly trend" action={<PanelAction label="Inspect" onClick={() => onToast("Trend details opened.")} />}>
           <div className="h-[320px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 320 }}>
               <AreaChart data={spendTrend} margin={{ top: 10, right: 16, left: -12, bottom: 0 }}>
                 <defs>
                   <linearGradient id="spendFill" x1="0" x2="0" y1="0" y2="1">
@@ -554,7 +554,7 @@ function OverviewPage({ totals, onToast }: { totals: DashboardTotals; onToast: (
 
         <Panel title="Spend by function" eyebrow="Category map" action={<PanelAction label="Export" onClick={() => onToast("Category chart exported.")} />}>
           <div className="h-[320px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 320 }}>
               <PieChart>
                 <Pie data={categorySpend} innerRadius={70} outerRadius={108} paddingAngle={3} dataKey="value">
                   {categorySpend.map((entry) => (
@@ -691,7 +691,7 @@ function WasteDetectionPage({ onToast }: { onToast: (message: string) => void })
 
         <Panel title="Detection mix" eyebrow="Waste by class">
           <div className="h-[280px]">
-            <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 280 }}>
               <BarChart data={wasteSignals} layout="vertical" margin={{ top: 4, right: 16, left: 18, bottom: 4 }}>
                 <CartesianGrid stroke="#dce4e8" strokeDasharray="3 3" horizontal={false} />
                 <XAxis type="number" axisLine={false} tickLine={false} tickFormatter={(value) => `$${Number(value) / 1000}k`} tick={{ fill: "#66747d", fontSize: 12 }} />
@@ -725,7 +725,7 @@ function RenewalsPage({ onToast }: { onToast: (message: string) => void }) {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
         <Panel title="Renewal exposure" eyebrow="Next 90 days">
           <div className="h-[310px]">
-            <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 310 }}>
               <BarChart data={renewalChart} margin={{ top: 10, right: 16, left: -12, bottom: 0 }}>
                 <CartesianGrid stroke="#dce4e8" strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="window" axisLine={false} tickLine={false} tick={{ fill: "#66747d", fontSize: 12 }} />
@@ -799,7 +799,7 @@ function ReportsPage({ onToast }: { onToast: (message: string) => void }) {
 
       <Panel title="Savings captured over time" eyebrow="Report chart">
         <div className="h-[320px]">
-          <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 320 }}>
             <LineChart data={spendTrend} margin={{ top: 10, right: 16, left: -12, bottom: 0 }}>
               <CartesianGrid stroke="#dce4e8" strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: "#66747d", fontSize: 12 }} />
@@ -986,29 +986,29 @@ function SettingsPage({ onToast }: { onToast: (message: string) => void }) {
 
 function HeroBand({ onToast }: { onToast: (message: string) => void }) {
   return (
-    <section className="overflow-hidden rounded-lg border border-line bg-ink text-white shadow-[0_24px_70px_rgba(23,32,38,0.18)]">
-      <div className="grid gap-6 p-5 sm:p-6 xl:grid-cols-[minmax(0,1fr)_390px] xl:items-center">
-        <div>
+    <section className="w-full max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-line bg-ink text-white shadow-[0_24px_70px_rgba(23,32,38,0.18)] sm:max-w-full">
+      <div className="grid min-w-0 max-w-full gap-6 p-5 sm:p-6 xl:grid-cols-[minmax(0,1fr)_390px] xl:items-center">
+        <div className="min-w-0 max-w-[calc(100vw-4.5rem)] sm:max-w-none">
           <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-sm font-extrabold text-white">
             <Bot aria-hidden="true" size={17} />
             AI audit complete
           </div>
-          <h2 className="mt-5 max-w-3xl text-3xl font-extrabold tracking-normal sm:text-4xl">Found $48,320 in annual SaaS savings across 7 high-priority actions.</h2>
-          <p className="mt-4 max-w-2xl text-sm leading-6 text-white/70">
+          <h2 className="mt-5 max-w-full break-words text-2xl font-extrabold tracking-normal sm:max-w-3xl sm:text-4xl">Found $48,320 in annual SaaS savings across 7 high-priority actions.</h2>
+          <p className="mt-4 max-w-full text-sm leading-6 text-white/70 sm:max-w-2xl">
             AutoAudit matched finance spend, renewal notices, and usage signals to rank cancellations, unused seats, duplicate tools, and contract risk.
           </p>
           <div className="mt-5 flex flex-wrap gap-2.5">
-            <button className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-white px-4 text-sm font-extrabold text-ink transition hover:-translate-y-0.5" type="button" onClick={() => onToast("Waste action queue opened.")}>
+            <button className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-white px-4 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 sm:w-auto" type="button" onClick={() => onToast("Waste action queue opened.")}>
               Review actions
               <ChevronRight aria-hidden="true" size={17} />
             </button>
-            <button className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-white/20 px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-white/10" type="button" onClick={() => onToast("CFO report generated.")}>
+            <button className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-white/20 px-4 text-center text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-white/10 sm:w-auto" type="button" onClick={() => onToast("CFO report generated.")}>
               Generate CFO report
             </button>
           </div>
         </div>
 
-        <div className="rounded-lg border border-white/10 bg-white/[0.08] p-4">
+        <div className="min-w-0 max-w-[calc(100vw-4.5rem)] rounded-lg border border-white/10 bg-white/[0.08] p-4 sm:max-w-none">
           <span className="text-xs font-extrabold uppercase text-white/60">Next best action</span>
           <strong className="mt-3 block text-2xl font-extrabold">Cancel Clearbit</strong>
           <p className="mt-2 text-sm leading-6 text-white/70">No usage in 117 days. Expected first-year savings: $14,400.</p>
