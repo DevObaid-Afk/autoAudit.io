@@ -55,6 +55,13 @@ Required environment variables:
 - `JWT_SECRET`
 - `PORT`
 - `CORS_ORIGIN`
+- `VITE_API_URL`
+
+For local frontend-to-backend calls:
+
+```env
+VITE_API_URL=http://127.0.0.1:5000
+```
 
 ## API Routes
 
@@ -86,6 +93,8 @@ Required environment variables:
 - Settings
 
 The app includes a sidebar navigation, top navbar, spend summary cards, waste and savings metrics, active vendor tracking, zombie subscription alerts, renewal views, unused seat tables, duplicate tool alerts, Recharts-based charts, responsive layouts, and smooth UI transitions.
+
+The frontend now uses Axios and React Router with protected dashboard routes. Login and signup call the backend auth endpoints, store the JWT for authenticated API calls, and fetch vendors, audit summary, and renewals from the Express API.
 
 ## Suggested Build Order
 

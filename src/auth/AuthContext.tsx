@@ -1,0 +1,109 @@
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import { authApi } from "../api/services";
+import { clearStoredToken, getApiErrorMessage, getStoredToken, setStoredToken } from "../api/client";
+import type { ApiCompany, ApiUser } from "../types/api";
+
+type AuthContextValue = {
+  user: ApiUser | null;
+  company: ApiCompany | null;
+  token: string | null;
+  isAuthenticated: boolean;
+  isBootstrapping: boolean;
+  authError: string;
+  login: (input: { email: string; password: string }) => Promise<void>;
+  signup: (input: { name: string; email: string; password: string; companyName: string; companyDomain?: string }) => Promise<void>;
+  logout: () => void;
+};
+
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [token, setToken] = useState<string | null>(() => getStoredToken());
+  const [user, setUser] = useState<ApiUser | null>(null);
+  const [company, setCompany] = useState<ApiCompany | null>(null);
+  const [isBootstrapping, setBootstrapping] = useState(Boolean(getStoredToken()));
+  const [authError, setAuthError] = useState("");
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function bootstrapSession() {
+      if (!token) {
+        setBootstrapping(false);
+        return;
+      }
+
+      try {
+        const profile = await authApi.me();
+        if (!isActive) return;
+        setUser(profile.user);
+        setCompany(profile.company);
+      } catch (error) {
+        if (!isActive) return;
+        setAuthError(getApiErrorMessage(error));
+        clearStoredToken();
+        setToken(null);
+        setUser(null);
+        setCompany(null);
+      } finally {
+        if (isActive) {
+          setBootstrapping(false);
+        }
+      }
+    }
+
+    bootstrapSession();
+
+    return () => {
+      isActive = false;
+    };
+  }, [token]);
+
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      company,
+      token,
+      isAuthenticated: Boolean(token && user),
+      isBootstrapping,
+      authError,
+      async login(input) {
+        setAuthError("");
+        const response = await authApi.login(input);
+        setStoredToken(response.token);
+        setToken(response.token);
+        setUser(response.user);
+        setCompany(response.company);
+      },
+      async signup(input) {
+        setAuthError("");
+        const response = await authApi.signup(input);
+        setStoredToken(response.token);
+        setToken(response.token);
+        setUser(response.user);
+        setCompany(response.company);
+      },
+      logout() {
+        clearStoredToken();
+        setToken(null);
+        setUser(null);
+        setCompany(null);
+      },
+    }),
+    [authError, company, isBootstrapping, token, user],
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+
+  if (!context) {
+    throw new Error("useAuth must be used inside AuthProvider");
+  }
+
+  return context;
+}
+
