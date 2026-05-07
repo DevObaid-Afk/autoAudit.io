@@ -22,6 +22,11 @@ The first version should stay narrow: prove that the product can identify forgot
 - TypeScript
 - Tailwind CSS
 - Recharts
+- Node.js
+- Express
+- MongoDB
+- Mongoose
+- JWT auth
 
 ## First Prototype
 
@@ -33,6 +38,41 @@ npm run dev
 ```
 
 The prototype uses mock data for now so we can iterate on product flow quickly before choosing the backend, integrations, and data model.
+
+## Backend Setup
+
+Create a local `.env` from `.env.example`, then start MongoDB and run the API.
+
+```bash
+npm run dev:api
+```
+
+The API defaults to `http://127.0.0.1:5000`.
+
+Required environment variables:
+
+- `MONGODB_URI`
+- `JWT_SECRET`
+- `PORT`
+- `CORS_ORIGIN`
+
+## API Routes
+
+- `GET /health`
+- `GET /api/health`
+- `POST /api/auth/signup`
+- `POST /api/auth/login`
+- `GET /api/profile/me`
+- `GET /api/vendors`
+- `POST /api/vendors`
+- `PATCH /api/vendors/:id`
+- `DELETE /api/vendors/:id`
+- `GET /api/subscriptions`
+- `POST /api/subscriptions`
+- `GET /api/audit/summary`
+- `GET /api/renewals`
+- `POST /api/reports/generate`
+- `POST /api/ai/cancel-email`
 
 ## Current Dashboard Surface
 
