@@ -36,4 +36,3 @@ export function errorHandler(error, _req, res, _next) {
     },
   });
 }
-
