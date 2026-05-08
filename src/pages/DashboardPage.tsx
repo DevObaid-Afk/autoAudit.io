@@ -47,12 +47,12 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import type { ReactNode } from "react";
-import { aiApi, auditApi, renewalApi, vendorApi } from "../api/services";
+import type { ChangeEvent, ReactNode } from "react";
+import { aiApi, auditApi, profileApi, renewalApi, vendorApi } from "../api/services";
 import { getApiErrorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useTheme } from "../theme/ThemeContext";
-import type { AiEmailGoal, ApiRenewal, ApiVendor, AuditSummary, CreateVendorInput, PaginationMeta } from "../types/api";
+import type { AiEmailGoal, ApiCompany, ApiRenewal, ApiVendor, AuditSummary, CreateVendorInput, PaginationMeta } from "../types/api";
 
 type PageId = "overview" | "vendors" | "waste" | "renewals" | "reports" | "email" | "billing" | "settings";
 type RiskLevel = "critical" | "high" | "medium" | "low";
@@ -296,6 +296,20 @@ export function DashboardPage() {
     showToast(`${vendor.name} added.`);
   };
 
+  const handleImportVendors = async (inputs: CreateVendorInput[]) => {
+    const results = await Promise.allSettled(inputs.map((input) => vendorApi.create(input)));
+    await refreshDashboardData();
+
+    return {
+      created: results.filter((result) => result.status === "fulfilled").length,
+      failed: results.filter((result) => result.status === "rejected").length,
+      errors: results
+        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+        .slice(0, 3)
+        .map((result) => getApiErrorMessage(result.reason)),
+    };
+  };
+
   const handleDeleteVendor = async (vendor: Vendor) => {
     await vendorApi.remove(vendor.id);
     setApiVendors((current) => current.filter((item) => item._id !== vendor.id));
@@ -377,7 +391,7 @@ export function DashboardPage() {
               {dataError && <ErrorState message={dataError} onRetry={refreshDashboardData} />}
               {isDataLoading && <LoadingState label="Loading live audit data" />}
               {activePage === "overview" && <OverviewPage categoryData={dashboardCategorySpend} duplicateTools={duplicateToolRows} totals={totals} unusedSeats={unusedSeatRows} onNavigate={handleNav} onToast={showToast} />}
-              {activePage === "vendors" && <VendorsPage externalQuery={vendorSearch} isLoading={isDataLoading} pagination={vendorPagination} vendors={dashboardVendors} onCreateVendor={handleCreateVendor} onDeleteVendor={handleDeleteVendor} onSearchChange={setVendorSearch} onToast={showToast} />}
+              {activePage === "vendors" && <VendorsPage externalQuery={vendorSearch} isLoading={isDataLoading} pagination={vendorPagination} vendors={dashboardVendors} onCreateVendor={handleCreateVendor} onDeleteVendor={handleDeleteVendor} onImportVendors={handleImportVendors} onSearchChange={setVendorSearch} onToast={showToast} />}
               {activePage === "waste" && (
                 <WasteDetectionPage
                   aiAnalysis={wasteAnalysis}
@@ -413,7 +427,7 @@ export function DashboardPage() {
                 />
               )}
               {activePage === "billing" && <BillingPage onToast={showToast} />}
-              {activePage === "settings" && <SettingsPage onToast={showToast} />}
+              {activePage === "settings" && <SettingsPage companySettings={company?.settings} onToast={showToast} />}
             </div>
           </main>
         </div>
@@ -655,7 +669,7 @@ function OverviewPage({
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
         <UnusedSeatsTable rows={unusedSeats} />
-        <DuplicateToolsPanel rows={duplicateTools} onToast={onToast} />
+        <DuplicateToolsPanel rows={duplicateTools} />
       </div>
     </div>
   );
@@ -668,6 +682,7 @@ function VendorsPage({
   vendors,
   onCreateVendor,
   onDeleteVendor,
+  onImportVendors,
   onSearchChange,
   onToast,
 }: {
@@ -677,14 +692,20 @@ function VendorsPage({
   vendors: Vendor[];
   onCreateVendor: (input: CreateVendorInput) => Promise<void>;
   onDeleteVendor: (vendor: Vendor) => Promise<void>;
+  onImportVendors: (inputs: CreateVendorInput[]) => Promise<{ created: number; failed: number; errors: string[] }>;
   onSearchChange: (value: string) => void;
   onToast: (message: string) => void;
 }) {
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("All");
   const [page, setPage] = useState(1);
   const [pendingDelete, setPendingDelete] = useState<Vendor | null>(null);
+  const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [importMessage, setImportMessage] = useState("");
+  const [importError, setImportError] = useState("");
+  const [isImporting, setImporting] = useState(false);
   const [form, setForm] = useState({
     name: "",
     category: "",
@@ -772,13 +793,48 @@ function VendorsPage({
     }
   }
 
+  async function handleImportFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    setImportMessage("");
+    setImportError("");
+
+    try {
+      const text = await file.text();
+      const inputs = parseVendorCsv(text);
+      const result = await onImportVendors(inputs);
+      const successMessage = result.failed > 0 ? `Imported ${result.created} vendors. ${result.failed} rows need review.` : `Imported ${result.created} vendors.`;
+
+      setImportMessage(successMessage);
+      setImportError(result.errors.join(" "));
+      onToast(successMessage);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : getApiErrorMessage(error);
+      setImportError(message);
+      onToast(message);
+    } finally {
+      setImporting(false);
+      event.target.value = "";
+    }
+  }
+
   return (
     <div className="grid gap-4">
       <PageHeader
         eyebrow="Vendor inventory"
         title="All SaaS vendors"
         detail="Track ownership, spend, usage, seats, risk, and renewal status in one place."
-        action={<PrimaryButton onClick={() => setShowForm((current) => !current)}>{showForm ? "Close form" : "Add vendor"}</PrimaryButton>}
+        action={
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input ref={importInputRef} accept=".csv,text/csv" className="hidden" type="file" onChange={handleImportFile} />
+            <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line bg-panel px-4 text-sm font-extrabold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" disabled={isImporting} type="button" onClick={() => importInputRef.current?.click()}>
+              {isImporting ? "Importing..." : "Import CSV"}
+            </button>
+            <PrimaryButton onClick={() => setShowForm((current) => !current)}>{showForm ? "Close form" : "Add vendor"}</PrimaryButton>
+          </div>
+        }
       />
 
       {showForm && (
@@ -817,6 +873,12 @@ function VendorsPage({
         </Panel>
       )}
 
+      {(importMessage || importError) && (
+        <div className={`rounded-lg border px-4 py-3 text-sm font-bold ${importError ? "border-risk/20 bg-risk-soft text-risk" : "border-good/20 bg-good-soft text-good"}`}>
+          {importError || importMessage}
+        </div>
+      )}
+
       <Panel
         title="Vendor directory"
         eyebrow={isLoading ? "Loading vendors" : `${filteredVendors.length} vendors shown${pagination ? ` of ${pagination.total}` : ""}`}
@@ -827,6 +889,27 @@ function VendorsPage({
           </div>
         }
       >
+        {selectedVendor && (
+          <Panel title={`${selectedVendor.name} profile`} eyebrow="Vendor detail" action={<PanelAction label="Close" onClick={() => setSelectedVendor(null)} />}>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <PlanMetric label="Owner" value={selectedVendor.owner} />
+              <PlanMetric label="Monthly spend" value={currency(selectedVendor.spend)} />
+              <PlanMetric label="Seats active" value={`${selectedVendor.activeSeats} / ${selectedVendor.seats}`} />
+              <PlanMetric label="Est. savings" value={currency(selectedVendor.savings)} />
+            </div>
+            <div className="mt-4 rounded-lg border border-line bg-panel-subtle p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <strong className="block text-sm font-extrabold">Recommended next step</strong>
+                  <p className="mt-1 text-sm leading-6 text-quiet">
+                    Review {selectedVendor.name} before {selectedVendor.renewal}. Current status: {selectedVendor.status}.
+                  </p>
+                </div>
+                <RiskPill risk={selectedVendor.risk} label={selectedVendor.status} />
+              </div>
+            </div>
+          </Panel>
+        )}
         {pendingDelete && (
           <div className="mb-4 rounded-lg border border-risk/20 bg-risk-soft p-4 text-risk">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -875,7 +958,7 @@ function VendorsPage({
                   <MobileMetric label="Renewal" value={vendor.renewal} />
                 </div>
                 <div className="mt-4 flex gap-2">
-                  <SecondaryButton onClick={() => onToast(`${vendor.name} profile opened.`)}>Open</SecondaryButton>
+                  <SecondaryButton onClick={() => setSelectedVendor(vendor)}>Open</SecondaryButton>
                   <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-risk/20 bg-risk-soft px-4 text-sm font-extrabold text-risk transition hover:-translate-y-0.5" type="button" onClick={() => setPendingDelete(vendor)}>
                     Delete
                   </button>
@@ -915,7 +998,7 @@ function VendorsPage({
                     </td>
                     <td className="rounded-r-lg border-y border-r border-line px-3 py-3">
                       <div className="flex gap-2">
-                        <IconButton label={`Open ${vendor.name}`} onClick={() => onToast(`${vendor.name} profile opened.`)}>
+                        <IconButton label={`Open ${vendor.name}`} onClick={() => setSelectedVendor(vendor)}>
                           <ChevronRight aria-hidden="true" size={18} />
                         </IconButton>
                         <IconButton label={`Delete ${vendor.name}`} onClick={() => setPendingDelete(vendor)}>
@@ -963,6 +1046,18 @@ function WasteDetectionPage({
   onRunDetection: () => Promise<void>;
   onToast: (message: string) => void;
 }) {
+  const [actionQueue, setActionQueue] = useState<WasteSignal[]>([]);
+
+  const queueAction = (signal: WasteSignal) => {
+    setActionQueue((current) => {
+      if (current.some((item) => item.title === signal.title)) {
+        return current;
+      }
+
+      return [signal, ...current];
+    });
+  };
+
   return (
     <div className="grid gap-4">
       <PageHeader
@@ -994,7 +1089,7 @@ function WasteDetectionPage({
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <SecondaryButton onClick={() => onExplainWaste(signal)}>Explain waste</SecondaryButton>
-                  <PrimaryButton onClick={() => onToast(`${signal.vendor} action queued.`)}>Create action</PrimaryButton>
+                  <PrimaryButton onClick={() => queueAction(signal)}>Create action</PrimaryButton>
                 </div>
               </article>
             ))}
@@ -1024,9 +1119,27 @@ function WasteDetectionPage({
         </Panel>
       </div>
 
+      {actionQueue.length > 0 && (
+        <Panel title="Action queue" eyebrow={`${actionQueue.length} active action${actionQueue.length === 1 ? "" : "s"}`}>
+          <div className="grid gap-3">
+            {actionQueue.map((action) => (
+              <article className="rounded-lg border border-line bg-panel-subtle p-4" key={action.title}>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <strong className="block text-sm font-extrabold">{action.vendor}</strong>
+                    <p className="mt-1 text-sm leading-6 text-quiet">{action.detail}</p>
+                  </div>
+                  <span className="rounded-full bg-good-soft px-3 py-1.5 text-sm font-extrabold text-good">{currency(action.impact)}</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </Panel>
+      )}
+
       <div className="grid gap-4 xl:grid-cols-2">
         <UnusedSeatsTable rows={unusedSeats} />
-        <DuplicateToolsPanel rows={duplicateTools} onToast={onToast} />
+        <DuplicateToolsPanel rows={duplicateTools} />
       </div>
     </div>
   );
@@ -1041,13 +1154,21 @@ function RenewalsPage({
   renewalRows: RenewalRow[];
   onToast: (message: string) => void;
 }) {
+  const [selectedRenewal, setSelectedRenewal] = useState<RenewalRow | null>(renewalRows[0] ?? null);
+
+  useEffect(() => {
+    if (!selectedRenewal && renewalRows[0]) {
+      setSelectedRenewal(renewalRows[0]);
+    }
+  }, [renewalRows, selectedRenewal]);
+
   return (
     <div className="grid gap-4">
       <PageHeader
         eyebrow="Contract control"
         title="Upcoming renewals"
         detail="Prioritize notice windows, contract owners, benchmark gaps, and savings opportunities before vendors auto-renew."
-        action={<PrimaryButton onClick={() => onToast("Renewal calendar exported.")}>Export calendar</PrimaryButton>}
+        action={<PrimaryButton onClick={() => exportRenewalCalendar(renewalRows, onToast)}>Export calendar</PrimaryButton>}
       />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -1082,7 +1203,7 @@ function RenewalsPage({
                     <span className="block text-xs font-extrabold uppercase text-quiet">Contract value</span>
                     <strong className="text-xl font-extrabold">{currency(renewal.amount)}</strong>
                   </div>
-                  <IconButton label={`Review ${renewal.vendor}`} onClick={() => onToast(`${renewal.vendor} renewal opened.`)}>
+                  <IconButton label={`Review ${renewal.vendor}`} onClick={() => setSelectedRenewal(renewal)}>
                     <ChevronRight aria-hidden="true" size={18} />
                   </IconButton>
                 </div>
@@ -1091,6 +1212,20 @@ function RenewalsPage({
           </div>
         </Panel>
       </div>
+
+      {selectedRenewal && (
+        <Panel title={`${selectedRenewal.vendor} renewal brief`} eyebrow="Review workspace">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <PlanMetric label="Owner" value={selectedRenewal.owner} />
+            <PlanMetric label="Renewal date" value={selectedRenewal.date} />
+            <PlanMetric label="Contract value" value={currency(selectedRenewal.amount)} />
+            <PlanMetric label="Risk" value={selectedRenewal.risk} />
+          </div>
+          <p className="mt-4 rounded-lg border border-line bg-panel-subtle p-4 text-sm leading-6 text-quiet">
+            Confirm usage, owner need, and cancellation notice window before approving renewal. Use the AI email generator if cancellation or renegotiation is the recommended path.
+          </p>
+        </Panel>
+      )}
     </div>
   );
 }
@@ -1106,6 +1241,8 @@ function ReportsPage({
   onGenerateReport: () => Promise<void>;
   onToast: (message: string) => void;
 }) {
+  const [selectedReport, setSelectedReport] = useState(reports[0]);
+
   return (
     <div className="grid gap-4">
       <PageHeader
@@ -1130,11 +1267,27 @@ function ReportsPage({
             </p>
             <div className="mt-5 flex items-center justify-between border-t border-line pt-4">
               <span className="text-sm font-bold text-quiet">{report.date}</span>
-              <SecondaryButton onClick={() => onToast(`${report.name} opened.`)}>Open</SecondaryButton>
+              <SecondaryButton onClick={() => setSelectedReport(report)}>Open</SecondaryButton>
             </div>
           </article>
         ))}
       </div>
+
+      {selectedReport && (
+        <Panel title={selectedReport.name} eyebrow="Report preview" action={<PanelAction label="Download summary" onClick={() => downloadTextFile(`${selectedReport.name}.txt`, buildReportSummary(selectedReport), onToast)} />}>
+          <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
+            <div className="rounded-lg border border-line bg-panel-subtle p-4">
+              <h3 className="font-extrabold">Executive summary</h3>
+              <p className="mt-2 text-sm leading-7 text-quiet">{buildReportSummary(selectedReport)}</p>
+            </div>
+            <div className="grid gap-3">
+              <PlanMetric label="Owner" value={selectedReport.owner} />
+              <PlanMetric label="Savings" value={currency(selectedReport.savings)} />
+              <PlanMetric label="Status" value={selectedReport.status} />
+            </div>
+          </div>
+        </Panel>
+      )}
 
       <Panel title="Savings captured over time" eyebrow="Report chart">
         <div className="h-[320px]">
@@ -1282,21 +1435,49 @@ function EmailGeneratorPage({
 }
 
 function BillingPage({ onToast }: { onToast: (message: string) => void }) {
+  const invoices = [
+    { period: "May 2026", status: "Open", amount: 299 },
+    { period: "Apr 2026", status: "Paid", amount: 299 },
+    { period: "Mar 2026", status: "Paid", amount: 299 },
+  ];
+  const [showPlanManager, setShowPlanManager] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState("Growth");
+  const [selectedInvoice, setSelectedInvoice] = useState(invoices[0]);
+
   return (
     <div className="grid gap-4">
       <PageHeader
         eyebrow="Subscription"
         title="Billing"
-        detail="Mock billing view for plan management, tracked spend tiers, savings fees, and invoices."
-        action={<PrimaryButton onClick={() => onToast("Billing portal opened.")}>Manage plan</PrimaryButton>}
+        detail="Manage plan selection, tracked spend tiers, savings fees, and invoices."
+        action={<PrimaryButton onClick={() => setShowPlanManager((current) => !current)}>{showPlanManager ? "Close plan" : "Manage plan"}</PrimaryButton>}
       />
 
+      {showPlanManager && (
+        <Panel title="Plan management" eyebrow="Workspace subscription">
+          <div className="grid gap-3 md:grid-cols-3">
+            {["Starter", "Growth", "Enterprise"].map((plan) => (
+              <button
+                className={`rounded-lg border p-4 text-left transition hover:-translate-y-0.5 hover:border-brand ${selectedPlan === plan ? "border-brand bg-brand-soft" : "border-line bg-panel-subtle"}`}
+                type="button"
+                key={plan}
+                onClick={() => setSelectedPlan(plan)}
+              >
+                <strong className="block text-sm font-extrabold">{plan}</strong>
+                {selectedPlan === plan && <span className="mt-2 inline-flex rounded-full bg-good-soft px-2.5 py-1 text-xs font-extrabold text-good">Selected</span>}
+                <span className="mt-2 block text-sm leading-6 text-quiet">{plan === "Starter" ? "Core audit workflow" : plan === "Growth" ? "Current plan with AI actions" : "Custom governance and integrations"}</span>
+              </button>
+            ))}
+          </div>
+        </Panel>
+      )}
+
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <Panel title="Current plan" eyebrow="Growth audit">
+        <Panel title="Current plan" eyebrow={`${selectedPlan} audit`}>
           <div className="grid gap-4 md:grid-cols-3">
-            <PlanMetric label="Base subscription" value="$299/mo" />
+            <PlanMetric label="Base subscription" value={selectedPlan === "Starter" ? "$199/mo" : selectedPlan === "Growth" ? "$299/mo" : "Custom"} />
             <PlanMetric label="Tracked spend" value="$112.4k" />
-            <PlanMetric label="Success fee" value="20%" />
+            <PlanMetric label="Success fee" value={selectedPlan === "Enterprise" ? "Custom" : "20%"} />
           </div>
           <div className="mt-5 rounded-lg border border-line bg-panel-subtle p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1311,13 +1492,13 @@ function BillingPage({ onToast }: { onToast: (message: string) => void }) {
 
         <Panel title="Invoices" eyebrow="Recent activity">
           <div className="grid gap-3">
-            {["May 2026", "Apr 2026", "Mar 2026"].map((invoice, index) => (
-              <div className="flex items-center justify-between rounded-lg border border-line bg-panel-subtle p-3" key={invoice}>
+            {invoices.map((invoice) => (
+              <div className="flex items-center justify-between rounded-lg border border-line bg-panel-subtle p-3" key={invoice.period}>
                 <div>
-                  <strong className="block text-sm font-extrabold">{invoice}</strong>
-                  <span className="text-sm text-quiet">{index === 0 ? "Open" : "Paid"}</span>
+                  <strong className="block text-sm font-extrabold">{invoice.period}</strong>
+                  <span className="text-sm text-quiet">{invoice.status}</span>
                 </div>
-                <button className="rounded-lg border border-line bg-panel px-3 py-2 text-sm font-extrabold hover:bg-panel-muted" type="button" onClick={() => onToast(`${invoice} invoice opened.`)}>
+                <button className="rounded-lg border border-line bg-panel px-3 py-2 text-sm font-extrabold hover:bg-panel-muted" type="button" onClick={() => setSelectedInvoice(invoice)}>
                   View
                 </button>
               </div>
@@ -1325,18 +1506,55 @@ function BillingPage({ onToast }: { onToast: (message: string) => void }) {
           </div>
         </Panel>
       </div>
+
+      {selectedInvoice && (
+        <Panel title={`${selectedInvoice.period} invoice`} eyebrow="Invoice detail" action={<PanelAction label="Download" onClick={() => downloadTextFile(`${selectedInvoice.period}-invoice.txt`, buildInvoiceText(selectedInvoice), onToast)} />}>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <PlanMetric label="Status" value={selectedInvoice.status} />
+            <PlanMetric label="Amount" value={currency(selectedInvoice.amount)} />
+            <PlanMetric label="Plan" value={selectedPlan} />
+          </div>
+        </Panel>
+      )}
     </div>
   );
 }
 
-function SettingsPage({ onToast }: { onToast: (message: string) => void }) {
+function SettingsPage({ companySettings, onToast }: { companySettings: ApiCompany["settings"]; onToast: (message: string) => void }) {
+  const [settings, setSettings] = useState(() => {
+    return mapCompanySettings(companySettings);
+  });
+  const [isSaving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setSettings(mapCompanySettings(companySettings));
+  }, [companySettings]);
+
+  const handleSaveSettings = async () => {
+    setSaving(true);
+
+    try {
+      await profileApi.updateCompanySettings({
+        requireCfoApprovalAbove: settings.cfoApproval ? settings.requireCfoApprovalAbove : 0,
+        weeklyRenewalDigest: settings.renewalDigest,
+        autoDraftCancellationEmails: settings.cancellationEmails,
+        allowManagedRenegotiation: settings.managedRenegotiation,
+      });
+      onToast("Settings saved.");
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="grid gap-4">
       <PageHeader
         eyebrow="Workspace controls"
         title="Settings"
         detail="Manage data sources, users, approval rules, report cadence, and finance ownership."
-        action={<PrimaryButton onClick={() => onToast("Settings saved.")}>Save settings</PrimaryButton>}
+        action={<PrimaryButton onClick={handleSaveSettings}>{isSaving ? "Saving..." : "Save settings"}</PrimaryButton>}
       />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -1358,10 +1576,13 @@ function SettingsPage({ onToast }: { onToast: (message: string) => void }) {
 
         <Panel title="Approval rules" eyebrow="Automation">
           <div className="grid gap-3">
-            <ToggleRow title="Require CFO approval above $5k" enabled />
-            <ToggleRow title="Auto-draft cancellation emails" enabled />
-            <ToggleRow title="Send weekly renewal digest" enabled />
-            <ToggleRow title="Allow managed renegotiation" enabled={false} />
+            <Field label="CFO approval threshold">
+              <input className="input" min="0" type="number" value={settings.requireCfoApprovalAbove} onChange={(event) => setSettings((current) => ({ ...current, requireCfoApprovalAbove: Number(event.target.value || 0) }))} />
+            </Field>
+            <ToggleRow title="Require CFO approval above threshold" enabled={settings.cfoApproval} onToggle={() => setSettings((current) => ({ ...current, cfoApproval: !current.cfoApproval }))} />
+            <ToggleRow title="Auto-draft cancellation emails" enabled={settings.cancellationEmails} onToggle={() => setSettings((current) => ({ ...current, cancellationEmails: !current.cancellationEmails }))} />
+            <ToggleRow title="Send weekly renewal digest" enabled={settings.renewalDigest} onToggle={() => setSettings((current) => ({ ...current, renewalDigest: !current.renewalDigest }))} />
+            <ToggleRow title="Allow managed renegotiation" enabled={settings.managedRenegotiation} onToggle={() => setSettings((current) => ({ ...current, managedRenegotiation: !current.managedRenegotiation }))} />
           </div>
         </Panel>
       </div>
@@ -1395,6 +1616,16 @@ function SettingsPage({ onToast }: { onToast: (message: string) => void }) {
       </Panel>
     </div>
   );
+}
+
+function mapCompanySettings(settings: ApiCompany["settings"]) {
+  return {
+    requireCfoApprovalAbove: settings?.requireCfoApprovalAbove ?? 5000,
+    cfoApproval: Boolean(settings?.requireCfoApprovalAbove ?? 5000),
+    cancellationEmails: settings?.autoDraftCancellationEmails ?? true,
+    renewalDigest: settings?.weeklyRenewalDigest ?? true,
+    managedRenegotiation: settings?.allowManagedRenegotiation ?? false,
+  };
 }
 
 function HeroBand({ onNavigate }: { onNavigate: (page: PageId) => void }) {
@@ -1503,7 +1734,15 @@ function UnusedSeatsTable({ rows }: { rows: UnusedSeatRow[] }) {
   );
 }
 
-function DuplicateToolsPanel({ rows, onToast }: { rows: DuplicateToolRow[]; onToast: (message: string) => void }) {
+function DuplicateToolsPanel({ rows }: { rows: DuplicateToolRow[] }) {
+  const [selectedAlert, setSelectedAlert] = useState<DuplicateToolRow | null>(rows[0] ?? null);
+
+  useEffect(() => {
+    if (!selectedAlert && rows[0]) {
+      setSelectedAlert(rows[0]);
+    }
+  }, [rows, selectedAlert]);
+
   return (
     <Panel title="Duplicate tools alerts" eyebrow="Consolidation">
       <div className="grid gap-3">
@@ -1518,12 +1757,23 @@ function DuplicateToolsPanel({ rows, onToast }: { rows: DuplicateToolRow[]; onTo
               <span className="rounded-full bg-risk-soft px-2.5 py-1 text-xs font-extrabold text-risk">{currency(alert.waste)}</span>
             </div>
             <p className="mt-3 text-sm leading-6 text-quiet">{alert.recommendation}</p>
-            <button className="mt-3 inline-flex items-center gap-2 text-sm font-extrabold text-brand hover:text-brand-strong" type="button" onClick={() => onToast(`${alert.group} consolidation opened.`)}>
+            <button className="mt-3 inline-flex items-center gap-2 text-sm font-extrabold text-brand hover:text-brand-strong" type="button" onClick={() => setSelectedAlert(alert)}>
               Review consolidation
               <ChevronRight aria-hidden="true" size={16} />
             </button>
           </article>
         ))}
+        {selectedAlert && (
+          <article className="rounded-lg border border-brand/30 bg-brand-soft p-4">
+            <span className="text-xs font-extrabold uppercase text-brand-strong">Consolidation plan</span>
+            <strong className="mt-2 block">{selectedAlert.group}</strong>
+            <p className="mt-2 text-sm leading-6 text-brand-strong">{selectedAlert.recommendation}</p>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs font-extrabold text-brand-strong">
+              <span className="rounded-full bg-panel px-2.5 py-1">{selectedAlert.tools}</span>
+              <span className="rounded-full bg-panel px-2.5 py-1">{currency(selectedAlert.waste)} estimated waste</span>
+            </div>
+          </article>
+        )}
       </div>
     </Panel>
   );
@@ -1618,14 +1868,14 @@ function PlanMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ToggleRow({ title, enabled }: { title: string; enabled: boolean }) {
+function ToggleRow({ title, enabled, onToggle }: { title: string; enabled: boolean; onToggle?: () => void }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-line bg-panel-subtle p-4">
+    <button className="flex items-center justify-between gap-3 rounded-lg border border-line bg-panel-subtle p-4 text-left transition hover:-translate-y-0.5 hover:border-brand" type="button" onClick={onToggle}>
       <span className="text-sm font-extrabold">{title}</span>
       <span className={`flex h-7 w-12 items-center rounded-full p-1 transition ${enabled ? "bg-brand" : "bg-panel-muted"}`}>
         <span className={`size-5 rounded-full bg-white shadow transition ${enabled ? "translate-x-5" : "translate-x-0"}`} />
       </span>
-    </div>
+    </button>
   );
 }
 
@@ -1710,6 +1960,188 @@ async function copyText(text: string, onToast: (message: string) => void) {
   } catch {
     onToast("Select the report text to copy it.");
   }
+}
+
+function exportRenewalCalendar(rows: RenewalRow[], onToast: (message: string) => void) {
+  if (rows.length === 0) {
+    onToast("Add renewal dates before exporting a calendar.");
+    return;
+  }
+
+  const currentYear = new Date().getFullYear();
+  const events = rows
+    .map((row) => {
+      const date = parseShortDate(row.date, currentYear);
+      if (!date) return "";
+
+      const dateStamp = formatIcsDate(date);
+      return [
+        "BEGIN:VEVENT",
+        `UID:autoaudit-${row.id}@autoaudit.ai`,
+        `DTSTAMP:${formatIcsDateTime(new Date())}`,
+        `DTSTART;VALUE=DATE:${dateStamp}`,
+        `SUMMARY:Review ${escapeIcsText(row.vendor)} renewal`,
+        `DESCRIPTION:Owner: ${escapeIcsText(row.owner)}\\nContract value: ${currency(row.amount)}\\nRisk: ${row.risk}`,
+        "END:VEVENT",
+      ].join("\r\n");
+    })
+    .filter(Boolean)
+    .join("\r\n");
+
+  const calendar = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//AutoAudit.ai//Renewals//EN", events, "END:VCALENDAR"].join("\r\n");
+  downloadTextFile("autoaudit-renewals.ics", calendar, onToast);
+}
+
+function downloadTextFile(filename: string, content: string, onToast: (message: string) => void) {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  onToast(`${filename} downloaded.`);
+}
+
+function buildReportSummary(report: (typeof reports)[number]) {
+  return `${report.name}
+
+Owner: ${report.owner}
+Status: ${report.status}
+Date: ${report.date}
+Savings identified: ${currency(report.savings)}
+
+Summary:
+This packet highlights SaaS waste drivers, renewal exposure, and recommended owner actions for the current review cycle.`;
+}
+
+function buildInvoiceText(invoice: { period: string; status: string; amount: number }) {
+  return `AutoAudit.ai invoice
+
+Period: ${invoice.period}
+Status: ${invoice.status}
+Plan: Growth
+Amount: ${currency(invoice.amount)}
+
+Thank you for using AutoAudit.ai.`;
+}
+
+function parseShortDate(value: string, year: number) {
+  const date = new Date(`${value}, ${year}`);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+function formatIcsDate(date: Date) {
+  return date.toISOString().slice(0, 10).replaceAll("-", "");
+}
+
+function formatIcsDateTime(date: Date) {
+  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function escapeIcsText(value: string) {
+  return value.replace(/[\\;,]/g, "\\$&").replace(/\n/g, "\\n");
+}
+
+function parseVendorCsv(text: string): CreateVendorInput[] {
+  const rows = parseCsvRows(text).filter((row) => row.some((cell) => cell.trim()));
+  if (rows.length < 2) {
+    throw new Error("CSV needs a header row and at least one vendor.");
+  }
+
+  const headers = rows[0].map(normalizeHeader);
+  const hasNameHeader = headers.some((header) => ["name", "vendor", "vendorname", "tool", "app"].includes(header));
+  if (!hasNameHeader) {
+    throw new Error("CSV needs a vendor name column.");
+  }
+
+  const vendors: CreateVendorInput[] = [];
+
+  rows.slice(1).forEach((row) => {
+    const name = csvValue(row, headers, ["name", "vendor", "vendorname", "tool", "app"]);
+    if (!name) return;
+
+    vendors.push({
+      name,
+      category: csvValue(row, headers, ["category", "department", "function"]) || "Uncategorized",
+      ownerName: csvValue(row, headers, ["owner", "ownername", "manager"]),
+      ownerEmail: csvValue(row, headers, ["email", "owneremail"]),
+      monthlySpend: parseCsvNumber(csvValue(row, headers, ["monthlyspend", "spend", "cost", "amount"])),
+      seatsPurchased: parseCsvNumber(csvValue(row, headers, ["seatspurchased", "seats", "licenses", "licences"])),
+      activeSeats: parseCsvNumber(csvValue(row, headers, ["activeseats", "usedseats", "activeusers", "users"])),
+      lastUsedAt: parseCsvDate(csvValue(row, headers, ["lastused", "lastusedat", "lastlogin", "lastactivity"])),
+      renewalDate: parseCsvDate(csvValue(row, headers, ["renewal", "renewaldate", "renewalat", "contractend"])),
+      notes: csvValue(row, headers, ["notes", "note", "description"]),
+    });
+  });
+
+  if (vendors.length === 0) {
+    throw new Error("No vendor rows found in the CSV.");
+  }
+
+  return vendors;
+}
+
+function parseCsvRows(text: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const nextChar = text[index + 1];
+
+    if (char === '"' && inQuotes && nextChar === '"') {
+      cell += '"';
+      index += 1;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === "," && !inQuotes) {
+      row.push(cell);
+      cell = "";
+    } else if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && nextChar === "\n") index += 1;
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+
+  row.push(cell);
+  rows.push(row);
+  return rows;
+}
+
+function normalizeHeader(header: string) {
+  return header.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function csvValue(row: string[], headers: string[], aliases: string[]) {
+  const index = headers.findIndex((header) => aliases.includes(header));
+  return index >= 0 ? row[index]?.trim() ?? "" : "";
+}
+
+function parseCsvNumber(value: string) {
+  if (!value) return undefined;
+
+  const parsed = Number(value.replace(/[$,%\s]/g, "").replace(/,/g, ""));
+  if (!Number.isFinite(parsed) || parsed < 0) return undefined;
+  return parsed;
+}
+
+function parseCsvDate(value: string) {
+  if (!value) return undefined;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return date.toISOString().slice(0, 10);
 }
 
 function LoadingState({ label }: { label: string }) {

@@ -37,6 +37,10 @@ const companySchema = new mongoose.Schema(
         type: Boolean,
         default: true,
       },
+      allowManagedRenegotiation: {
+        type: Boolean,
+        default: false,
+      },
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

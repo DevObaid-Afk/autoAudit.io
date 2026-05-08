@@ -18,6 +18,18 @@ export const authApi = {
   },
 };
 
+export const profileApi = {
+  async updateCompanySettings(input: {
+    requireCfoApprovalAbove: number;
+    weeklyRenewalDigest: boolean;
+    autoDraftCancellationEmails: boolean;
+    allowManagedRenegotiation: boolean;
+  }) {
+    const { data } = await apiClient.patch<Pick<AuthResponse, "company">>("/api/profile/company-settings", input);
+    return data.company;
+  },
+};
+
 export const vendorApi = {
   async list(params: { page?: number; limit?: number; search?: string; status?: string; category?: string } = {}) {
     const { data } = await apiClient.get<{ vendors: ApiVendor[]; pagination: PaginationMeta }>("/api/vendors", { params });

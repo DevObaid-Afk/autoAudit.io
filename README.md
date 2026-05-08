@@ -7,6 +7,7 @@ AutoAudit.ai helps teams find forgotten software spend before it renews, priorit
 ## What It Does
 
 - Maps vendors to owners, categories, monthly spend, seats, usage, and renewal dates.
+- Imports vendor CSVs for faster workspace setup.
 - Detects zombie subscriptions, unused seats, duplicate tools, and renewal risk.
 - Generates monthly SaaS waste reports and vendor cancellation or renegotiation drafts.
 - Supports owner, admin, and member roles with audit logs for sensitive actions.
@@ -108,6 +109,7 @@ API:
 - `POST /api/auth/signup`
 - `POST /api/auth/login`
 - `GET /api/profile/me`
+- `PATCH /api/profile/company-settings`
 - `GET /api/vendors?page=1&limit=25&search=slack&status=active&category=Sales`
 - `POST /api/vendors`
 - `PATCH /api/vendors/:id`
@@ -164,7 +166,7 @@ If Vite fails locally with a Windows `spawn EPERM`, retry from a normal terminal
 
 ## Roadmap
 
-1. CSV upload and vendor normalization.
+1. Saved CSV mapping templates and import history.
 2. Gmail and Outlook renewal import.
 3. SSO usage signal ingestion.
 4. Saved report library and approval workflow.

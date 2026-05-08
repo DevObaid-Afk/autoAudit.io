@@ -12,6 +12,12 @@ export type ApiCompany = {
   name: string;
   domain?: string;
   plan: "free" | "starter" | "growth" | "enterprise";
+  settings?: {
+    requireCfoApprovalAbove: number;
+    weeklyRenewalDigest: boolean;
+    autoDraftCancellationEmails: boolean;
+    allowManagedRenegotiation?: boolean;
+  };
 };
 
 export type AuthResponse = {
