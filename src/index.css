@@ -24,8 +24,6 @@
     --color-warning-soft: 255 242 204;
     --color-good: 19 115 51;
     --color-good-soft: 231 244 235;
-    --cursor-color: 23 32 38;
-    --cursor-outline: 255 255 255;
   }
 
   .dark {
@@ -50,8 +48,6 @@
     --color-warning-soft: 72 52 18;
     --color-good: 99 208 131;
     --color-good-soft: 20 58 34;
-    --cursor-color: 245 251 255;
-    --cursor-outline: 10 15 20;
   }
 
   html {
@@ -79,6 +75,12 @@
       BlinkMacSystemFont,
       "Segoe UI",
       sans-serif;
+    text-rendering: geometricPrecision;
+  }
+
+  ::selection {
+    background: rgb(var(--color-brand-soft));
+    color: rgb(var(--color-brand-strong));
   }
 
   button,
@@ -103,19 +105,18 @@
     outline: none;
     transition:
       border-color 180ms ease,
-      box-shadow 180ms ease;
+      box-shadow 180ms ease,
+      transform 180ms ease;
   }
 
   .input:focus {
     border-color: rgb(var(--color-brand));
     box-shadow: 0 0 0 3px rgb(var(--color-brand-soft));
+    transform: translateY(-1px);
   }
-}
 
-@media (pointer: fine) {
-  .custom-cursor-enabled,
-  .custom-cursor-enabled * {
-    cursor: none !important;
+  .input::placeholder {
+    color: rgb(var(--color-quiet) / 0.72);
   }
 }
 
@@ -128,5 +129,28 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

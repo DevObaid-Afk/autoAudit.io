@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
+import { aiRateLimit } from "../middleware/rateLimit.js";
 import { aiRoutes } from "./aiRoutes.js";
 import { auditRoutes } from "./auditRoutes.js";
+import { auditLogRoutes } from "./auditLogRoutes.js";
 import { authRoutes } from "./authRoutes.js";
 import { profileRoutes } from "./profileRoutes.js";
 import { renewalRoutes } from "./renewalRoutes.js";
@@ -16,7 +18,7 @@ apiRouter.use("/profile", requireAuth, profileRoutes);
 apiRouter.use("/vendors", requireAuth, vendorRoutes);
 apiRouter.use("/subscriptions", requireAuth, subscriptionRoutes);
 apiRouter.use("/audit", requireAuth, auditRoutes);
+apiRouter.use("/audit-logs", requireAuth, auditLogRoutes);
 apiRouter.use("/renewals", requireAuth, renewalRoutes);
 apiRouter.use("/reports", requireAuth, reportRoutes);
-apiRouter.use("/ai", requireAuth, aiRoutes);
-
+apiRouter.use("/ai", requireAuth, aiRateLimit, aiRoutes);

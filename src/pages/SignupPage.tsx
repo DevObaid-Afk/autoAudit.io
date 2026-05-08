@@ -27,7 +27,7 @@ export function SignupPage() {
 
     try {
       await signup(form);
-      navigate("/", { replace: true });
+      navigate("/dashboard", { replace: true });
     } catch (err) {
       setError(getApiErrorMessage(err));
     } finally {
@@ -43,7 +43,9 @@ export function SignupPage() {
             <ShieldCheck aria-hidden="true" size={27} />
           </span>
           <div>
-            <strong className="block text-lg font-extrabold">AutoAudit.ai</strong>
+            <Link className="block text-lg font-extrabold" to="/">
+              AutoAudit.ai
+            </Link>
             <span className="text-sm text-inverse-ink/60">SaaS waste control</span>
           </div>
         </div>
@@ -77,7 +79,7 @@ export function SignupPage() {
             <label className="grid gap-2">
               <span className="text-sm font-extrabold text-quiet">Password</span>
               <div className="relative">
-                <input className="input pr-12" type={showPassword ? "text" : "password"} value={form.password} required onChange={(event) => setForm({ ...form, password: event.target.value })} />
+                <input className="input pr-12" type={showPassword ? "text" : "password"} value={form.password} autoComplete="new-password" minLength={8} required onChange={(event) => setForm({ ...form, password: event.target.value })} />
                 <button
                   className="absolute right-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-quiet transition hover:bg-panel-muted hover:text-ink"
                   type="button"

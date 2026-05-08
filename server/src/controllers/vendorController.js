@@ -1,19 +1,51 @@
 import { Vendor } from "../models/Vendor.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { classifyVendorWaste } from "../services/wasteDetection.js";
+import { AppError } from "../utils/AppError.js";
+import { cleanDate, cleanNumber, cleanString } from "../middleware/validate.js";
+import { recordAuditLog } from "../utils/auditLogger.js";
+import { buildPagination, parsePagination } from "../utils/query.js";
 
 export const listVendors = asyncHandler(async (req, res) => {
-  const vendors = await Vendor.find({ company: req.companyId }).sort({ monthlySpend: -1, name: 1 });
+  const { page, limit, skip } = parsePagination(req.query);
+  const filter = { company: req.companyId };
+  const search = cleanString(req.query.search, { field: "Search", max: 120 });
+  const category = cleanString(req.query.category, { field: "Category", max: 100 });
+  const status = cleanString(req.query.status, { field: "Status", max: 40 });
 
-  res.json({ vendors });
+  if (search) {
+    filter.$or = [
+      { name: new RegExp(escapeRegex(search), "i") },
+      { category: new RegExp(escapeRegex(search), "i") },
+      { ownerName: new RegExp(escapeRegex(search), "i") },
+      { ownerEmail: new RegExp(escapeRegex(search), "i") },
+    ];
+  }
+  if (category && category !== "All") filter.category = category;
+  if (status && status !== "All") filter.status = status;
+
+  const [vendors, total] = await Promise.all([
+    Vendor.find(filter).sort({ monthlySpend: -1, name: 1 }).skip(skip).limit(limit),
+    Vendor.countDocuments(filter),
+  ]);
+
+  res.json({ vendors, pagination: buildPagination({ page, limit, total }) });
 });
 
 export const createVendor = asyncHandler(async (req, res) => {
-  const classification = classifyVendorWaste(req.body);
+  const input = sanitizeVendorInput(req.body, { partial: false });
+  const classification = classifyVendorWaste(input);
   const vendor = await Vendor.create({
-    ...req.body,
+    ...input,
     ...classification,
     company: req.companyId,
+  });
+
+  await recordAuditLog(req, {
+    action: "vendor.created",
+    resourceType: "vendor",
+    resourceId: vendor._id,
+    metadata: { name: vendor.name, monthlySpend: vendor.monthlySpend },
   });
 
   res.status(201).json({ vendor });
@@ -27,7 +59,7 @@ export const updateVendor = asyncHandler(async (req, res) => {
     return;
   }
 
-  const update = { ...req.body };
+  const update = sanitizeVendorInput(req.body, { partial: true });
   const mergedVendor = { ...existingVendor.toObject(), ...update };
   const classification = classifyVendorWaste(mergedVendor);
 
@@ -36,6 +68,13 @@ export const updateVendor = asyncHandler(async (req, res) => {
     { ...update, ...classification },
     { new: true, runValidators: true },
   );
+
+  await recordAuditLog(req, {
+    action: "vendor.updated",
+    resourceType: "vendor",
+    resourceId: vendor._id,
+    metadata: { fields: Object.keys(update) },
+  });
 
   res.json({ vendor });
 });
@@ -48,5 +87,41 @@ export const deleteVendor = asyncHandler(async (req, res) => {
     return;
   }
 
+  await recordAuditLog(req, {
+    action: "vendor.deleted",
+    resourceType: "vendor",
+    resourceId: vendor._id,
+    metadata: { name: vendor.name },
+  });
+
   res.status(204).send();
 });
+
+function sanitizeVendorInput(body, { partial }) {
+  const input = {
+    name: cleanString(body.name, { required: !partial, field: "Vendor name", max: 140 }),
+    category: cleanString(body.category, { field: "Category", max: 100 }),
+    ownerName: cleanString(body.ownerName, { field: "Owner name", max: 120 }),
+    ownerEmail: cleanString(body.ownerEmail, { field: "Owner email", max: 254 })?.toLowerCase(),
+    monthlySpend: cleanNumber(body.monthlySpend, { field: "Monthly spend", min: 0, max: 100000000 }),
+    seatsPurchased: cleanNumber(body.seatsPurchased, { field: "Seats purchased", min: 0, max: 1000000 }),
+    activeSeats: cleanNumber(body.activeSeats, { field: "Active seats", min: 0, max: 1000000 }),
+    lastUsedAt: cleanDate(body.lastUsedAt, { field: "Last used date" }),
+    renewalDate: cleanDate(body.renewalDate, { field: "Renewal date" }),
+    notes: cleanString(body.notes, { field: "Notes", max: 1000 }),
+  };
+
+  if (input.ownerEmail && !/^\S+@\S+\.\S+$/.test(input.ownerEmail)) {
+    throw new AppError("Owner email must be valid", 400);
+  }
+
+  if (input.activeSeats !== undefined && input.seatsPurchased !== undefined && input.activeSeats > input.seatsPurchased) {
+    throw new AppError("Active seats cannot exceed seats purchased", 400);
+  }
+
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined));
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

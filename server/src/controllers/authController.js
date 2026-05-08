@@ -4,12 +4,17 @@ import { User } from "../models/User.js";
 import { AppError } from "../utils/AppError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { signAuthToken } from "../utils/auth.js";
+import { cleanString } from "../middleware/validate.js";
 
 export const signup = asyncHandler(async (req, res) => {
-  const { name, email, password, companyName, companyDomain } = req.body;
+  const name = cleanString(req.body.name, { required: true, field: "Name", max: 120 });
+  const email = cleanString(req.body.email, { required: true, field: "Email", max: 254 })?.toLowerCase();
+  const password = cleanString(req.body.password, { required: true, field: "Password", max: 256 });
+  const companyName = cleanString(req.body.companyName, { required: true, field: "Company name", max: 120 });
+  const companyDomain = cleanString(req.body.companyDomain, { field: "Company domain", max: 120 })?.toLowerCase();
 
-  if (!name || !email || !password || !companyName) {
-    throw new AppError("Name, email, password, and companyName are required", 400);
+  if (!/^\S+@\S+\.\S+$/.test(email)) {
+    throw new AppError("Email must be valid", 400);
   }
 
   if (password.length < 8) {
@@ -48,11 +53,8 @@ export const signup = asyncHandler(async (req, res) => {
 });
 
 export const login = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
-
-  if (!email || !password) {
-    throw new AppError("Email and password are required", 400);
-  }
+  const email = cleanString(req.body.email, { required: true, field: "Email", max: 254 })?.toLowerCase();
+  const password = cleanString(req.body.password, { required: true, field: "Password", max: 256 });
 
   const user = await User.findOne({ email: email.toLowerCase() }).select("+passwordHash").populate("company");
 
@@ -78,4 +80,3 @@ function serializeUser(user) {
     company: user.company?._id ?? user.company,
   };
 }
-

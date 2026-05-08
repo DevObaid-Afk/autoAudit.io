@@ -64,5 +64,7 @@ const subscriptionSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-export const Subscription = mongoose.model("Subscription", subscriptionSchema);
+subscriptionSchema.index({ company: 1, status: 1, renewalDate: 1 });
+subscriptionSchema.index({ company: 1, vendor: 1, status: 1 });
 
+export const Subscription = mongoose.model("Subscription", subscriptionSchema);

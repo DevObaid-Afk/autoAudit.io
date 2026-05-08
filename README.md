@@ -1,76 +1,114 @@
 # AutoAudit.ai
 
-AutoAudit.ai helps finance and operations teams find waste in their SaaS stack before it renews.
+Premium SaaS waste control for finance and operations teams.
 
-## Product Direction
+AutoAudit.ai helps teams find forgotten software spend before it renews, prioritize the highest-value cleanup work, and turn vendor evidence into CFO-ready reports and action emails.
 
-The first version should stay narrow: prove that the product can identify forgotten SaaS spend and turn that insight into a concrete action.
+## What It Does
 
-## MVP Scope
-
-- Import SaaS receipts and renewal emails from Gmail or Outlook.
-- Upload expense exports from tools like Ramp, Brex, Amex, QuickBooks, or CSV.
-- Map vendors to spend, owners, renewal dates, and usage signals.
-- Flag zombie subscriptions, unused seats, duplicate tools, and renewal risks.
-- Generate a monthly CFO-ready waste report.
-- Draft cancellation or renegotiation emails with company context.
+- Maps vendors to owners, categories, monthly spend, seats, usage, and renewal dates.
+- Detects zombie subscriptions, unused seats, duplicate tools, and renewal risk.
+- Generates monthly SaaS waste reports and vendor cancellation or renegotiation drafts.
+- Supports owner, admin, and member roles with audit logs for sensitive actions.
+- Ships as a protected dashboard-first SaaS workspace with responsive views.
 
 ## Tech Stack
 
-- React
-- Vite
-- TypeScript
-- Tailwind CSS
-- Recharts
-- Node.js
-- Express
-- MongoDB
-- Mongoose
-- JWT auth
+- React, Vite, TypeScript
+- Tailwind CSS, Recharts, lucide-react
+- Node.js, Express, MongoDB, Mongoose
+- JWT auth, Helmet security headers, rate limiting
 
-## First Prototype
+## Project Structure
 
-Run the local Vite app to review the initial dashboard mockup.
+```text
+src/
+  api/             Axios client and API service wrappers
+  auth/            Auth context and session bootstrapping
+  components/      Shared app components
+  pages/           Auth and dashboard screens
+  theme/           Theme provider
+  types/           API TypeScript types
+server/
+  src/
+    config/        Environment and database config
+    controllers/   Route handlers
+    middleware/    Auth, roles, rate limits, validation, errors
+    models/        Mongoose models and indexes
+    routes/        API route modules
+    services/      AI and waste detection services
+    utils/         Shared backend helpers
+docs/              Deployment and architecture notes
+```
+
+## Local Development
+
+Install dependencies:
 
 ```bash
 npm install
-npm run dev
 ```
 
-The prototype uses mock data for now so we can iterate on product flow quickly before choosing the backend, integrations, and data model.
+Create a local environment file:
 
-## Backend Setup
+```bash
+cp .env.example .env
+```
 
-Create a local `.env` from `.env.example`, then start MongoDB and run the API.
+Start MongoDB locally, then run the API:
 
 ```bash
 npm run dev:api
 ```
 
-The API defaults to `http://127.0.0.1:5000`.
+Run the frontend:
 
-Required environment variables:
+```bash
+npm run dev
+```
+
+The frontend defaults to `http://127.0.0.1:5173`. The API defaults to `http://127.0.0.1:5000`.
+
+## Environment
+
+Use `.env.example`, `server/.env.example`, and `src/.env.example` as deployment templates.
+
+Required backend variables:
 
 - `MONGODB_URI`
 - `JWT_SECRET`
-- `PORT`
+- `JWT_EXPIRES_IN`
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
 - `CORS_ORIGIN`
+- `RATE_LIMIT_WINDOW_MS`
+- `RATE_LIMIT_MAX`
+- `AUTH_RATE_LIMIT_WINDOW_MS`
+- `AUTH_RATE_LIMIT_MAX`
+- `AI_RATE_LIMIT_WINDOW_MS`
+- `AI_RATE_LIMIT_MAX`
+
+Required frontend variable:
+
 - `VITE_API_URL`
 
-For local frontend-to-backend calls:
+## Key Routes
 
-```env
-VITE_API_URL=http://127.0.0.1:5000
-```
+- `/login`
+- `/signup`
 
-## API Routes
+Protected:
 
-- `GET /health`
-- `GET /api/health`
+- `/`
+- `/dashboard`
+- `/dashboard/:section`
+
+API:
+
 - `POST /api/auth/signup`
 - `POST /api/auth/login`
 - `GET /api/profile/me`
-- `GET /api/vendors`
+- `GET /api/vendors?page=1&limit=25&search=slack&status=active&category=Sales`
 - `POST /api/vendors`
 - `PATCH /api/vendors/:id`
 - `DELETE /api/vendors/:id`
@@ -78,29 +116,56 @@ VITE_API_URL=http://127.0.0.1:5000
 - `POST /api/subscriptions`
 - `GET /api/audit/summary`
 - `GET /api/renewals`
-- `POST /api/reports/generate`
+- `GET /api/audit-logs`
 - `POST /api/ai/cancel-email`
+- `POST /api/ai/renegotiate-email`
+- `POST /api/ai/monthly-report`
+- `POST /api/ai/vendor-analysis`
 
-## Current Dashboard Surface
+## Production Readiness
 
-- Overview Dashboard
-- Vendors
-- Waste Detection
-- Renewals
-- Reports
-- AI Email Generator
-- Billing
-- Settings
+The API includes:
 
-The app includes a sidebar navigation, top navbar, spend summary cards, waste and savings metrics, active vendor tracking, zombie subscription alerts, renewal views, unused seat tables, duplicate tool alerts, Recharts-based charts, responsive layouts, and smooth UI transitions.
+- Helmet security headers
+- CORS allow-listing
+- JSON body size limits
+- Global, auth, and AI route rate limits
+- Input validation and ObjectId checks
+- Role-based access controls
+- Safer error responses with request IDs
+- MongoDB indexes for common filters and sorts
+- Audit logs for write actions
+- Paginated list responses
 
-The frontend now uses Axios and React Router with protected dashboard routes. Login and signup call the backend auth endpoints, store the JWT for authenticated API calls, and fetch vendors, audit summary, and renewals from the Express API.
+Roles:
 
-## Suggested Build Order
+- `owner`: full workspace access, including destructive vendor actions.
+- `admin`: manages vendors and subscriptions, and can view audit logs.
+- `member`: reviews workspace data and runs standard analysis flows.
 
-1. Lock the dashboard workflow and visual language.
-2. Add CSV upload and local parsing for expense data.
-3. Add vendor detection and normalization.
-4. Add email import for invoices and renewal notices.
-5. Add usage signals from Google Workspace or Okta.
-6. Add billing, saved reports, and account management.
+## Deployment
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for Vercel frontend and Render backend instructions.
+
+Short version:
+
+- Vercel frontend: build command `npm run build`, output `dist`, set `VITE_API_URL`.
+- Render backend: build command `npm install`, start command `npm run start:api`, set backend environment variables.
+- After deploying Vercel, copy the frontend URL into Render `CORS_ORIGIN`.
+
+## Verification
+
+```bash
+npx tsc -b
+npm run build
+```
+
+If Vite fails locally with a Windows `spawn EPERM`, retry from a normal terminal with antivirus or controlled-folder restrictions disabled for the workspace.
+
+## Roadmap
+
+1. CSV upload and vendor normalization.
+2. Gmail and Outlook renewal import.
+3. SSO usage signal ingestion.
+4. Saved report library and approval workflow.
+5. Billing integration and savings capture ledger.

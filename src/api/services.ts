@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { ApiRenewal, ApiVendor, AuditSummary, AuthResponse, CreateVendorInput } from "../types/api";
+import type { ApiRenewal, ApiVendor, AuditSummary, AuthResponse, CreateVendorInput, PaginationMeta } from "../types/api";
 
 export const authApi = {
   async signup(input: { name: string; email: string; password: string; companyName: string; companyDomain?: string }) {
@@ -19,9 +19,9 @@ export const authApi = {
 };
 
 export const vendorApi = {
-  async list() {
-    const { data } = await apiClient.get<{ vendors: ApiVendor[] }>("/api/vendors");
-    return data.vendors;
+  async list(params: { page?: number; limit?: number; search?: string; status?: string; category?: string } = {}) {
+    const { data } = await apiClient.get<{ vendors: ApiVendor[]; pagination: PaginationMeta }>("/api/vendors", { params });
+    return data;
   },
 
   async create(input: CreateVendorInput) {
@@ -47,9 +47,9 @@ export const auditApi = {
 };
 
 export const renewalApi = {
-  async list() {
-    const { data } = await apiClient.get<{ renewals: ApiRenewal[] }>("/api/renewals");
-    return data.renewals;
+  async list(params: { page?: number; limit?: number; status?: string; riskLevel?: string } = {}) {
+    const { data } = await apiClient.get<{ renewals: ApiRenewal[]; pagination: PaginationMeta }>("/api/renewals", { params });
+    return data;
   },
 };
 

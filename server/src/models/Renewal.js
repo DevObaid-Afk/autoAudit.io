@@ -49,5 +49,7 @@ const renewalSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-export const Renewal = mongoose.model("Renewal", renewalSchema);
+renewalSchema.index({ company: 1, status: 1, renewalDate: 1 });
+renewalSchema.index({ company: 1, riskLevel: 1, renewalDate: 1 });
 
+export const Renewal = mongoose.model("Renewal", renewalSchema);

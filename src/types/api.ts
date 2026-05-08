@@ -20,6 +20,15 @@ export type AuthResponse = {
   company: ApiCompany;
 };
 
+export type PaginationMeta = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+};
+
 export type ApiVendor = {
   _id: string;
   name: string;

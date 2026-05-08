@@ -6,7 +6,7 @@ export function notFoundHandler(req, _res, next) {
   next(new AppError(`Route not found: ${req.method} ${req.originalUrl}`, 404));
 }
 
-export function errorHandler(error, _req, res, _next) {
+export function errorHandler(error, req, res, _next) {
   let statusCode = error.statusCode ?? 500;
   let message = error.message ?? "Internal server error";
   let details = error.details;
@@ -28,10 +28,21 @@ export function errorHandler(error, _req, res, _next) {
     details = error.keyValue;
   }
 
+  if (statusCode >= 500 && env.nodeEnv !== "test") {
+    console.error({
+      message: error.message,
+      stack: error.stack,
+      path: req.originalUrl,
+      method: req.method,
+      requestId: req.id,
+    });
+  }
+
   res.status(statusCode).json({
     error: {
       message,
       details,
+      requestId: req.id,
       stack: env.nodeEnv === "production" ? undefined : error.stack,
     },
   });

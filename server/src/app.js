@@ -1,12 +1,25 @@
 import cors from "cors";
 import express from "express";
+import helmet from "helmet";
 import { env } from "./config/env.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
+import { apiRateLimit } from "./middleware/rateLimit.js";
 import { apiRouter } from "./routes/index.js";
 
 export function createApp() {
   const app = express();
 
+  app.disable("x-powered-by");
+  app.use((req, _res, next) => {
+    req.id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+    next();
+  });
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: "cross-origin" },
+    }),
+  );
+  app.use(apiRateLimit);
   app.use(
     cors({
       origin(origin, callback) {

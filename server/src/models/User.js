@@ -36,9 +36,10 @@ const userSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+userSchema.index({ company: 1, role: 1 });
+
 userSchema.methods.comparePassword = function comparePassword(password) {
   return bcrypt.compare(password, this.passwordHash);
 };
 
 export const User = mongoose.model("User", userSchema);
-

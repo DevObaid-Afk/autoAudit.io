@@ -46,5 +46,7 @@ const companySchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-export const Company = mongoose.model("Company", companySchema);
+companySchema.index({ domain: 1 });
+companySchema.index({ createdBy: 1 });
 
+export const Company = mongoose.model("Company", companySchema);

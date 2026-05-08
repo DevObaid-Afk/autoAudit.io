@@ -52,7 +52,7 @@ import { aiApi, auditApi, renewalApi, vendorApi } from "../api/services";
 import { getApiErrorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useTheme } from "../theme/ThemeContext";
-import type { AiEmailGoal, ApiRenewal, ApiVendor, AuditSummary, CreateVendorInput } from "../types/api";
+import type { AiEmailGoal, ApiRenewal, ApiVendor, AuditSummary, CreateVendorInput, PaginationMeta } from "../types/api";
 
 type PageId = "overview" | "vendors" | "waste" | "renewals" | "reports" | "email" | "billing" | "settings";
 type RiskLevel = "critical" | "high" | "medium" | "low";
@@ -199,9 +199,11 @@ export function DashboardPage() {
   const [isMobileNavOpen, setMobileNavOpen] = useState(false);
   const [draft, setDraft] = useState(defaultDraft);
   const [emailTone, setEmailTone] = useState("Direct");
+  const [vendorSearch, setVendorSearch] = useState("");
   const [toast, setToast] = useState("");
   const [apiVendors, setApiVendors] = useState<ApiVendor[]>([]);
   const [apiRenewals, setApiRenewals] = useState<ApiRenewal[]>([]);
+  const [vendorPagination, setVendorPagination] = useState<PaginationMeta | null>(null);
   const [auditSummary, setAuditSummary] = useState<AuditSummary | null>(null);
   const [isDataLoading, setDataLoading] = useState(true);
   const [dataError, setDataError] = useState("");
@@ -233,7 +235,6 @@ export function DashboardPage() {
       monthlyWaste: auditSummary?.monthlyWasteFound ?? 0,
     };
   }, [auditSummary, dashboardVendors, renewalRows]);
-
   useEffect(() => {
     if (sectionParam && isPageId(sectionParam)) {
       setActivePage(sectionParam);
@@ -246,14 +247,15 @@ export function DashboardPage() {
 
     try {
       const [vendorsResponse, summaryResponse, renewalsResponse] = await Promise.all([
-        vendorApi.list(),
+        vendorApi.list({ limit: 100 }),
         auditApi.summary(),
-        renewalApi.list(),
+        renewalApi.list({ limit: 100 }),
       ]);
 
-      setApiVendors(vendorsResponse);
+      setApiVendors(vendorsResponse.vendors);
+      setVendorPagination(vendorsResponse.pagination);
       setAuditSummary(summaryResponse);
-      setApiRenewals(renewalsResponse);
+      setApiRenewals(renewalsResponse.renewals);
     } catch (error) {
       setDataError(getApiErrorMessage(error));
     } finally {
@@ -280,6 +282,13 @@ export function DashboardPage() {
     navigate(page === "overview" ? "/dashboard" : `/dashboard/${page}`);
   };
 
+  const handleGlobalSearch = (value: string) => {
+    setVendorSearch(value);
+    if (value.trim() && activePage !== "vendors") {
+      handleNav("vendors");
+    }
+  };
+
   const handleCreateVendor = async (input: CreateVendorInput) => {
     const vendor = await vendorApi.create(input);
     setApiVendors((current) => [vendor, ...current]);
@@ -288,9 +297,6 @@ export function DashboardPage() {
   };
 
   const handleDeleteVendor = async (vendor: Vendor) => {
-    const confirmed = window.confirm(`Delete ${vendor.name}?`);
-    if (!confirmed) return;
-
     await vendorApi.remove(vendor.id);
     setApiVendors((current) => current.filter((item) => item._id !== vendor.id));
     await refreshDashboardData();
@@ -354,14 +360,24 @@ export function DashboardPage() {
         <Sidebar activePage={activePage} isOpen={isMobileNavOpen} onClose={() => setMobileNavOpen(false)} onNavigate={handleNav} />
 
         <div className="min-w-0">
-          <Topbar companyName={company?.name ?? "Workspace"} pageTitle={pageTitle} userName={user?.name ?? "User"} onLogout={logout} onMenu={() => setMobileNavOpen(true)} onRefresh={refreshDashboardData} onToast={showToast} />
+          <Topbar
+            companyName={company?.name ?? "Workspace"}
+            pageTitle={pageTitle}
+            searchValue={vendorSearch}
+            userName={user?.name ?? "User"}
+            onGlobalSearch={handleGlobalSearch}
+            onLogout={logout}
+            onMenu={() => setMobileNavOpen(true)}
+            onNavigate={handleNav}
+            onRefresh={refreshDashboardData}
+          />
 
-          <main className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8">
+          <main className="mx-auto max-w-[1500px] px-3 py-4 sm:px-6 lg:px-8">
             <div className="animate-[fadeIn_420ms_ease-out]">
               {dataError && <ErrorState message={dataError} onRetry={refreshDashboardData} />}
               {isDataLoading && <LoadingState label="Loading live audit data" />}
-              {activePage === "overview" && <OverviewPage categoryData={dashboardCategorySpend} duplicateTools={duplicateToolRows} totals={totals} unusedSeats={unusedSeatRows} onToast={showToast} />}
-              {activePage === "vendors" && <VendorsPage isLoading={isDataLoading} vendors={dashboardVendors} onCreateVendor={handleCreateVendor} onDeleteVendor={handleDeleteVendor} onToast={showToast} />}
+              {activePage === "overview" && <OverviewPage categoryData={dashboardCategorySpend} duplicateTools={duplicateToolRows} totals={totals} unusedSeats={unusedSeatRows} onNavigate={handleNav} onToast={showToast} />}
+              {activePage === "vendors" && <VendorsPage externalQuery={vendorSearch} isLoading={isDataLoading} pagination={vendorPagination} vendors={dashboardVendors} onCreateVendor={handleCreateVendor} onDeleteVendor={handleDeleteVendor} onSearchChange={setVendorSearch} onToast={showToast} />}
               {activePage === "waste" && (
                 <WasteDetectionPage
                   aiAnalysis={wasteAnalysis}
@@ -423,9 +439,8 @@ function Sidebar({
     <>
       <div className={`fixed inset-0 z-40 bg-inverse/35 backdrop-blur-sm transition-opacity lg:hidden ${isOpen ? "opacity-100" : "pointer-events-none opacity-0"}`} onClick={onClose} />
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-[286px] flex-col border-r border-line bg-panel/95 shadow-2xl backdrop-blur-xl transition-transform duration-300 lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:translate-x-0 lg:shadow-none ${
-          isOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
+        className={`fixed inset-y-0 left-0 z-50 flex w-[286px] flex-col border-r border-line bg-panel/95 shadow-2xl backdrop-blur-xl transition-transform duration-300 lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:translate-x-0 lg:shadow-none ${isOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
       >
         <div className="flex items-center justify-between px-5 py-5">
           <button className="flex items-center gap-3 text-left" type="button" onClick={() => onNavigate("overview")}>
@@ -449,9 +464,8 @@ function Sidebar({
 
             return (
               <button
-                className={`group flex min-h-11 items-center gap-3 rounded-lg px-3 text-left text-sm font-extrabold transition duration-200 ${
-                  isActive ? "bg-brand text-white shadow-[0_10px_24px_rgba(8,127,140,0.24)]" : "text-quiet hover:bg-panel-muted hover:text-ink"
-                }`}
+                className={`group flex min-h-11 items-center gap-3 rounded-lg px-3 text-left text-sm font-extrabold transition duration-200 ${isActive ? "bg-brand text-white shadow-[0_10px_24px_rgba(8,127,140,0.24)]" : "text-quiet hover:bg-panel-muted hover:text-ink"
+                  }`}
                 type="button"
                 key={item.id}
                 onClick={() => onNavigate(item.id)}
@@ -476,7 +490,7 @@ function Sidebar({
             <p className="mt-3 text-sm leading-6 text-quiet">Finance exports connected. Email and SSO need approval.</p>
           </div>
 
-          <button className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-inverse px-4 text-sm font-extrabold text-inverse-ink shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-strong hover:shadow-lg active:translate-y-0" type="button">
+          <button className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-inverse px-4 text-sm font-extrabold text-inverse-ink shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-strong hover:shadow-lg active:translate-y-0" type="button" onClick={() => onNavigate("waste")}>
             <Zap aria-hidden="true" size={17} />
             Run new audit
           </button>
@@ -489,47 +503,59 @@ function Sidebar({
 function Topbar({
   companyName,
   pageTitle,
+  searchValue,
   userName,
+  onGlobalSearch,
   onLogout,
   onMenu,
+  onNavigate,
   onRefresh,
-  onToast,
 }: {
   companyName: string;
   pageTitle: string;
+  searchValue: string;
   userName: string;
+  onGlobalSearch: (value: string) => void;
   onLogout: () => void;
   onMenu: () => void;
+  onNavigate: (page: PageId) => void;
   onRefresh: () => void;
-  onToast: (message: string) => void;
 }) {
   const { theme, toggleTheme } = useTheme();
   const initialsLabel = initials(userName || companyName);
 
   return (
-    <header className="sticky top-0 z-30 border-b border-line bg-canvas/85 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-[1500px] items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-30 border-b border-line bg-canvas/90 backdrop-blur-xl">
+      <div className="mx-auto grid max-w-[1500px] gap-3 px-3 py-3 sm:px-6 lg:flex lg:items-center lg:px-8">
+        <div className="flex min-w-0 items-center gap-3">
         <button className="grid size-10 place-items-center rounded-lg border border-line bg-panel text-quiet lg:hidden" type="button" onClick={onMenu} aria-label="Open navigation">
           <Menu aria-hidden="true" size={20} />
         </button>
 
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="text-xs font-extrabold uppercase text-brand-strong">Authenticated workspace</p>
           <h1 className="truncate text-xl font-extrabold tracking-normal sm:text-2xl">{pageTitle}</h1>
         </div>
-
-        <div className="ml-auto hidden min-w-[280px] items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2 text-sm text-quiet md:flex">
-          <Search aria-hidden="true" size={17} />
-          <span>Search vendors, renewals, reports</span>
         </div>
 
-        <button className="hidden min-h-10 items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand sm:inline-flex" type="button" onClick={onRefresh}>
+        <label className="flex min-h-10 min-w-0 items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2 text-sm text-quiet lg:ml-auto lg:w-[360px]">
+          <Search aria-hidden="true" size={17} />
+          <input
+            className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-quiet"
+            value={searchValue}
+            placeholder="Search vendors, owners, categories"
+            onChange={(event) => onGlobalSearch(event.target.value)}
+          />
+        </label>
+
+        <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 lg:overflow-visible lg:pb-0">
+        <button className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand" type="button" onClick={onRefresh}>
           <RefreshCw aria-hidden="true" size={17} />
           Sync
         </button>
 
         <button
-          className="grid size-10 place-items-center rounded-lg border border-line bg-panel text-quiet transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand"
+          className="grid size-10 shrink-0 place-items-center rounded-lg border border-line bg-panel text-quiet transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand"
           type="button"
           aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
           title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
@@ -538,24 +564,25 @@ function Topbar({
           {theme === "dark" ? <Sun aria-hidden="true" size={18} /> : <Moon aria-hidden="true" size={18} />}
         </button>
 
-        <button className="relative grid size-10 place-items-center rounded-lg border border-line bg-panel text-quiet transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand" type="button" aria-label="Notifications" onClick={() => onToast("3 renewal alerts need review.")}>
+        <button className="relative grid size-10 shrink-0 place-items-center rounded-lg border border-line bg-panel text-quiet transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand" type="button" aria-label="Open renewal alerts" onClick={() => onNavigate("renewals")}>
           <Bell aria-hidden="true" size={18} />
           <span className="absolute right-2 top-2 size-2 rounded-full bg-risk" />
         </button>
 
-        <button className="flex items-center gap-2 rounded-lg border border-line bg-panel p-1.5 pr-3 transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted" type="button" onClick={() => onToast(`${companyName} workspace active.`)}>
+        <button className="flex shrink-0 items-center gap-2 rounded-lg border border-line bg-panel p-1.5 pr-3 transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted" type="button" onClick={() => onNavigate("settings")}>
           <span className="grid size-8 place-items-center rounded-md bg-brand text-xs font-extrabold text-white">{initialsLabel}</span>
           <span className="hidden text-sm font-extrabold sm:block">{companyName}</span>
         </button>
 
         <button
-          className="group hidden min-h-10 items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm font-extrabold text-quiet shadow-sm transition hover:-translate-y-0.5 hover:border-risk hover:bg-risk-soft hover:text-risk hover:shadow-md active:translate-y-0 sm:inline-flex"
+          className="group hidden min-h-10 shrink-0 items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm font-extrabold text-quiet shadow-sm transition hover:-translate-y-0.5 hover:border-risk hover:bg-risk-soft hover:text-risk hover:shadow-md active:translate-y-0 sm:inline-flex"
           type="button"
           onClick={onLogout}
         >
           <LogOut aria-hidden="true" size={17} className="transition group-hover:-translate-x-0.5" />
           Logout
         </button>
+        </div>
       </div>
     </header>
   );
@@ -566,21 +593,23 @@ function OverviewPage({
   duplicateTools,
   totals,
   unusedSeats,
+  onNavigate,
   onToast,
 }: {
   categoryData: typeof categorySpend;
   duplicateTools: DuplicateToolRow[];
   totals: DashboardTotals;
   unusedSeats: UnusedSeatRow[];
+  onNavigate: (page: PageId) => void;
   onToast: (message: string) => void;
 }) {
   return (
     <div className="grid gap-4">
-      <HeroBand onToast={onToast} />
+      <HeroBand onNavigate={onNavigate} />
       <SummaryGrid totals={totals} />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.8fr)]">
-        <Panel title="Spend, waste, and savings" eyebrow="Monthly trend" action={<PanelAction label="Inspect" onClick={() => onToast("Trend details opened.")} />}>
+        <Panel title="Spend, waste, and savings" eyebrow="Monthly trend" action={<PanelAction label="Open reports" onClick={() => onNavigate("reports")} />}>
           <div className="h-[320px]">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 320 }}>
               <AreaChart data={spendTrend} margin={{ top: 10, right: 16, left: -12, bottom: 0 }}>
@@ -607,7 +636,7 @@ function OverviewPage({
           </div>
         </Panel>
 
-        <Panel title="Spend by function" eyebrow="Category map" action={<PanelAction label="Export" onClick={() => onToast("Category chart exported.")} />}>
+        <Panel title="Spend by function" eyebrow="Category map" action={<PanelAction label="Review vendors" onClick={() => onNavigate("vendors")} />}>
           <div className="h-[320px]">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 320 }}>
               <PieChart>
@@ -633,20 +662,28 @@ function OverviewPage({
 }
 
 function VendorsPage({
+  externalQuery,
   isLoading,
+  pagination,
   vendors,
   onCreateVendor,
   onDeleteVendor,
+  onSearchChange,
   onToast,
 }: {
+  externalQuery: string;
   isLoading: boolean;
+  pagination: PaginationMeta | null;
   vendors: Vendor[];
   onCreateVendor: (input: CreateVendorInput) => Promise<void>;
   onDeleteVendor: (vendor: Vendor) => Promise<void>;
+  onSearchChange: (value: string) => void;
   onToast: (message: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("All");
+  const [page, setPage] = useState(1);
+  const [pendingDelete, setPendingDelete] = useState<Vendor | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
     name: "",
@@ -662,10 +699,40 @@ function VendorsPage({
   const [isSubmitting, setSubmitting] = useState(false);
 
   const filteredVendors = vendors.filter((vendor) => {
-    const matchesQuery = vendor.name.toLowerCase().includes(query.toLowerCase()) || vendor.owner.toLowerCase().includes(query.toLowerCase());
+    const normalizedQuery = query.trim().toLowerCase();
+    const matchesQuery =
+      !normalizedQuery ||
+      vendor.name.toLowerCase().includes(normalizedQuery) ||
+      vendor.owner.toLowerCase().includes(normalizedQuery) ||
+      vendor.category.toLowerCase().includes(normalizedQuery) ||
+      vendor.status.toLowerCase().includes(normalizedQuery);
     const matchesStatus = status === "All" || vendor.status === status;
     return matchesQuery && matchesStatus;
   });
+  const pageSize = 10;
+  const totalPages = Math.max(1, Math.ceil(filteredVendors.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const visibleVendors = filteredVendors.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, status]);
+
+  useEffect(() => {
+    setQuery(externalQuery);
+  }, [externalQuery]);
+
+  const handleQueryChange = (value: string) => {
+    setQuery(value);
+    onSearchChange(value);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!pendingDelete) return;
+    const vendor = pendingDelete;
+    setPendingDelete(null);
+    await onDeleteVendor(vendor);
+  };
 
   async function handleCreateVendor() {
     if (!form.name.trim()) {
@@ -752,62 +819,125 @@ function VendorsPage({
 
       <Panel
         title="Vendor directory"
-        eyebrow={isLoading ? "Loading vendors" : `${filteredVendors.length} vendors shown`}
+        eyebrow={isLoading ? "Loading vendors" : `${filteredVendors.length} vendors shown${pagination ? ` of ${pagination.total}` : ""}`}
         action={
-          <div className="flex flex-wrap gap-2">
-            <SearchBox value={query} onChange={setQuery} />
+          <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap">
+            <SearchBox value={query} onChange={handleQueryChange} />
             <SelectPill value={status} onChange={setStatus} values={["All", "Healthy", "Zombie", "Duplicate", "Renewal risk", "Unused seats"]} />
           </div>
         }
       >
-        {filteredVendors.length === 0 ? (
-          <EmptyState title="No vendors yet" detail="Add your first vendor to see live spend, renewal, and waste detection data from the backend." />
+        {pendingDelete && (
+          <div className="mb-4 rounded-lg border border-risk/20 bg-risk-soft p-4 text-risk">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <strong className="block text-sm">Delete {pendingDelete.name}?</strong>
+                <span className="mt-1 block text-sm">This removes the vendor from this workspace.</span>
+              </div>
+              <div className="flex gap-2">
+                <button className="min-h-10 rounded-lg bg-risk px-3 text-sm font-extrabold text-white" type="button" onClick={handleConfirmDelete}>
+                  Delete
+                </button>
+                <button className="min-h-10 rounded-lg bg-white px-3 text-sm font-extrabold text-risk" type="button" onClick={() => setPendingDelete(null)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {isLoading ? (
+          <TableSkeleton rows={6} />
+        ) : filteredVendors.length === 0 ? (
+          <EmptyState
+            title="No vendors yet"
+            detail="Add your first vendor to see live spend, renewal, and waste detection data from the backend."
+            action={
+              <div className="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
+                <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel px-4 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:text-brand" type="button" onClick={() => setShowForm(true)}>
+                  Add vendor
+                </button>
+              </div>
+            }
+          />
         ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-[920px] w-full border-separate border-spacing-y-2 text-left">
-            <thead>
-              <tr className="text-xs uppercase text-quiet">
-                <th className="px-3 py-2">Vendor</th>
-                <th className="px-3 py-2">Owner</th>
-                <th className="px-3 py-2">Monthly spend</th>
-                <th className="px-3 py-2">Seats</th>
-                <th className="px-3 py-2">Last used</th>
-                <th className="px-3 py-2">Renewal</th>
-                <th className="px-3 py-2">Risk</th>
-                <th className="px-3 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredVendors.map((vendor) => (
-                <tr className="rounded-lg bg-panel-subtle shadow-sm transition hover:-translate-y-0.5 hover:shadow-md" key={vendor.id}>
-                  <td className="rounded-l-lg border-y border-l border-line px-3 py-3">
-                    <VendorIdentity vendor={vendor} />
-                  </td>
-                  <td className="border-y border-line px-3 py-3 text-sm font-bold">{vendor.owner}</td>
-                  <td className="border-y border-line px-3 py-3 text-sm font-extrabold">{currency(vendor.spend)}</td>
-                  <td className="border-y border-line px-3 py-3 text-sm text-quiet">
-                    <strong className="text-ink">{vendor.activeSeats}</strong> / {vendor.seats}
-                  </td>
-                  <td className="border-y border-line px-3 py-3 text-sm text-quiet">{vendor.lastUsed}</td>
-                  <td className="border-y border-line px-3 py-3 text-sm font-bold">{vendor.renewal}</td>
-                  <td className="border-y border-line px-3 py-3">
-                    <RiskPill risk={vendor.risk} label={vendor.status} />
-                  </td>
-                  <td className="rounded-r-lg border-y border-r border-line px-3 py-3">
-                    <div className="flex gap-2">
-                      <IconButton label={`Open ${vendor.name}`} onClick={() => onToast(`${vendor.name} profile opened.`)}>
-                        <ChevronRight aria-hidden="true" size={18} />
-                      </IconButton>
-                      <IconButton label={`Delete ${vendor.name}`} onClick={() => onDeleteVendor(vendor)}>
-                        <Trash2 aria-hidden="true" size={18} />
-                      </IconButton>
-                    </div>
-                  </td>
+          <>
+          <div className="grid gap-3 md:hidden">
+            {visibleVendors.map((vendor) => (
+              <article className="rounded-lg border border-line bg-panel-subtle p-4 shadow-sm" key={vendor.id}>
+                <div className="flex items-start justify-between gap-3">
+                  <VendorIdentity vendor={vendor} />
+                  <RiskPill risk={vendor.risk} label={vendor.status} />
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                  <MobileMetric label="Spend" value={currency(vendor.spend)} />
+                  <MobileMetric label="Seats" value={`${vendor.activeSeats} / ${vendor.seats}`} />
+                  <MobileMetric label="Last used" value={vendor.lastUsed} />
+                  <MobileMetric label="Renewal" value={vendor.renewal} />
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <SecondaryButton onClick={() => onToast(`${vendor.name} profile opened.`)}>Open</SecondaryButton>
+                  <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-risk/20 bg-risk-soft px-4 text-sm font-extrabold text-risk transition hover:-translate-y-0.5" type="button" onClick={() => setPendingDelete(vendor)}>
+                    Delete
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="min-w-[920px] w-full border-separate border-spacing-y-2 text-left">
+              <thead>
+                <tr className="text-xs uppercase text-quiet">
+                  <th className="px-3 py-2">Vendor</th>
+                  <th className="px-3 py-2">Owner</th>
+                  <th className="px-3 py-2">Monthly spend</th>
+                  <th className="px-3 py-2">Seats</th>
+                  <th className="px-3 py-2">Last used</th>
+                  <th className="px-3 py-2">Renewal</th>
+                  <th className="px-3 py-2">Risk</th>
+                  <th className="px-3 py-2"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {visibleVendors.map((vendor) => (
+                  <tr className="rounded-lg bg-panel-subtle shadow-sm transition hover:-translate-y-0.5 hover:shadow-md" key={vendor.id}>
+                    <td className="rounded-l-lg border-y border-l border-line px-3 py-3">
+                      <VendorIdentity vendor={vendor} />
+                    </td>
+                    <td className="border-y border-line px-3 py-3 text-sm font-bold">{vendor.owner}</td>
+                    <td className="border-y border-line px-3 py-3 text-sm font-extrabold">{currency(vendor.spend)}</td>
+                    <td className="border-y border-line px-3 py-3 text-sm text-quiet">
+                      <strong className="text-ink">{vendor.activeSeats}</strong> / {vendor.seats}
+                    </td>
+                    <td className="border-y border-line px-3 py-3 text-sm text-quiet">{vendor.lastUsed}</td>
+                    <td className="border-y border-line px-3 py-3 text-sm font-bold">{vendor.renewal}</td>
+                    <td className="border-y border-line px-3 py-3">
+                      <RiskPill risk={vendor.risk} label={vendor.status} />
+                    </td>
+                    <td className="rounded-r-lg border-y border-r border-line px-3 py-3">
+                      <div className="flex gap-2">
+                        <IconButton label={`Open ${vendor.name}`} onClick={() => onToast(`${vendor.name} profile opened.`)}>
+                          <ChevronRight aria-hidden="true" size={18} />
+                        </IconButton>
+                        <IconButton label={`Delete ${vendor.name}`} onClick={() => setPendingDelete(vendor)}>
+                          <Trash2 aria-hidden="true" size={18} />
+                        </IconButton>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-4 flex flex-col gap-3 border-t border-line pt-4 text-sm text-quiet sm:flex-row sm:items-center sm:justify-between">
+            <span className="font-bold">
+              Page {currentPage} of {totalPages}
+            </span>
+            <div className="flex gap-2">
+              <SecondaryButton onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</SecondaryButton>
+              <SecondaryButton onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Next</SecondaryButton>
+            </div>
+          </div>
+          </>
         )}
       </Panel>
     </div>
@@ -881,7 +1011,7 @@ function WasteDetectionPage({
 
         <Panel title="Detection mix" eyebrow="Waste by class">
           <div className="h-[280px]">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 280 }}>
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 280 }}>
               <BarChart data={wasteSignals} layout="vertical" margin={{ top: 4, right: 16, left: 18, bottom: 4 }}>
                 <CartesianGrid stroke="#dce4e8" strokeDasharray="3 3" horizontal={false} />
                 <XAxis type="number" axisLine={false} tickLine={false} tickFormatter={(value) => `$${Number(value) / 1000}k`} tick={{ fill: "#66747d", fontSize: 12 }} />
@@ -923,7 +1053,7 @@ function RenewalsPage({
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
         <Panel title="Renewal exposure" eyebrow="Next 90 days">
           <div className="h-[310px]">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 310 }}>
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 310 }}>
               <BarChart data={renewalChartData} margin={{ top: 10, right: 16, left: -12, bottom: 0 }}>
                 <CartesianGrid stroke="#dce4e8" strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="window" axisLine={false} tickLine={false} tick={{ fill: "#66747d", fontSize: 12 }} />
@@ -1008,7 +1138,7 @@ function ReportsPage({
 
       <Panel title="Savings captured over time" eyebrow="Report chart">
         <div className="h-[320px]">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 320 }}>
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 320 }}>
             <LineChart data={spendTrend} margin={{ top: 10, right: 16, left: -12, bottom: 0 }}>
               <CartesianGrid stroke="#dce4e8" strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: "#66747d", fontSize: 12 }} />
@@ -1113,9 +1243,8 @@ function EmailGeneratorPage({
               <div className="grid grid-cols-3 gap-2">
                 {["Direct", "Friendly", "Firm"].map((tone) => (
                   <button
-                    className={`min-h-10 rounded-lg border text-sm font-extrabold transition ${
-                      emailTone === tone ? "border-brand bg-brand text-white" : "border-line bg-panel text-quiet hover:bg-panel-muted hover:text-ink"
-                    }`}
+                    className={`min-h-10 rounded-lg border text-sm font-extrabold transition ${emailTone === tone ? "border-brand bg-brand text-white" : "border-line bg-panel text-quiet hover:bg-panel-muted hover:text-ink"
+                      }`}
                     type="button"
                     key={tone}
                     onClick={() => onToneChange(tone)}
@@ -1268,7 +1397,7 @@ function SettingsPage({ onToast }: { onToast: (message: string) => void }) {
   );
 }
 
-function HeroBand({ onToast }: { onToast: (message: string) => void }) {
+function HeroBand({ onNavigate }: { onNavigate: (page: PageId) => void }) {
   return (
     <section className="w-full max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-line bg-inverse text-inverse-ink shadow-[0_24px_70px_rgba(23,32,38,0.18)] sm:max-w-full">
       <div className="grid min-w-0 max-w-full gap-6 p-5 sm:p-6 xl:grid-cols-[minmax(0,1fr)_390px] xl:items-center">
@@ -1282,11 +1411,11 @@ function HeroBand({ onToast }: { onToast: (message: string) => void }) {
             AutoAudit matched finance spend, renewal notices, and usage signals to rank cancellations, unused seats, duplicate tools, and contract risk.
           </p>
           <div className="mt-5 flex flex-wrap gap-2.5">
-            <button className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-inverse-action px-4 text-sm font-extrabold text-inverse-action-ink shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg sm:w-auto" type="button" onClick={() => onToast("Waste action queue opened.")}>
+            <button className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-inverse-action px-4 text-sm font-extrabold text-inverse-action-ink shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg sm:w-auto" type="button" onClick={() => onNavigate("waste")}>
               Review actions
               <ChevronRight aria-hidden="true" size={17} />
             </button>
-            <button className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-inverse-ink/20 px-4 text-center text-sm font-extrabold text-inverse-ink transition hover:-translate-y-0.5 hover:bg-inverse-ink/10 sm:w-auto" type="button" onClick={() => onToast("CFO report generated.")}>
+            <button className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-inverse-ink/20 px-4 text-center text-sm font-extrabold text-inverse-ink transition hover:-translate-y-0.5 hover:bg-inverse-ink/10 sm:w-auto" type="button" onClick={() => onNavigate("reports")}>
               Generate CFO report
             </button>
           </div>
@@ -1345,30 +1474,30 @@ function UnusedSeatsTable({ rows }: { rows: UnusedSeatRow[] }) {
       {rows.length === 0 ? (
         <EmptyState title="No unused seats detected" detail="Seat waste will appear once vendors include seat counts and usage data." />
       ) : (
-      <div className="overflow-x-auto">
-        <table className="min-w-[640px] w-full text-left">
-          <thead>
-            <tr className="border-b border-line text-xs uppercase text-quiet">
-              <th className="px-3 py-3">Tool</th>
-              <th className="px-3 py-3">Owner</th>
-              <th className="px-3 py-3">Unused</th>
-              <th className="px-3 py-3">Annual cost</th>
-              <th className="px-3 py-3">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            {rows.map((row) => (
-              <tr className="transition hover:bg-panel-muted/60" key={row.tool}>
-                <td className="px-3 py-3 font-extrabold">{row.tool}</td>
-                <td className="px-3 py-3 text-sm text-quiet">{row.owner}</td>
-                <td className="px-3 py-3 text-sm font-extrabold">{row.unused}</td>
-                <td className="px-3 py-3 text-sm font-extrabold">{currency(row.cost)}</td>
-                <td className="px-3 py-3 text-sm text-quiet">{row.action}</td>
+        <div className="overflow-x-auto">
+          <table className="min-w-[640px] w-full text-left">
+            <thead>
+              <tr className="border-b border-line text-xs uppercase text-quiet">
+                <th className="px-3 py-3">Tool</th>
+                <th className="px-3 py-3">Owner</th>
+                <th className="px-3 py-3">Unused</th>
+                <th className="px-3 py-3">Annual cost</th>
+                <th className="px-3 py-3">Action</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {rows.map((row) => (
+                <tr className="transition hover:bg-panel-muted/60" key={row.tool}>
+                  <td className="px-3 py-3 font-extrabold">{row.tool}</td>
+                  <td className="px-3 py-3 text-sm text-quiet">{row.owner}</td>
+                  <td className="px-3 py-3 text-sm font-extrabold">{row.unused}</td>
+                  <td className="px-3 py-3 text-sm font-extrabold">{currency(row.cost)}</td>
+                  <td className="px-3 py-3 text-sm text-quiet">{row.action}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </Panel>
   );
@@ -1437,9 +1566,18 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+function MobileMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-line bg-panel p-3">
+      <span className="block text-xs font-extrabold uppercase text-quiet">{label}</span>
+      <strong className="mt-1 block truncate text-sm font-extrabold">{value}</strong>
+    </div>
+  );
+}
+
 function SearchBox({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
-    <label className="flex min-h-10 min-w-[240px] items-center gap-2 rounded-lg border border-line bg-panel-subtle px-3 text-sm text-quiet">
+    <label className="flex min-h-10 w-full min-w-0 items-center gap-2 rounded-lg border border-line bg-panel-subtle px-3 text-sm text-quiet sm:min-w-[240px]">
       <Search aria-hidden="true" size={17} />
       <input className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-quiet" value={value} placeholder="Search vendors" onChange={(event) => onChange(event.target.value)} />
     </label>
@@ -1576,9 +1714,31 @@ async function copyText(text: string, onToast: (message: string) => void) {
 
 function LoadingState({ label }: { label: string }) {
   return (
-    <div className="mb-4 flex items-center gap-3 rounded-lg border border-line bg-panel px-4 py-3 text-sm font-extrabold text-quiet shadow-[0_18px_45px_rgba(23,32,38,0.08)]">
-      <span className="size-4 animate-spin rounded-full border-2 border-line border-t-brand" />
-      {label}
+    <div className="mb-4 grid gap-3 rounded-lg border border-line bg-panel p-4 shadow-[0_18px_45px_rgba(23,32,38,0.08)]">
+      <div className="flex items-center gap-3 text-sm font-extrabold text-quiet">
+        <span className="size-4 animate-spin rounded-full border-2 border-line border-t-brand" />
+        {label}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <span className="h-20 animate-pulse rounded-lg bg-panel-muted" key={index} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TableSkeleton({ rows }: { rows: number }) {
+  return (
+    <div className="grid gap-2">
+      {Array.from({ length: rows }).map((_, index) => (
+        <div className="grid min-h-16 animate-pulse grid-cols-[2fr_1fr_1fr_1fr] gap-3 rounded-lg border border-line bg-panel-subtle p-3" key={index}>
+          <span className="rounded bg-panel-muted" />
+          <span className="rounded bg-panel-muted" />
+          <span className="rounded bg-panel-muted" />
+          <span className="rounded bg-panel-muted" />
+        </div>
+      ))}
     </div>
   );
 }
@@ -1594,11 +1754,15 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
   );
 }
 
-function EmptyState({ title, detail }: { title: string; detail: string }) {
+function EmptyState({ title, detail, action, icon: Icon = Inbox }: { title: string; detail: string; action?: ReactNode; icon?: LucideIcon }) {
   return (
     <div className="rounded-lg border border-dashed border-line bg-panel-subtle p-6 text-center">
-      <strong className="block text-sm font-extrabold">{title}</strong>
+      <span className="mx-auto grid size-11 place-items-center rounded-lg bg-brand-soft text-brand">
+        <Icon aria-hidden="true" size={21} />
+      </span>
+      <strong className="mt-4 block text-sm font-extrabold">{title}</strong>
       <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-quiet">{detail}</p>
+      {action}
     </div>
   );
 }
@@ -1789,5 +1953,3 @@ function initials(name: string) {
     .slice(0, 2)
     .toUpperCase();
 }
-
-

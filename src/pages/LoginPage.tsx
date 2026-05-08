@@ -9,13 +9,13 @@ export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [email, setEmail] = useState("test2@autoaudit.ai");
-  const [password, setPassword] = useState("password123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const redirectTo = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/";
+  const redirectTo = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/dashboard";
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -33,15 +33,15 @@ export function LoginPage() {
   }
 
   return (
-    <AuthLayout title="Welcome back" subtitle="Sign in to review SaaS waste, renewals, and vendor actions.">
+      <AuthLayout title="Welcome back" subtitle="Sign in to review SaaS waste, renewals, and vendor actions.">
       <form className="grid gap-4" onSubmit={handleSubmit}>
         {error && <AuthError message={error} />}
         <AuthField label="Email">
-          <input className="input" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+          <input className="input" type="email" value={email} autoComplete="email" placeholder="you@company.com" onChange={(event) => setEmail(event.target.value)} required />
         </AuthField>
         <AuthField label="Password">
           <div className="relative">
-            <input className="input pr-12" type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} required />
+            <input className="input pr-12" type={showPassword ? "text" : "password"} value={password} autoComplete="current-password" placeholder="Enter your password" onChange={(event) => setPassword(event.target.value)} required />
             <button
               className="absolute right-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-quiet transition hover:bg-panel-muted hover:text-ink"
               type="button"
@@ -78,7 +78,9 @@ function AuthLayout({ title, subtitle, children }: { title: string; subtitle: st
             <ShieldCheck aria-hidden="true" size={27} />
           </span>
           <div>
-            <strong className="block text-lg font-extrabold">AutoAudit.ai</strong>
+            <Link className="block text-lg font-extrabold" to="/">
+              AutoAudit.ai
+            </Link>
             <span className="text-sm text-inverse-ink/60">Authenticated SaaS control room</span>
           </div>
         </div>
