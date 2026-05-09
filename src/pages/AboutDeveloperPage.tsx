@@ -35,7 +35,7 @@ export function AboutDeveloperPage() {
         </div>
 
         <div>
-          <p className="text-xs font-extrabold uppercase text-brand-strong">About developer</p>
+          <p className="text-xs font-extrabold uppercase text-brand-strong">About Founder</p>
           <h1 className="mt-3 text-4xl font-extrabold leading-tight tracking-normal sm:text-5xl">Obaid, self-taught full-stack web developer.</h1>
           <div className="mt-6 grid gap-4 text-sm leading-7 text-quiet">
             <p>

@@ -200,6 +200,28 @@ export function LandingPage() {
         </div>
       </section>
 
+      <section className="border-y border-line bg-panel">
+        <div className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-12 sm:px-6 lg:grid-cols-[0.8fr_1fr] lg:items-center lg:px-8">
+          <div>
+            <p className="text-xs font-extrabold uppercase text-brand-strong">Founder note</p>
+            <h2 className="mt-2 text-3xl font-extrabold tracking-normal">Built by a real person, improved with real user feedback.</h2>
+          </div>
+          <div className="rounded-lg border border-line bg-panel-subtle p-5 shadow-[0_14px_34px_rgba(23,32,38,0.06)]">
+            <p className="text-sm leading-7 text-quiet">
+              I am Obaid, the developer behind AutoAudit.ai. I am building this product for founders, finance teams, and operators who want a simpler way to spot SaaS waste, review renewals, and turn findings into clear action. The product is still early, so I am personally reviewing feedback, improving the workflow, and helping early users get value without a heavy setup process.
+            </p>
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+              <Link className="inline-flex min-h-11 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong" to="/contact">
+                Contact founder
+              </Link>
+              <Link className="inline-flex min-h-11 items-center justify-center rounded-lg border border-line bg-panel px-4 text-sm font-extrabold text-ink transition hover:border-brand hover:text-brand" to="/about-developer">
+                About developer
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section className="px-4 pb-12 sm:px-6 lg:px-8">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 rounded-lg border border-line bg-inverse p-6 text-inverse-ink shadow-[0_24px_70px_rgba(23,32,38,0.16)] md:flex-row md:items-center md:justify-between">
           <div>

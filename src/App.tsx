@@ -10,6 +10,7 @@ const LegalPage = lazy(() => import("./pages/LegalPage").then((module) => ({ def
 const LoginPage = lazy(() => import("./pages/LoginPage").then((module) => ({ default: module.LoginPage })));
 const PricingPage = lazy(() => import("./pages/PricingPage").then((module) => ({ default: module.PricingPage })));
 const SignupPage = lazy(() => import("./pages/SignupPage").then((module) => ({ default: module.SignupPage })));
+const StarterGuidePage = lazy(() => import("./pages/StarterGuidePage").then((module) => ({ default: module.StarterGuidePage })));
 const DashboardPage = lazy(() => import("./pages/DashboardPage").then((module) => ({ default: module.DashboardPage })));
 
 export function App() {
@@ -21,6 +22,7 @@ export function App() {
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/demo" element={<DemoPage />} />
+          <Route path="/starter-guide" element={<StarterGuidePage />} />
           <Route path="/about-developer" element={<AboutDeveloperPage />} />
           <Route path="/privacy" element={<LegalPage type="privacy" />} />
           <Route path="/terms" element={<LegalPage type="terms" />} />

@@ -52,6 +52,7 @@ import type { ChangeEvent, ReactNode } from "react";
 import { aiApi, analyticsApi, auditApi, contactApi, profileApi, renewalApi, reportApi, vendorApi } from "../api/services";
 import { getApiErrorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { PublicFooter } from "../components/PublicFooter";
 import { useTheme } from "../theme/ThemeContext";
 import type { AiEmailGoal, ApiCompany, ApiContactRequest, ApiRenewal, ApiReport, ApiVendor, AuditSummary, CreateVendorInput, PaginationMeta } from "../types/api";
 
@@ -550,6 +551,9 @@ export function DashboardPage() {
               )}
               {activePage === "billing" && <PlanPage company={company} vendorCount={dashboardVendors.length} onToast={showToast} />}
               {activePage === "settings" && <SettingsPage companySettings={company?.settings} onToast={showToast} />}
+              <div className="mt-8 overflow-hidden rounded-lg border border-line shadow-[0_18px_45px_rgba(23,32,38,0.08)]">
+                <PublicFooter />
+              </div>
             </div>
           </main>
         </div>
