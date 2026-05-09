@@ -316,10 +316,14 @@ export function DashboardPage() {
   };
 
   const handleCreateVendor = async (input: CreateVendorInput) => {
-    const vendor = await vendorApi.create(input);
-    setApiVendors((current) => [vendor, ...current]);
-    await refreshDashboardData();
-    showToast(`${vendor.name} added.`);
+    try {
+      const vendor = await vendorApi.create(input);
+      setApiVendors((current) => [vendor, ...current]);
+      await refreshDashboardData();
+      showToast(`${vendor.name} added.`);
+    } catch (error) {
+      throw new Error(withUpgradePrompt(getApiErrorMessage(error)));
+    }
   };
 
   const handleImportVendors = async (inputs: CreateVendorInput[]) => {
@@ -349,7 +353,7 @@ export function DashboardPage() {
       await refreshDashboardData();
       const created = results.filter((result) => result.status === "fulfilled").length;
       const firstError = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-      showToast(firstError ? getApiErrorMessage(firstError.reason) : `${created} sample vendors loaded.`);
+      showToast(firstError ? withUpgradePrompt(getApiErrorMessage(firstError.reason)) : `${created} sample vendors loaded.`);
     } finally {
       setLoadingDemo(false);
     }
@@ -379,7 +383,7 @@ export function DashboardPage() {
       setMonthlyReportDraft(report);
       showToast("AI CFO report generated.");
     } catch (error) {
-      showToast(getApiErrorMessage(error));
+      showToast(withUpgradePrompt(getApiErrorMessage(error)));
     } finally {
       setReportGenerating(false);
     }
@@ -393,7 +397,7 @@ export function DashboardPage() {
       setWasteAnalysis(analysis);
       showToast("AI duplicate-tool suggestions generated.");
     } catch (error) {
-      showToast(getApiErrorMessage(error));
+      showToast(withUpgradePrompt(getApiErrorMessage(error)));
     } finally {
       setWasteAnalyzing(false);
     }
@@ -407,7 +411,7 @@ export function DashboardPage() {
       setWasteAnalysis(analysis);
       showToast(`${signal.vendor} waste explanation generated.`);
     } catch (error) {
-      showToast(getApiErrorMessage(error));
+      showToast(withUpgradePrompt(getApiErrorMessage(error)));
     } finally {
       setWasteAnalyzing(false);
     }
@@ -442,21 +446,26 @@ export function DashboardPage() {
                 <WasteDetectionPage
                   aiAnalysis={wasteAnalysis}
                   duplicateTools={duplicateToolRows}
+                  hasVendors={dashboardVendors.length > 0}
+                  isLoadingDemo={isLoadingDemo}
                   isAnalyzing={isWasteAnalyzing}
                   unusedSeats={unusedSeatRows}
                   wasteSignals={dashboardWasteSignals}
                   onExplainWaste={handleExplainWaste}
+                  onLoadDemoData={handleLoadDemoData}
+                  onNavigate={handleNav}
                   onRunDetection={handleSuggestDuplicateTools}
                   onToast={showToast}
                 />
               )}
-              {activePage === "renewals" && <RenewalsPage renewalChartData={dashboardRenewalChart} renewalRows={renewalRows} onToast={showToast} />}
-              {activePage === "reports" && <ReportsPage isGenerating={isReportGenerating} reportDraft={monthlyReportDraft} onGenerateReport={handleGenerateMonthlyReport} onToast={showToast} />}
+              {activePage === "renewals" && <RenewalsPage hasVendors={dashboardVendors.length > 0} isLoadingDemo={isLoadingDemo} renewalChartData={dashboardRenewalChart} renewalRows={renewalRows} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} onToast={showToast} />}
+              {activePage === "reports" && <ReportsPage hasVendors={dashboardVendors.length > 0} isGenerating={isReportGenerating} isLoadingDemo={isLoadingDemo} reportDraft={monthlyReportDraft} onGenerateReport={handleGenerateMonthlyReport} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} onToast={showToast} />}
               {activePage === "email" && (
                 <EmailGeneratorPage
                   vendors={dashboardVendors}
                   draft={draft}
                   emailTone={emailTone}
+                  isLoadingDemo={isLoadingDemo}
                   onCopyDraft={copyDraft}
                   onDraftChange={setDraft}
                   onGenerate={async (vendorName, tone, goal) => {
@@ -469,10 +478,12 @@ export function DashboardPage() {
                     setDraft(generatedDraft);
                     showToast("AI draft refreshed with company context.");
                   }}
+                  onLoadDemoData={handleLoadDemoData}
+                  onNavigate={handleNav}
                   onToneChange={setEmailTone}
                 />
               )}
-              {activePage === "billing" && <PlanPage company={company} onToast={showToast} />}
+              {activePage === "billing" && <PlanPage company={company} vendorCount={dashboardVendors.length} onToast={showToast} />}
               {activePage === "settings" && <SettingsPage companySettings={company?.settings} onToast={showToast} />}
             </div>
           </main>
@@ -1086,19 +1097,27 @@ function VendorsPage({
 function WasteDetectionPage({
   aiAnalysis,
   duplicateTools,
+  hasVendors,
+  isLoadingDemo,
   isAnalyzing,
   unusedSeats,
   wasteSignals,
   onExplainWaste,
+  onLoadDemoData,
+  onNavigate,
   onRunDetection,
   onToast,
 }: {
   aiAnalysis: string;
   duplicateTools: DuplicateToolRow[];
+  hasVendors: boolean;
+  isLoadingDemo: boolean;
   isAnalyzing: boolean;
   unusedSeats: UnusedSeatRow[];
   wasteSignals: WasteSignal[];
   onExplainWaste: (signal: WasteSignal) => Promise<void>;
+  onLoadDemoData: () => Promise<void>;
+  onNavigate: (page: PageId) => void;
   onRunDetection: () => Promise<void>;
   onToast: (message: string) => void;
 }) {
@@ -1126,7 +1145,13 @@ function WasteDetectionPage({
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
         <Panel title="Recommended actions" eyebrow="Highest impact first">
           <div className="grid gap-3">
-            {wasteSignals.length === 0 && <EmptyState title="No waste signals yet" detail="Add vendors with spend, seats, usage, and renewal data to generate live waste findings." />}
+            {wasteSignals.length === 0 && (
+              <EmptyState
+                title={hasVendors ? "No waste signals yet" : "No vendor data yet"}
+                detail={hasVendors ? "Add spend, seats, usage, and renewal dates to sharpen waste findings." : "Load sample vendors or import a CSV to generate live waste findings."}
+                action={<EmptySetupActions isLoadingDemo={isLoadingDemo} onLoadDemoData={onLoadDemoData} onNavigate={onNavigate} />}
+              />
+            )}
             {wasteSignals.map((signal) => (
               <article className="rounded-lg border border-line bg-panel-subtle p-4 transition hover:-translate-y-0.5 hover:border-brand/50 hover:shadow-md" key={signal.title}>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1202,12 +1227,20 @@ function WasteDetectionPage({
 }
 
 function RenewalsPage({
+  hasVendors,
+  isLoadingDemo,
   renewalChartData,
   renewalRows,
+  onLoadDemoData,
+  onNavigate,
   onToast,
 }: {
+  hasVendors: boolean;
+  isLoadingDemo: boolean;
   renewalChartData: typeof renewalChart;
   renewalRows: RenewalRow[];
+  onLoadDemoData: () => Promise<void>;
+  onNavigate: (page: PageId) => void;
   onToast: (message: string) => void;
 }) {
   const [selectedRenewal, setSelectedRenewal] = useState<RenewalRow | null>(renewalRows[0] ?? null);
@@ -1244,7 +1277,13 @@ function RenewalsPage({
 
         <Panel title="Notice windows" eyebrow="Action required">
           <div className="grid gap-3">
-            {renewalRows.length === 0 && <EmptyState title="No upcoming renewals" detail="Renewals will appear here when vendors or subscriptions include renewal dates." />}
+            {renewalRows.length === 0 && (
+              <EmptyState
+                title={hasVendors ? "No upcoming renewals" : "No renewal data yet"}
+                detail={hasVendors ? "Renewals will appear here when vendors include renewal dates." : "Load sample data or import a CSV with renewal dates to build the renewal queue."}
+                action={<EmptySetupActions isLoadingDemo={isLoadingDemo} onLoadDemoData={onLoadDemoData} onNavigate={onNavigate} />}
+              />
+            )}
             {renewalRows.map((renewal) => (
               <article className="rounded-lg border border-line bg-panel-subtle p-4" key={renewal.id}>
                 <div className="flex items-center justify-between gap-3">
@@ -1287,14 +1326,22 @@ function RenewalsPage({
 }
 
 function ReportsPage({
+  hasVendors,
   isGenerating,
+  isLoadingDemo,
   reportDraft,
   onGenerateReport,
+  onLoadDemoData,
+  onNavigate,
   onToast,
 }: {
+  hasVendors: boolean;
   isGenerating: boolean;
+  isLoadingDemo: boolean;
   reportDraft: string;
   onGenerateReport: () => Promise<void>;
+  onLoadDemoData: () => Promise<void>;
+  onNavigate: (page: PageId) => void;
   onToast: (message: string) => void;
 }) {
   const [selectedReport, setSelectedReport] = useState(reports[0]);
@@ -1308,7 +1355,16 @@ function ReportsPage({
         action={<PrimaryButton onClick={onGenerateReport}>{isGenerating ? "Generating..." : "Create AI report"}</PrimaryButton>}
       />
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      {!hasVendors && (
+        <EmptyState
+          title="Reports need vendor data"
+          detail="Load sample vendors or import your own CSV before generating CFO-ready savings reports."
+          action={<EmptySetupActions isLoadingDemo={isLoadingDemo} onLoadDemoData={onLoadDemoData} onNavigate={onNavigate} />}
+          icon={FileText}
+        />
+      )}
+
+      {hasVendors && <div className="grid gap-4 lg:grid-cols-3">
         {reports.map((report) => (
           <article className="rounded-lg border border-line bg-panel p-5 shadow-[0_18px_45px_rgba(23,32,38,0.08)] transition hover:-translate-y-1 hover:shadow-xl" key={report.name}>
             <div className="flex items-start justify-between gap-3">
@@ -1327,9 +1383,9 @@ function ReportsPage({
             </div>
           </article>
         ))}
-      </div>
+      </div>}
 
-      {selectedReport && (
+      {hasVendors && selectedReport && (
         <Panel title={selectedReport.name} eyebrow="Report preview" action={<PanelAction label="Download summary" onClick={() => downloadTextFile(`${selectedReport.name}.txt`, buildReportSummary(selectedReport), onToast)} />}>
           <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
             <div className="rounded-lg border border-line bg-panel-subtle p-4">
@@ -1345,7 +1401,7 @@ function ReportsPage({
         </Panel>
       )}
 
-      <Panel title="Savings captured over time" eyebrow="Report chart">
+      {hasVendors && <Panel title="Savings captured over time" eyebrow="Report chart">
         <div className="h-[320px]">
           <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 320 }}>
             <LineChart data={spendTrend} margin={{ top: 10, right: 16, left: -12, bottom: 0 }}>
@@ -1358,7 +1414,7 @@ function ReportsPage({
             </LineChart>
           </ResponsiveContainer>
         </div>
-      </Panel>
+      </Panel>}
 
       {reportDraft && (
         <Panel title="AI monthly CFO waste report" eyebrow="Generated from live backend data" action={<PanelAction label="Copy" onClick={() => copyText(reportDraft, onToast)} />}>
@@ -1374,18 +1430,24 @@ function ReportsPage({
 function EmailGeneratorPage({
   draft,
   emailTone,
+  isLoadingDemo,
   vendors,
   onCopyDraft,
   onDraftChange,
   onGenerate,
+  onLoadDemoData,
+  onNavigate,
   onToneChange,
 }: {
   draft: string;
   emailTone: string;
+  isLoadingDemo: boolean;
   vendors: Vendor[];
   onCopyDraft: () => void;
   onDraftChange: (draft: string) => void;
   onGenerate: (vendorName: string, tone: string, goal: AiEmailGoal) => Promise<void>;
+  onLoadDemoData: () => Promise<void>;
+  onNavigate: (page: PageId) => void;
   onToneChange: (tone: string) => void;
 }) {
   const [selectedVendor, setSelectedVendor] = useState(vendors[0]?.name ?? "Clearbit");
@@ -1407,7 +1469,7 @@ function EmailGeneratorPage({
     try {
       await onGenerate(selectedVendor || vendors[0]?.name || "Vendor", emailTone, selectedGoal);
     } catch (err) {
-      setError(getApiErrorMessage(err));
+      setError(withUpgradePrompt(getApiErrorMessage(err)));
     } finally {
       setGenerating(false);
     }
@@ -1422,7 +1484,16 @@ function EmailGeneratorPage({
         action={<PrimaryButton onClick={handleGenerate}>{isGenerating ? "Generating..." : "Generate draft"}</PrimaryButton>}
       />
 
-      <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+      {vendors.length === 0 && (
+        <EmptyState
+          title="Email drafts need a vendor"
+          detail="Load sample data or import your vendor list so AutoAudit can attach spend, seats, renewal, and savings context to the draft."
+          action={<EmptySetupActions isLoadingDemo={isLoadingDemo} onLoadDemoData={onLoadDemoData} onNavigate={onNavigate} />}
+          icon={Mail}
+        />
+      )}
+
+      {vendors.length > 0 && <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
         <Panel title="Prompt controls" eyebrow="Company context">
           <div className="grid gap-4">
             {error && <div className="rounded-lg border border-risk/20 bg-risk-soft px-3 py-2 text-sm font-bold text-risk">{error}</div>}
@@ -1485,15 +1556,16 @@ function EmailGeneratorPage({
             onChange={(event) => onDraftChange(event.target.value)}
           />
         </Panel>
-      </div>
+      </div>}
     </div>
   );
 }
 
-function PlanPage({ company, onToast }: { company: ApiCompany | null; onToast: (message: string) => void }) {
+function PlanPage({ company, vendorCount, onToast }: { company: ApiCompany | null; vendorCount: number; onToast: (message: string) => void }) {
   const trial = getTrialState(company);
   const planLabel = formatPlanLabel(company?.plan ?? "free");
   const limits = getPlanLimitSet(company?.plan ?? "free");
+  const usage = getPlanUsage(company, vendorCount);
 
   return (
     <div className="grid gap-4">
@@ -1557,10 +1629,18 @@ function PlanPage({ company, onToast }: { company: ApiCompany | null; onToast: (
 
       <Panel title="Current limits" eyebrow={`${planLabel} limits`}>
         <div className="grid gap-3 md:grid-cols-4">
-          <PlanMetric label="Vendors" value={formatLimit(limits.vendors)} />
-          <PlanMetric label="Reports" value={formatLimit(limits.reports)} />
-          <PlanMetric label="AI emails" value={formatLimit(limits.aiEmails)} />
-          <PlanMetric label="AI analysis" value={formatLimit(limits.vendorAnalyses)} />
+          <UsageMeter label="Vendors" used={usage.vendors} limit={limits.vendors} />
+          <UsageMeter label="Reports" used={usage.reports} limit={limits.reports} />
+          <UsageMeter label="AI emails" used={usage.aiEmails} limit={limits.aiEmails} />
+          <UsageMeter label="AI analysis" used={usage.vendorAnalyses} limit={limits.vendorAnalyses} />
+        </div>
+        <div className="mt-4 rounded-lg border border-warning/20 bg-warning-soft p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-bold leading-6 text-warning">Hit a limit? Upgrade to Standard for higher limits and AI workflows.</p>
+            <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong" type="button" onClick={() => { window.location.href = "/pricing"; }}>
+              Upgrade to Standard!
+            </button>
+          </div>
         </div>
       </Panel>
     </div>
@@ -1582,25 +1662,34 @@ function TrialStatusBanner({
 }) {
   const trial = getTrialState(company);
   const planLabel = formatPlanLabel(company.plan);
+  const limits = getPlanLimitSet(company.plan);
+  const usage = getPlanUsage(company, vendorCount);
 
   return (
-    <div className="mb-4 flex flex-col gap-3 rounded-lg border border-line bg-panel p-4 shadow-[0_18px_45px_rgba(23,32,38,0.08)] sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <p className="text-xs font-extrabold uppercase text-brand-strong">{trial.isExpired ? "Trial ended" : planLabel}</p>
-        <strong className="mt-1 block text-lg font-extrabold">{trial.label}</strong>
-        <p className="mt-1 text-sm leading-6 text-quiet">
-          {trial.isExpired ? "Choose a plan to continue using AutoAudit.ai." : `You are testing ${planLabel}. Paid activation is manual until payments are connected.`}
-        </p>
-      </div>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        {vendorCount === 0 && !trial.isExpired && (
-          <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-60" type="button" disabled={isLoadingDemo} onClick={onLoadDemoData}>
-            {isLoadingDemo ? "Loading..." : "Load sample data"}
+    <div className="mb-4 grid gap-4 rounded-lg border border-line bg-panel p-4 shadow-[0_18px_45px_rgba(23,32,38,0.08)]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs font-extrabold uppercase text-brand-strong">{trial.isExpired ? "Trial ended" : planLabel}</p>
+          <strong className="mt-1 block text-lg font-extrabold">{trial.label}</strong>
+          <p className="mt-1 text-sm leading-6 text-quiet">
+            {trial.isExpired ? "Choose a plan to continue using AutoAudit.ai." : `You are testing ${planLabel}. Paid activation is manual until payments are connected.`}
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          {vendorCount === 0 && !trial.isExpired && (
+            <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-60" type="button" disabled={isLoadingDemo} onClick={onLoadDemoData}>
+              {isLoadingDemo ? "Loading..." : "Load sample data"}
+            </button>
+          )}
+          <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong" type="button" onClick={() => onNavigate("billing")}>
+            {trial.isExpired ? "Choose plan" : "Review plan"}
           </button>
-        )}
-        <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong" type="button" onClick={() => onNavigate("billing")}>
-          {trial.isExpired ? "Choose plan" : "Review plan"}
-        </button>
+        </div>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        <UsageMeter label="Vendors" used={usage.vendors} limit={limits.vendors} compact />
+        <UsageMeter label="Reports" used={usage.reports} limit={limits.reports} compact />
+        <UsageMeter label="AI emails" used={usage.aiEmails} limit={limits.aiEmails} compact />
       </div>
     </div>
   );
@@ -1950,6 +2039,37 @@ function PlanMetric({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg border border-line bg-panel-subtle p-4">
       <span className="text-xs font-extrabold uppercase text-quiet">{label}</span>
       <strong className="mt-2 block text-2xl font-extrabold">{value}</strong>
+    </div>
+  );
+}
+
+function UsageMeter({ label, used, limit, compact = false }: { label: string; used: number; limit: number | null; compact?: boolean }) {
+  const cappedUsed = Math.max(0, used);
+  const percent = limit === null || limit === 0 ? 0 : Math.min(100, Math.round((cappedUsed / limit) * 100));
+  const isAtLimit = limit !== null && cappedUsed >= limit;
+
+  return (
+    <div className={`rounded-lg border border-line bg-panel-subtle ${compact ? "p-3" : "p-4"}`}>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-extrabold uppercase text-quiet">{label}</span>
+        <strong className={`text-sm font-extrabold ${isAtLimit ? "text-risk" : "text-ink"}`}>{limit === null ? `${cappedUsed} / Custom` : `${cappedUsed} / ${limit}`}</strong>
+      </div>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-panel-muted">
+        <div className={`h-full rounded-full ${isAtLimit ? "bg-risk" : "bg-brand"}`} style={{ width: limit === null ? "18%" : `${percent}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function EmptySetupActions({ isLoadingDemo, onLoadDemoData, onNavigate }: { isLoadingDemo: boolean; onLoadDemoData: () => Promise<void>; onNavigate: (page: PageId) => void }) {
+  return (
+    <div className="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
+      <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60" type="button" disabled={isLoadingDemo} onClick={onLoadDemoData}>
+        {isLoadingDemo ? "Loading..." : "Load sample data"}
+      </button>
+      <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel px-4 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:text-brand" type="button" onClick={() => onNavigate("vendors")}>
+        Import CSV
+      </button>
     </div>
   );
 }
@@ -2464,8 +2584,25 @@ function getPlanLimitSet(plan: ApiCompany["plan"]) {
   return planLimitSets[plan] ?? planLimitSets.free;
 }
 
+function getPlanUsage(company: ApiCompany | null, vendorCount: number) {
+  return {
+    vendors: vendorCount,
+    reports: Number(company?.planUsage?.reportsGenerated ?? 0),
+    aiEmails: Number(company?.planUsage?.aiEmailsGenerated ?? 0),
+    vendorAnalyses: Number(company?.planUsage?.vendorAnalysesGenerated ?? 0),
+  };
+}
+
 function formatLimit(value: number | null) {
   return value === null ? "Custom" : String(value);
+}
+
+function withUpgradePrompt(message: string) {
+  if (/limit|allows up to|includes|trial has ended|choose a plan/i.test(message)) {
+    return `${message} Upgrade to Standard!`;
+  }
+
+  return message;
 }
 
 function daysAgoIso(days: number) {
