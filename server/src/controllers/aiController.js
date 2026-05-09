@@ -7,6 +7,12 @@ import { buildAuditSummary } from "../services/wasteDetection.js";
 import { generateAiText } from "../services/openaiService.js";
 import { AppError } from "../utils/AppError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import {
+  assertCanAnalyzeVendor,
+  assertCanGenerateAiEmail,
+  assertCanGenerateReport,
+  incrementPlanUsage,
+} from "../services/planLimits.js";
 
 const EMAIL_INSTRUCTIONS = `You are AutoAudit.ai, an expert SaaS spend operations assistant.
 Write polished B2B vendor emails for finance and operations teams.
@@ -19,6 +25,8 @@ Be specific, CFO-friendly, and action oriented. If data is missing, say what is 
 Return clear markdown without code fences.`;
 
 export const generateCancelEmail = asyncHandler(async (req, res) => {
+  await assertCanGenerateAiEmail(req.companyId);
+
   const { vendorId, vendorName, tone = "direct", requestedAction = "cancel renewal" } = req.body;
   const vendor = await resolveVendor({ companyId: req.companyId, vendorId, vendorName, required: true });
   const renewal = await findRenewalForVendor(req.companyId, vendor?._id);
@@ -35,6 +43,7 @@ export const generateCancelEmail = asyncHandler(async (req, res) => {
       evidence: buildWasteEvidence(vendor, renewal),
     }),
   });
+  await incrementPlanUsage(req.companyId, "aiEmailsGenerated");
 
   res.json({
     draft,
@@ -48,6 +57,8 @@ export const generateCancelEmail = asyncHandler(async (req, res) => {
 });
 
 export const generateRenegotiateEmail = asyncHandler(async (req, res) => {
+  await assertCanGenerateAiEmail(req.companyId);
+
   const { vendorId, vendorName, renewalId, tone = "direct", negotiationGoal = "reduce renewal cost" } = req.body;
   const renewal = renewalId ? await Renewal.findOne({ _id: renewalId, company: req.companyId }).populate("vendor") : null;
   const vendor =
@@ -72,6 +83,7 @@ export const generateRenegotiateEmail = asyncHandler(async (req, res) => {
       ],
     }),
   });
+  await incrementPlanUsage(req.companyId, "aiEmailsGenerated");
 
   res.json({
     draft,
@@ -86,6 +98,8 @@ export const generateRenegotiateEmail = asyncHandler(async (req, res) => {
 });
 
 export const generateMonthlyReport = asyncHandler(async (req, res) => {
+  await assertCanGenerateReport(req.companyId);
+
   const { periodStart, periodEnd, audience = "CFO" } = req.body;
   const [company, vendors, subscriptions, renewals] = await Promise.all([
     Company.findById(req.companyId),
@@ -132,6 +146,7 @@ export const generateMonthlyReport = asyncHandler(async (req, res) => {
     findings: [{ type: "ai_report", content: reportText }],
     status: "ready",
   });
+  await incrementPlanUsage(req.companyId, "reportsGenerated");
 
   res.status(201).json({
     report: reportText,
@@ -144,6 +159,8 @@ export const generateMonthlyReport = asyncHandler(async (req, res) => {
 });
 
 export const analyzeVendor = asyncHandler(async (req, res) => {
+  await assertCanAnalyzeVendor(req.companyId);
+
   const { vendorId, vendorName, mode } = req.body;
   const vendor = vendorId || vendorName ? await resolveVendor({ companyId: req.companyId, vendorId, vendorName, required: false }) : null;
   const [vendors, subscriptions, renewals] = await Promise.all([
@@ -178,6 +195,7 @@ export const analyzeVendor = asyncHandler(async (req, res) => {
       },
     ),
   });
+  await incrementPlanUsage(req.companyId, "vendorAnalysesGenerated");
 
   res.json({
     analysis,

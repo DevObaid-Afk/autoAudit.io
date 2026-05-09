@@ -1,6 +1,6 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { FormEvent, useState } from "react";
-import { Eye, EyeOff, Moon, ShieldCheck, Sun } from "lucide-react";
+import { CheckCircle2, Eye, EyeOff, Moon, ShieldCheck, Sun } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { getApiErrorMessage } from "../api/client";
 import { useTheme } from "../theme/ThemeContext";
@@ -9,6 +9,9 @@ export function SignupPage() {
   const { signup } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const selectedPlan = normalizeSignupPlan(searchParams.get("plan"));
+  const selectedPlanCopy = signupPlanCopy[selectedPlan];
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -26,7 +29,7 @@ export function SignupPage() {
     setError("");
 
     try {
-      await signup(form);
+      await signup({ ...form, plan: selectedPlan });
       navigate("/dashboard", { replace: true });
     } catch (err) {
       setError(getApiErrorMessage(err));
@@ -74,6 +77,20 @@ export function SignupPage() {
           </div>
           <div className="grid gap-4">
             {error && <div className="rounded-lg border border-risk/20 bg-risk-soft px-3 py-2 text-sm font-bold text-risk">{error}</div>}
+            <div className="rounded-lg border border-line bg-panel-subtle p-4">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-good-soft text-good">
+                  <CheckCircle2 aria-hidden="true" size={18} />
+                </span>
+                <div>
+                  <strong className="block text-sm font-extrabold">{selectedPlanCopy.title}</strong>
+                  <span className="mt-1 block text-sm leading-6 text-quiet">{selectedPlanCopy.detail}</span>
+                  <Link className="mt-2 inline-flex text-sm font-extrabold text-brand hover:text-brand-strong" to="/pricing">
+                    Change plan
+                  </Link>
+                </div>
+              </div>
+            </div>
             <SignupField label="Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
             <SignupField label="Email" type="email" value={form.email} onChange={(value) => setForm({ ...form, email: value })} />
             <label className="grid gap-2">
@@ -107,6 +124,33 @@ export function SignupPage() {
       </section>
     </main>
   );
+}
+
+const signupPlanCopy = {
+  free: {
+    title: "Free trial selected",
+    detail: "Start with 7 days of access. No payment integration is active yet.",
+  },
+  starter: {
+    title: "Starter selected - $49/mo",
+    detail: "Create your workspace now. Paid activation can be handled manually after trial validation.",
+  },
+  standard: {
+    title: "Standard selected - $89/mo",
+    detail: "Includes AI reporting and action drafts once your workspace is activated.",
+  },
+  custom: {
+    title: "Custom plan selected",
+    detail: "Create a workspace first, then request a custom setup from the Plan section.",
+  },
+} satisfies Record<string, { title: string; detail: string }>;
+
+function normalizeSignupPlan(value: string | null) {
+  if (value === "starter" || value === "standard" || value === "custom") {
+    return value;
+  }
+
+  return "free";
 }
 
 function SignupField({

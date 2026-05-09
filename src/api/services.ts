@@ -2,7 +2,7 @@ import { apiClient } from "./client";
 import type { ApiRenewal, ApiVendor, AuditSummary, AuthResponse, CreateVendorInput, PaginationMeta } from "../types/api";
 
 export const authApi = {
-  async signup(input: { name: string; email: string; password: string; companyName: string; companyDomain?: string }) {
+  async signup(input: { name: string; email: string; password: string; companyName: string; companyDomain?: string; plan?: string }) {
     const { data } = await apiClient.post<AuthResponse>("/api/auth/signup", input);
     return data;
   },

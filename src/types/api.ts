@@ -11,7 +11,17 @@ export type ApiCompany = {
   _id: string;
   name: string;
   domain?: string;
-  plan: "free" | "starter" | "growth" | "enterprise";
+  plan: "free" | "starter" | "standard" | "growth" | "enterprise" | "custom";
+  trialStartedAt?: string;
+  trialEndsAt?: string;
+  subscriptionStatus?: "trialing" | "active" | "expired";
+  planUsage?: {
+    reportsGenerated?: number;
+    aiEmailsGenerated?: number;
+    vendorAnalysesGenerated?: number;
+  };
+  createdAt?: string;
+  updatedAt?: string;
   settings?: {
     requireCfoApprovalAbove: number;
     weeklyRenewalDigest: boolean;

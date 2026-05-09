@@ -12,6 +12,7 @@ export const signup = asyncHandler(async (req, res) => {
   const password = cleanString(req.body.password, { required: true, field: "Password", max: 256 });
   const companyName = cleanString(req.body.companyName, { required: true, field: "Company name", max: 120 });
   const companyDomain = cleanString(req.body.companyDomain, { field: "Company domain", max: 120 })?.toLowerCase();
+  const plan = cleanPlan(req.body.plan);
 
   if (!/^\S+@\S+\.\S+$/.test(email)) {
     throw new AppError("Email must be valid", 400);
@@ -29,6 +30,7 @@ export const signup = asyncHandler(async (req, res) => {
   const company = await Company.create({
     name: companyName,
     domain: companyDomain,
+    plan,
   });
 
   const passwordHash = await bcrypt.hash(password, 12);
@@ -79,4 +81,15 @@ function serializeUser(user) {
     role: user.role,
     company: user.company?._id ?? user.company,
   };
+}
+
+function cleanPlan(value) {
+  const allowedPlans = new Set(["free", "starter", "standard", "custom"]);
+
+  if (typeof value !== "string") {
+    return "free";
+  }
+
+  const plan = value.trim().toLowerCase();
+  return allowedPlans.has(plan) ? plan : "free";
 }

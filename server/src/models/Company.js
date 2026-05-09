@@ -16,8 +16,38 @@ const companySchema = new mongoose.Schema(
     },
     plan: {
       type: String,
-      enum: ["free", "starter", "growth", "enterprise"],
-      default: "starter",
+      enum: ["free", "starter", "standard", "growth", "enterprise", "custom"],
+      default: "free",
+    },
+    trialStartedAt: {
+      type: Date,
+      default: Date.now,
+    },
+    trialEndsAt: {
+      type: Date,
+      default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
+    subscriptionStatus: {
+      type: String,
+      enum: ["trialing", "active", "expired"],
+      default: "trialing",
+    },
+    planUsage: {
+      reportsGenerated: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      aiEmailsGenerated: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      vendorAnalysesGenerated: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
     },
     trackedSpendLimit: {
       type: Number,

@@ -5,6 +5,7 @@ import { AppError } from "../utils/AppError.js";
 import { cleanDate, cleanNumber, cleanString } from "../middleware/validate.js";
 import { recordAuditLog } from "../utils/auditLogger.js";
 import { buildPagination, parsePagination } from "../utils/query.js";
+import { assertCanCreateVendors } from "../services/planLimits.js";
 
 export const listVendors = asyncHandler(async (req, res) => {
   const { page, limit, skip } = parsePagination(req.query);
@@ -33,6 +34,8 @@ export const listVendors = asyncHandler(async (req, res) => {
 });
 
 export const createVendor = asyncHandler(async (req, res) => {
+  await assertCanCreateVendors(req.companyId);
+
   const input = sanitizeVendorInput(req.body, { partial: false });
   const classification = classifyVendorWaste(input);
   const vendor = await Vendor.create({

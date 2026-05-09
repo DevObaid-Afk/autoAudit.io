@@ -125,6 +125,13 @@ type WasteSignal = {
   type: "Zombie app" | "Unused seats" | "Duplicate tool" | "Renewal";
 };
 
+type PlanLimitSet = {
+  vendors: number | null;
+  reports: number | null;
+  aiEmails: number | null;
+  vendorAnalyses: number | null;
+};
+
 const navItems: NavItem[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "vendors", label: "Vendors", icon: Inbox },
@@ -132,7 +139,7 @@ const navItems: NavItem[] = [
   { id: "renewals", label: "Renewals", icon: CalendarClock },
   { id: "reports", label: "Reports", icon: FileText },
   { id: "email", label: "AI Email Generator", icon: Mail },
-  { id: "billing", label: "Billing", icon: CreditCard },
+  { id: "billing", label: "Plan", icon: CreditCard },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -169,10 +176,28 @@ const reports = [
 ];
 
 const integrations = [
-  { name: "Gmail", status: "Connected", detail: "Receipts and renewal notices" },
-  { name: "Ramp CSV", status: "Connected", detail: "Card and AP spend" },
-  { name: "Google Workspace", status: "Pending", detail: "SSO usage signals" },
-  { name: "Okta", status: "Not connected", detail: "Login activity and seats" },
+  { name: "CSV import", status: "Available", detail: "Manual vendor and spend uploads are ready now." },
+  { name: "Gmail", status: "Coming soon", detail: "Future receipt and renewal notice discovery." },
+  { name: "Ramp", status: "Coming soon", detail: "Future card and AP spend syncing." },
+  { name: "Okta", status: "Coming soon", detail: "Future login activity and seat usage signals." },
+];
+
+const planLimitSets = {
+  free: { vendors: 10, reports: 1, aiEmails: 3, vendorAnalyses: 3 },
+  starter: { vendors: 50, reports: 3, aiEmails: 0, vendorAnalyses: 0 },
+  standard: { vendors: 200, reports: 25, aiEmails: 100, vendorAnalyses: 50 },
+  growth: { vendors: 200, reports: 25, aiEmails: 100, vendorAnalyses: 50 },
+  enterprise: { vendors: null, reports: null, aiEmails: null, vendorAnalyses: null },
+  custom: { vendors: null, reports: null, aiEmails: null, vendorAnalyses: null },
+} satisfies Record<ApiCompany["plan"], PlanLimitSet>;
+
+const demoVendors: CreateVendorInput[] = [
+  { name: "Slack", category: "Collaboration", ownerName: "Ops", monthlySpend: 890, seatsPurchased: 80, activeSeats: 52, lastUsedAt: daysAgoIso(5), renewalDate: daysFromNowIso(24), notes: "Demo vendor with unused seats." },
+  { name: "Notion", category: "Knowledge", ownerName: "Product", monthlySpend: 420, seatsPurchased: 45, activeSeats: 31, lastUsedAt: daysAgoIso(12), renewalDate: daysFromNowIso(61), notes: "Demo workspace documentation tool." },
+  { name: "Clearbit", category: "Sales", ownerName: "Revenue", monthlySpend: 1200, seatsPurchased: 12, activeSeats: 0, lastUsedAt: daysAgoIso(124), renewalDate: daysFromNowIso(18), notes: "Demo zombie subscription candidate." },
+  { name: "Zoom", category: "Communication", ownerName: "People", monthlySpend: 650, seatsPurchased: 70, activeSeats: 69, lastUsedAt: daysAgoIso(1), renewalDate: daysFromNowIso(95), notes: "Demo healthy vendor." },
+  { name: "Asana", category: "Project Management", ownerName: "Ops", monthlySpend: 510, seatsPurchased: 40, activeSeats: 17, lastUsedAt: daysAgoIso(36), renewalDate: daysFromNowIso(43), notes: "Demo unused-seat signal." },
+  { name: "Monday.com", category: "Project Management", ownerName: "Ops", monthlySpend: 380, seatsPurchased: 25, activeSeats: 8, lastUsedAt: daysAgoIso(52), renewalDate: daysFromNowIso(44), notes: "Demo duplicate-tool signal." },
 ];
 
 const emailGoalOptions: Array<{ value: AiEmailGoal; label: string; actionLabel: string }> = [
@@ -211,6 +236,7 @@ export function DashboardPage() {
   const [isReportGenerating, setReportGenerating] = useState(false);
   const [wasteAnalysis, setWasteAnalysis] = useState("");
   const [isWasteAnalyzing, setWasteAnalyzing] = useState(false);
+  const [isLoadingDemo, setLoadingDemo] = useState(false);
   const toastTimer = useRef<number | undefined>(undefined);
 
   const pageTitle = navItems.find((item) => item.id === activePage)?.label ?? "Overview";
@@ -310,6 +336,25 @@ export function DashboardPage() {
     };
   };
 
+  const handleLoadDemoData = async () => {
+    if (dashboardVendors.length > 0) {
+      showToast("Demo data is best for an empty workspace.");
+      return;
+    }
+
+    setLoadingDemo(true);
+
+    try {
+      const results = await Promise.allSettled(demoVendors.map((input) => vendorApi.create(input)));
+      await refreshDashboardData();
+      const created = results.filter((result) => result.status === "fulfilled").length;
+      const firstError = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+      showToast(firstError ? getApiErrorMessage(firstError.reason) : `${created} sample vendors loaded.`);
+    } finally {
+      setLoadingDemo(false);
+    }
+  };
+
   const handleDeleteVendor = async (vendor: Vendor) => {
     await vendorApi.remove(vendor.id);
     setApiVendors((current) => current.filter((item) => item._id !== vendor.id));
@@ -388,10 +433,11 @@ export function DashboardPage() {
 
           <main className="mx-auto max-w-[1500px] px-3 py-4 sm:px-6 lg:px-8">
             <div className="animate-[fadeIn_420ms_ease-out]">
+              {company && <TrialStatusBanner company={company} isLoadingDemo={isLoadingDemo} vendorCount={dashboardVendors.length} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} />}
               {dataError && <ErrorState message={dataError} onRetry={refreshDashboardData} />}
               {isDataLoading && <LoadingState label="Loading live audit data" />}
               {activePage === "overview" && <OverviewPage categoryData={dashboardCategorySpend} duplicateTools={duplicateToolRows} totals={totals} unusedSeats={unusedSeatRows} onNavigate={handleNav} onToast={showToast} />}
-              {activePage === "vendors" && <VendorsPage externalQuery={vendorSearch} isLoading={isDataLoading} pagination={vendorPagination} vendors={dashboardVendors} onCreateVendor={handleCreateVendor} onDeleteVendor={handleDeleteVendor} onImportVendors={handleImportVendors} onSearchChange={setVendorSearch} onToast={showToast} />}
+              {activePage === "vendors" && <VendorsPage externalQuery={vendorSearch} isLoading={isDataLoading} isLoadingDemo={isLoadingDemo} pagination={vendorPagination} vendors={dashboardVendors} onCreateVendor={handleCreateVendor} onDeleteVendor={handleDeleteVendor} onImportVendors={handleImportVendors} onLoadDemoData={handleLoadDemoData} onSearchChange={setVendorSearch} onToast={showToast} />}
               {activePage === "waste" && (
                 <WasteDetectionPage
                   aiAnalysis={wasteAnalysis}
@@ -426,7 +472,7 @@ export function DashboardPage() {
                   onToneChange={setEmailTone}
                 />
               )}
-              {activePage === "billing" && <BillingPage onToast={showToast} />}
+              {activePage === "billing" && <PlanPage company={company} onToast={showToast} />}
               {activePage === "settings" && <SettingsPage companySettings={company?.settings} onToast={showToast} />}
             </div>
           </main>
@@ -501,7 +547,7 @@ function Sidebar({
             <div className="mt-3 h-2 rounded-full bg-panel-muted">
               <div className="h-2 w-[82%] rounded-full bg-brand" />
             </div>
-            <p className="mt-3 text-sm leading-6 text-quiet">Finance exports connected. Email and SSO need approval.</p>
+            <p className="mt-3 text-sm leading-6 text-quiet">CSV imports are ready. Gmail, Ramp, and Okta are planned integrations.</p>
           </div>
 
           <button className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-inverse px-4 text-sm font-extrabold text-inverse-ink shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-strong hover:shadow-lg active:translate-y-0" type="button" onClick={() => onNavigate("waste")}>
@@ -678,21 +724,25 @@ function OverviewPage({
 function VendorsPage({
   externalQuery,
   isLoading,
+  isLoadingDemo,
   pagination,
   vendors,
   onCreateVendor,
   onDeleteVendor,
   onImportVendors,
+  onLoadDemoData,
   onSearchChange,
   onToast,
 }: {
   externalQuery: string;
   isLoading: boolean;
+  isLoadingDemo: boolean;
   pagination: PaginationMeta | null;
   vendors: Vendor[];
   onCreateVendor: (input: CreateVendorInput) => Promise<void>;
   onDeleteVendor: (vendor: Vendor) => Promise<void>;
   onImportVendors: (inputs: CreateVendorInput[]) => Promise<{ created: number; failed: number; errors: string[] }>;
+  onLoadDemoData: () => Promise<void>;
   onSearchChange: (value: string) => void;
   onToast: (message: string) => void;
 }) {
@@ -832,6 +882,9 @@ function VendorsPage({
             <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line bg-panel px-4 text-sm font-extrabold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" disabled={isImporting} type="button" onClick={() => importInputRef.current?.click()}>
               {isImporting ? "Importing..." : "Import CSV"}
             </button>
+            <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line bg-panel px-4 text-sm font-extrabold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" disabled={isLoadingDemo || vendors.length > 0} type="button" onClick={onLoadDemoData}>
+              {isLoadingDemo ? "Loading..." : "Load sample data"}
+            </button>
             <PrimaryButton onClick={() => setShowForm((current) => !current)}>{showForm ? "Close form" : "Add vendor"}</PrimaryButton>
           </div>
         }
@@ -938,6 +991,9 @@ function VendorsPage({
               <div className="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
                 <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel px-4 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:text-brand" type="button" onClick={() => setShowForm(true)}>
                   Add vendor
+                </button>
+                <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60" type="button" disabled={isLoadingDemo} onClick={onLoadDemoData}>
+                  {isLoadingDemo ? "Loading..." : "Load sample data"}
                 </button>
               </div>
             }
@@ -1434,88 +1490,118 @@ function EmailGeneratorPage({
   );
 }
 
-function BillingPage({ onToast }: { onToast: (message: string) => void }) {
-  const invoices = [
-    { period: "May 2026", status: "Open", amount: 299 },
-    { period: "Apr 2026", status: "Paid", amount: 299 },
-    { period: "Mar 2026", status: "Paid", amount: 299 },
-  ];
-  const [showPlanManager, setShowPlanManager] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState("Growth");
-  const [selectedInvoice, setSelectedInvoice] = useState(invoices[0]);
+function PlanPage({ company, onToast }: { company: ApiCompany | null; onToast: (message: string) => void }) {
+  const trial = getTrialState(company);
+  const planLabel = formatPlanLabel(company?.plan ?? "free");
+  const limits = getPlanLimitSet(company?.plan ?? "free");
 
   return (
     <div className="grid gap-4">
       <PageHeader
-        eyebrow="Subscription"
-        title="Billing"
-        detail="Manage plan selection, tracked spend tiers, savings fees, and invoices."
-        action={<PrimaryButton onClick={() => setShowPlanManager((current) => !current)}>{showPlanManager ? "Close plan" : "Manage plan"}</PrimaryButton>}
+        eyebrow="Workspace access"
+        title="Plan"
+        detail="Review the current workspace access level and choose a plan when you are ready to activate a paid account."
+        action={<PrimaryButton onClick={() => { window.location.href = "/pricing"; }}>View pricing</PrimaryButton>}
       />
 
-      {showPlanManager && (
-        <Panel title="Plan management" eyebrow="Workspace subscription">
-          <div className="grid gap-3 md:grid-cols-3">
-            {["Starter", "Growth", "Enterprise"].map((plan) => (
-              <button
-                className={`rounded-lg border p-4 text-left transition hover:-translate-y-0.5 hover:border-brand ${selectedPlan === plan ? "border-brand bg-brand-soft" : "border-line bg-panel-subtle"}`}
-                type="button"
-                key={plan}
-                onClick={() => setSelectedPlan(plan)}
-              >
-                <strong className="block text-sm font-extrabold">{plan}</strong>
-                {selectedPlan === plan && <span className="mt-2 inline-flex rounded-full bg-good-soft px-2.5 py-1 text-xs font-extrabold text-good">Selected</span>}
-                <span className="mt-2 block text-sm leading-6 text-quiet">{plan === "Starter" ? "Core audit workflow" : plan === "Growth" ? "Current plan with AI actions" : "Custom governance and integrations"}</span>
-              </button>
-            ))}
-          </div>
-        </Panel>
-      )}
-
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <Panel title="Current plan" eyebrow={`${selectedPlan} audit`}>
+        <Panel title="Current access" eyebrow="Trial workspace">
           <div className="grid gap-4 md:grid-cols-3">
-            <PlanMetric label="Base subscription" value={selectedPlan === "Starter" ? "$199/mo" : selectedPlan === "Growth" ? "$299/mo" : "Custom"} />
-            <PlanMetric label="Tracked spend" value="$112.4k" />
-            <PlanMetric label="Success fee" value={selectedPlan === "Enterprise" ? "Custom" : "20%"} />
+            <PlanMetric label="Selected plan" value={trial.isExpired ? "Trial ended" : planLabel} />
+            <PlanMetric label="Trial remaining" value={trial.label} />
+            <PlanMetric label="Payments" value="Manual" />
           </div>
           <div className="mt-5 rounded-lg border border-line bg-panel-subtle p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <strong className="block text-lg font-extrabold">Savings-based billing</strong>
-                <p className="mt-1 text-sm text-quiet">20% of first-year savings after finance approval.</p>
+                <strong className="block text-lg font-extrabold">Payments are not automated yet</strong>
+                <p className="mt-1 text-sm leading-6 text-quiet">Customers can use the product first. Paid plan activation can be handled manually until a payment provider is connected.</p>
               </div>
-              <span className="rounded-full bg-good-soft px-3 py-1.5 text-sm font-extrabold text-good">$9,664 pending approval</span>
+              <span className="rounded-full bg-good-soft px-3 py-1.5 text-sm font-extrabold text-good">No card required</span>
             </div>
           </div>
         </Panel>
 
-        <Panel title="Invoices" eyebrow="Recent activity">
-          <div className="grid gap-3">
-            {invoices.map((invoice) => (
-              <div className="flex items-center justify-between rounded-lg border border-line bg-panel-subtle p-3" key={invoice.period}>
-                <div>
-                  <strong className="block text-sm font-extrabold">{invoice.period}</strong>
-                  <span className="text-sm text-quiet">{invoice.status}</span>
-                </div>
-                <button className="rounded-lg border border-line bg-panel px-3 py-2 text-sm font-extrabold hover:bg-panel-muted" type="button" onClick={() => setSelectedInvoice(invoice)}>
-                  View
-                </button>
-              </div>
-            ))}
+        <Panel title="Upgrade path" eyebrow="Next step">
+          <div className="grid gap-3 text-sm leading-6 text-quiet">
+            <p>Use Starter at $49/mo for core audits, or Standard at $89/mo for AI reports and action drafts.</p>
+            <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong" type="button" onClick={() => { window.location.href = "/pricing"; }}>
+              Compare plans
+            </button>
+            <button
+              className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:border-brand hover:text-brand"
+              type="button"
+              onClick={() => {
+                navigator.clipboard?.writeText("exehassan62@gmail.com").then(
+                  () => onToast("Contact email copied."),
+                  () => onToast("Email exehassan62@gmail.com for a custom plan."),
+                );
+              }}
+            >
+              Request custom plan
+            </button>
           </div>
         </Panel>
       </div>
 
-      {selectedInvoice && (
-        <Panel title={`${selectedInvoice.period} invoice`} eyebrow="Invoice detail" action={<PanelAction label="Download" onClick={() => downloadTextFile(`${selectedInvoice.period}-invoice.txt`, buildInvoiceText(selectedInvoice), onToast)} />}>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <PlanMetric label="Status" value={selectedInvoice.status} />
-            <PlanMetric label="Amount" value={currency(selectedInvoice.amount)} />
-            <PlanMetric label="Plan" value={selectedPlan} />
+      <Panel title="What happens after payment integration" eyebrow="Future billing">
+        <div className="grid gap-3 md:grid-cols-3">
+          {["Automatic subscriptions", "Real invoices", "Plan-based feature limits"].map((item) => (
+            <div className="rounded-lg border border-line bg-panel-subtle p-4" key={item}>
+              <strong className="block text-sm font-extrabold">{item}</strong>
+              <p className="mt-2 text-sm leading-6 text-quiet">This can be added after the first paying users validate the pricing.</p>
+            </div>
+          ))}
           </div>
-        </Panel>
-      )}
+      </Panel>
+
+      <Panel title="Current limits" eyebrow={`${planLabel} limits`}>
+        <div className="grid gap-3 md:grid-cols-4">
+          <PlanMetric label="Vendors" value={formatLimit(limits.vendors)} />
+          <PlanMetric label="Reports" value={formatLimit(limits.reports)} />
+          <PlanMetric label="AI emails" value={formatLimit(limits.aiEmails)} />
+          <PlanMetric label="AI analysis" value={formatLimit(limits.vendorAnalyses)} />
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function TrialStatusBanner({
+  company,
+  isLoadingDemo,
+  vendorCount,
+  onLoadDemoData,
+  onNavigate,
+}: {
+  company: ApiCompany;
+  isLoadingDemo: boolean;
+  vendorCount: number;
+  onLoadDemoData: () => Promise<void>;
+  onNavigate: (page: PageId) => void;
+}) {
+  const trial = getTrialState(company);
+  const planLabel = formatPlanLabel(company.plan);
+
+  return (
+    <div className="mb-4 flex flex-col gap-3 rounded-lg border border-line bg-panel p-4 shadow-[0_18px_45px_rgba(23,32,38,0.08)] sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <p className="text-xs font-extrabold uppercase text-brand-strong">{trial.isExpired ? "Trial ended" : planLabel}</p>
+        <strong className="mt-1 block text-lg font-extrabold">{trial.label}</strong>
+        <p className="mt-1 text-sm leading-6 text-quiet">
+          {trial.isExpired ? "Choose a plan to continue using AutoAudit.ai." : `You are testing ${planLabel}. Paid activation is manual until payments are connected.`}
+        </p>
+      </div>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        {vendorCount === 0 && !trial.isExpired && (
+          <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-60" type="button" disabled={isLoadingDemo} onClick={onLoadDemoData}>
+            {isLoadingDemo ? "Loading..." : "Load sample data"}
+          </button>
+        )}
+        <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong" type="button" onClick={() => onNavigate("billing")}>
+          {trial.isExpired ? "Choose plan" : "Review plan"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1566,7 +1652,7 @@ function SettingsPage({ companySettings, onToast }: { companySettings: ApiCompan
                   <strong className="block font-extrabold">{integration.name}</strong>
                   <span className="mt-1 block text-sm text-quiet">{integration.detail}</span>
                 </div>
-                <span className={`rounded-full px-3 py-1.5 text-sm font-extrabold ${integration.status === "Connected" ? "bg-good-soft text-good" : integration.status === "Pending" ? "bg-warning-soft text-warning" : "bg-panel-muted text-quiet"}`}>
+                <span className={`rounded-full px-3 py-1.5 text-sm font-extrabold ${integration.status === "Available" ? "bg-good-soft text-good" : integration.status === "Coming soon" ? "bg-warning-soft text-warning" : "bg-panel-muted text-quiet"}`}>
                   {integration.status}
                 </span>
               </div>
@@ -2017,17 +2103,6 @@ Summary:
 This packet highlights SaaS waste drivers, renewal exposure, and recommended owner actions for the current review cycle.`;
 }
 
-function buildInvoiceText(invoice: { period: string; status: string; amount: number }) {
-  return `AutoAudit.ai invoice
-
-Period: ${invoice.period}
-Status: ${invoice.status}
-Plan: Growth
-Amount: ${currency(invoice.amount)}
-
-Thank you for using AutoAudit.ai.`;
-}
-
 function parseShortDate(value: string, year: number) {
   const date = new Date(`${value}, ${year}`);
   if (Number.isNaN(date.getTime())) return null;
@@ -2356,6 +2431,49 @@ function daysUntilShortDate(shortDate: string) {
   if (Number.isNaN(parsed.getTime())) return 91;
 
   return Math.ceil((parsed.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
+function getTrialState(company: ApiCompany | null) {
+  const fallbackEnd = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const trialEnd = new Date(company?.trialEndsAt ?? fallbackEnd);
+  const remainingMs = trialEnd.getTime() - Date.now();
+  const days = Math.max(0, Math.ceil(remainingMs / (24 * 60 * 60 * 1000)));
+  const isExpired = company?.subscriptionStatus === "expired" || remainingMs <= 0;
+
+  return {
+    days,
+    isExpired,
+    label: isExpired ? "Trial ended - choose a plan" : days === 1 ? "1 day remaining" : `${days} days remaining`,
+  };
+}
+
+function formatPlanLabel(plan: ApiCompany["plan"]) {
+  const labels = {
+    free: "Free trial",
+    starter: "Starter trial",
+    standard: "Standard trial",
+    growth: "Growth",
+    enterprise: "Enterprise",
+    custom: "Custom plan",
+  } satisfies Record<ApiCompany["plan"], string>;
+
+  return labels[plan] ?? "Free trial";
+}
+
+function getPlanLimitSet(plan: ApiCompany["plan"]) {
+  return planLimitSets[plan] ?? planLimitSets.free;
+}
+
+function formatLimit(value: number | null) {
+  return value === null ? "Custom" : String(value);
+}
+
+function daysAgoIso(days: number) {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function daysFromNowIso(days: number) {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 function isPageId(value: unknown): value is PageId {

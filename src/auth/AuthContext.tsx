@@ -12,7 +12,7 @@ type AuthContextValue = {
   isBootstrapping: boolean;
   authError: string;
   login: (input: { email: string; password: string }) => Promise<void>;
-  signup: (input: { name: string; email: string; password: string; companyName: string; companyDomain?: string }) => Promise<void>;
+  signup: (input: { name: string; email: string; password: string; companyName: string; companyDomain?: string; plan?: string }) => Promise<void>;
   logout: () => void;
 };
 
@@ -106,4 +106,3 @@ export function useAuth() {
 
   return context;
 }
-
