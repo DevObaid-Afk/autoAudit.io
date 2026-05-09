@@ -13,6 +13,8 @@ export async function sendContactNotification(request) {
     `Name: ${request.name}`,
     `Email: ${request.email}`,
     `Company: ${request.company || "Not provided"}`,
+    `Source: ${request.source || "contact"}`,
+    `Requested plan: ${request.requestedPlan || "Not provided"}`,
     `Status: ${request.status}`,
     "",
     "Message:",

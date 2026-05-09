@@ -1761,6 +1761,23 @@ function PlanPage({ company, vendorCount, onToast }: { company: ApiCompany | nul
   const planLabel = formatPlanLabel(company?.plan ?? "free");
   const limits = getPlanLimitSet(company?.plan ?? "free");
   const usage = getPlanUsage(company, vendorCount);
+  const [requestedPlan, setRequestedPlan] = useState<"starter" | "standard" | "custom" | null>(null);
+  const [isRequestingUpgrade, setRequestingUpgrade] = useState(false);
+
+  async function handleUpgradeRequest(plan: "starter" | "standard" | "custom") {
+    setRequestingUpgrade(true);
+
+    try {
+      const response = await contactApi.requestUpgrade(plan);
+      setRequestedPlan(plan);
+      analyticsApi.track("manual_upgrade_requested", { plan });
+      onToast(response.message);
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setRequestingUpgrade(false);
+    }
+  }
 
   return (
     <div className="grid gap-4">
@@ -1792,20 +1809,24 @@ function PlanPage({ company, vendorCount, onToast }: { company: ApiCompany | nul
         <Panel title="Upgrade path" eyebrow="Next step">
           <div className="grid gap-3 text-sm leading-6 text-quiet">
             <p>Use Starter at $49/mo for core audits, or Standard at $89/mo for AI reports and action drafts.</p>
+            {requestedPlan && (
+              <div className="rounded-lg border border-good/20 bg-good-soft p-3 text-sm font-bold text-good">
+                Upgrade requested for {requestedPlan === "starter" ? "Starter" : requestedPlan === "standard" ? "Standard" : "Custom"}. Founder will contact you soon.
+              </div>
+            )}
+            <div className="grid gap-2">
+              <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-60" disabled={isRequestingUpgrade} type="button" onClick={() => handleUpgradeRequest("starter")}>
+                Request Starter activation
+              </button>
+              <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60" disabled={isRequestingUpgrade} type="button" onClick={() => handleUpgradeRequest("standard")}>
+                {isRequestingUpgrade ? "Requesting..." : "Request Standard activation"}
+              </button>
+              <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-60" disabled={isRequestingUpgrade} type="button" onClick={() => handleUpgradeRequest("custom")}>
+                Request custom plan
+              </button>
+            </div>
             <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong" type="button" onClick={() => { window.location.href = "/pricing"; }}>
               Compare plans
-            </button>
-            <button
-              className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:border-brand hover:text-brand"
-              type="button"
-              onClick={() => {
-                navigator.clipboard?.writeText("exehassan62@gmail.com").then(
-                  () => onToast("Contact email copied."),
-                  () => onToast("Email exehassan62@gmail.com for a custom plan."),
-                );
-              }}
-            >
-              Request custom plan
             </button>
           </div>
         </Panel>
@@ -1832,8 +1853,8 @@ function PlanPage({ company, vendorCount, onToast }: { company: ApiCompany | nul
         <div className="mt-4 rounded-lg border border-warning/20 bg-warning-soft p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm font-bold leading-6 text-warning">Hit a limit? Upgrade to Standard for higher limits and AI workflows.</p>
-            <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong" type="button" onClick={() => { window.location.href = "/pricing"; }}>
-              Upgrade to Standard!
+            <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60" type="button" disabled={isRequestingUpgrade} onClick={() => handleUpgradeRequest("standard")}>
+              Request Standard upgrade
             </button>
           </div>
         </div>
@@ -2028,9 +2049,9 @@ function SettingsPage({ companySettings, onToast }: { companySettings: ApiCompan
         </div>
       </Panel>
 
-      <Panel title="Custom plan requests" eyebrow={isLoadingRequests ? "Loading requests" : `${contactRequests.length} recent requests`}>
+      <Panel title="Lead inbox" eyebrow={isLoadingRequests ? "Loading requests" : `${contactRequests.length} recent requests`}>
         {contactRequests.length === 0 ? (
-          <EmptyState title="No custom requests yet" detail="When someone submits the contact form, the newest requests will appear here for follow-up." icon={Mail} />
+          <EmptyState title="No leads yet" detail="When someone submits the contact form or requests an upgrade, the newest requests will appear here for follow-up." icon={Mail} />
         ) : (
           <div className="grid gap-3">
             {contactRequests.map((request) => (
@@ -2040,7 +2061,10 @@ function SettingsPage({ companySettings, onToast }: { companySettings: ApiCompan
                     <strong className="block text-sm font-extrabold">{request.name}</strong>
                     <p className="mt-1 text-sm font-bold text-quiet">{request.company || "No company"} - {request.email}</p>
                   </div>
-                  <span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-extrabold uppercase text-brand-strong">{request.status}</span>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-extrabold uppercase text-brand-strong">{formatLeadSource(request)}</span>
+                    <span className="rounded-full bg-panel-muted px-3 py-1 text-xs font-extrabold uppercase text-quiet">{request.status}</span>
+                  </div>
                 </div>
                 <p className="mt-3 text-sm leading-6 text-quiet">{request.message}</p>
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -2079,6 +2103,18 @@ function mapCompanySettings(settings: ApiCompany["settings"]) {
     renewalDigest: settings?.weeklyRenewalDigest ?? true,
     managedRenegotiation: settings?.allowManagedRenegotiation ?? false,
   };
+}
+
+function formatLeadSource(request: ApiContactRequest) {
+  if (request.source === "upgrade_request") {
+    return request.requestedPlan ? `${request.requestedPlan} upgrade` : "Upgrade request";
+  }
+
+  if (request.source === "custom_plan") {
+    return "Custom plan";
+  }
+
+  return "Contact";
 }
 
 function HeroBand({ onNavigate }: { onNavigate: (page: PageId) => void }) {

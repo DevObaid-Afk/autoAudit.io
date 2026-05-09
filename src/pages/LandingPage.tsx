@@ -212,10 +212,10 @@ export function LandingPage() {
             </p>
             <div className="mt-5 flex flex-col gap-3 sm:flex-row">
               <Link className="inline-flex min-h-11 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong" to="/contact">
-                Contact founder
+                Contact Founder
               </Link>
               <Link className="inline-flex min-h-11 items-center justify-center rounded-lg border border-line bg-panel px-4 text-sm font-extrabold text-ink transition hover:border-brand hover:text-brand" to="/about-developer">
-                About developer
+                About Founder
               </Link>
             </div>
           </div>

@@ -76,7 +76,7 @@ export function PublicFooter() {
         </div>
       </div>
       <div className="border-t border-line px-4 py-4 text-center text-xs font-bold text-quiet">
-        (c) {new Date().getFullYear()} AutoAudit.ai | Built by Obaid. All rights reserved | Made with 💖 and ☕
+        © {new Date().getFullYear()} AutoAudit.ai | Built by Obaid. All rights reserved | Crafted with care and caffeine
       </div>
     </footer>
   );

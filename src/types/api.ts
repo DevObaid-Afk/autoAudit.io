@@ -148,7 +148,8 @@ export type ApiContactRequest = {
   email: string;
   company?: string;
   message: string;
-  source: "contact" | "custom_plan";
+  source: "contact" | "custom_plan" | "upgrade_request";
+  requestedPlan?: "starter" | "standard" | "custom" | "";
   status: "new" | "reviewed" | "closed";
   createdAt: string;
   updatedAt: string;

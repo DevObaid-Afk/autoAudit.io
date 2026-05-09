@@ -28,8 +28,14 @@ const contactRequestSchema = new mongoose.Schema(
     },
     source: {
       type: String,
-      enum: ["contact", "custom_plan"],
+      enum: ["contact", "custom_plan", "upgrade_request"],
       default: "custom_plan",
+    },
+    requestedPlan: {
+      type: String,
+      enum: ["starter", "standard", "custom", ""],
+      default: "",
+      index: true,
     },
     status: {
       type: String,

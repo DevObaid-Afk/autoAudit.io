@@ -35,6 +35,42 @@ export const createContactRequest = asyncHandler(async (req, res) => {
   });
 });
 
+export const createUpgradeRequest = asyncHandler(async (req, res) => {
+  const requestedPlan = cleanString(req.body.requestedPlan, { required: true, field: "Requested plan", max: 30 });
+  if (!["starter", "standard", "custom"].includes(requestedPlan)) {
+    throw new AppError("Requested plan must be starter, standard, or custom", 400);
+  }
+
+  const planLabels = {
+    starter: "Starter $49/mo",
+    standard: "Standard $89/mo",
+    custom: "Custom plan",
+  };
+  const companyName = req.company?.name || "Workspace";
+  const message = `${req.user.name} requested manual upgrade to ${planLabels[requestedPlan]} for ${companyName}. Follow up to confirm payment and activation.`;
+
+  const request = await ContactRequest.create({
+    name: req.user.name,
+    email: req.user.email,
+    company: companyName,
+    message,
+    source: "upgrade_request",
+    requestedPlan,
+    ipAddress: req.ip,
+    userAgent: req.get("user-agent"),
+  });
+  sendContactNotification(request).catch(() => undefined);
+
+  res.status(201).json({
+    message: `${planLabels[requestedPlan]} upgrade requested. Founder will contact you soon.`,
+    request: {
+      id: request._id,
+      status: request.status,
+      requestedPlan: request.requestedPlan,
+    },
+  });
+});
+
 export const listContactRequests = asyncHandler(async (req, res) => {
   const allowedEmails = (process.env.CONTACT_ADMIN_EMAILS || "exehassan62@gmail.com")
     .split(",")

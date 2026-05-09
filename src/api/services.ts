@@ -93,6 +93,11 @@ export const contactApi = {
     return data;
   },
 
+  async requestUpgrade(requestedPlan: "starter" | "standard" | "custom") {
+    const { data } = await apiClient.post<{ message: string; request: { id: string; status: string; requestedPlan: string } }>("/api/contact/upgrade", { requestedPlan });
+    return data;
+  },
+
   async list(params: { page?: number; limit?: number } = {}) {
     const { data } = await apiClient.get<{ contactRequests: ApiContactRequest[]; pagination: PaginationMeta }>("/api/contact", { params });
     return data;
