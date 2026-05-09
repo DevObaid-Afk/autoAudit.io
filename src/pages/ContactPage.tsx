@@ -1,6 +1,9 @@
 import { FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Mail, Moon, Send, ShieldCheck, Sun } from "lucide-react";
+import { analyticsApi, contactApi } from "../api/services";
+import { getApiErrorMessage } from "../api/client";
+import { PageMeta } from "../components/PageMeta";
 import { PublicFooter, publicContact } from "../components/PublicFooter";
 import { useTheme } from "../theme/ThemeContext";
 
@@ -12,19 +15,31 @@ export function ContactPage() {
     company: "",
     message: "",
   });
+  const [isSubmitting, setSubmitting] = useState(false);
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
 
-  function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    const subject = encodeURIComponent(`Custom AutoAudit.ai plan request from ${form.company || form.name}`);
-    const body = encodeURIComponent(
-      `Name: ${form.name}\nEmail: ${form.email}\nCompany: ${form.company}\n\n${form.message}`,
-    );
+    setSubmitting(true);
+    setStatus("");
+    setError("");
 
-    window.location.href = `mailto:${publicContact.email}?subject=${subject}&body=${body}`;
+    try {
+      const response = await contactApi.create(form);
+      analyticsApi.track("contact_request_submitted", { company: form.company || "not_provided" });
+      setStatus(response.message);
+      setForm({ name: "", email: "", company: "", message: "" });
+    } catch (err) {
+      setError(getApiErrorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
     <main className="min-h-screen bg-canvas text-ink">
+      <PageMeta title="Contact - AutoAudit.ai" description="Request a custom AutoAudit.ai plan, onboarding help, or SaaS audit workflow guidance." />
       <section className="border-b border-line bg-panel">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
           <Link className="flex min-w-0 items-center gap-3" to="/">
@@ -73,6 +88,8 @@ export function ContactPage() {
 
         <form className="rounded-lg border border-line bg-panel p-5 shadow-[0_18px_45px_rgba(23,32,38,0.08)]" onSubmit={handleSubmit}>
           <div className="grid gap-4">
+            {status && <div className="rounded-lg border border-good/20 bg-good-soft px-3 py-2 text-sm font-bold text-good">{status}</div>}
+            {error && <div className="rounded-lg border border-risk/20 bg-risk-soft px-3 py-2 text-sm font-bold text-risk">{error}</div>}
             <ContactField label="Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
             <ContactField label="Work email" type="email" value={form.email} onChange={(value) => setForm({ ...form, email: value })} />
             <ContactField label="Company" value={form.company} onChange={(value) => setForm({ ...form, company: value })} />
@@ -85,9 +102,9 @@ export function ContactPage() {
                 onChange={(event) => setForm({ ...form, message: event.target.value })}
               />
             </label>
-            <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong" type="submit">
+            <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSubmitting}>
               <Send aria-hidden="true" size={17} />
-              Send request
+              {isSubmitting ? "Sending..." : "Send request"}
             </button>
           </div>
         </form>

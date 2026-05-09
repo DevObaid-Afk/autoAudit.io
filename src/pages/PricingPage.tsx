@@ -1,6 +1,8 @@
 import { Link } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Building2, Check, Moon, ShieldCheck, Sparkles, Sun } from "lucide-react";
+import { analyticsApi } from "../api/services";
 import { PublicFooter } from "../components/PublicFooter";
+import { PageMeta } from "../components/PageMeta";
 import { useTheme } from "../theme/ThemeContext";
 
 const plans = [
@@ -51,6 +53,7 @@ export function PricingPage() {
 
   return (
     <main className="min-h-screen bg-canvas text-ink">
+      <PageMeta title="Pricing - AutoAudit.ai" description="Choose a 7-day trial, Starter, Standard, or Custom AutoAudit.ai plan for SaaS waste cleanup." />
       <section className="border-b border-line bg-panel">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
           <Link className="flex min-w-0 items-center gap-3" to="/">
@@ -128,8 +131,9 @@ export function PricingPage() {
                 className={`mt-auto inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-extrabold transition ${plan.featured
                   ? "bg-brand text-white shadow-[0_12px_26px_rgb(var(--color-brand)/0.24)] hover:bg-brand-strong"
                   : "border border-line bg-panel-subtle text-ink hover:border-brand hover:text-brand"
-                  }`}
+                }`}
                 to={plan.href}
+                onClick={() => analyticsApi.track("pricing_plan_click", { plan: plan.name })}
               >
                 {plan.action}
                 <ArrowRight aria-hidden="true" size={17} />

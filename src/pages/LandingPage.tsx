@@ -15,6 +15,7 @@ import {
   Zap,
 } from "lucide-react";
 import { PublicFooter } from "../components/PublicFooter";
+import { PageMeta } from "../components/PageMeta";
 import { useAuth } from "../auth/AuthContext";
 import { useTheme } from "../theme/ThemeContext";
 
@@ -73,6 +74,7 @@ export function LandingPage() {
 
   return (
     <main className="min-h-screen bg-canvas text-ink">
+      <PageMeta title="AutoAudit.ai - SaaS Waste Control" description="Find SaaS waste, renewal risk, unused seats, and vendor cleanup actions with AutoAudit.ai." />
       <section className="relative overflow-hidden border-b border-line bg-[linear-gradient(180deg,rgb(var(--color-panel))_0%,rgb(var(--color-canvas))_100%)]">
         <div className="mx-auto flex min-h-[92vh] w-full max-w-7xl flex-col px-4 py-5 sm:px-6 lg:px-8">
           <header className="flex items-center justify-between gap-4">
@@ -137,10 +139,10 @@ export function LandingPage() {
                   <ArrowRight aria-hidden="true" size={18} />
                 </Link>
                 <Link
-                  className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-line bg-panel px-5 text-sm font-extrabold text-ink transition hover:border-brand hover:text-brand"
-                  to="/pricing"
+                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-line bg-panel px-5 text-sm font-extrabold text-ink transition hover:border-brand hover:text-brand"
+                  to="/demo"
                 >
-                  View pricing
+                  View demo
                 </Link>
               </div>
             </div>

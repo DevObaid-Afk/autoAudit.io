@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { generateReport } from "../controllers/reportController.js";
+import { generateReport, listReports } from "../controllers/reportController.js";
 
 export const reportRoutes = Router();
 
+reportRoutes.get("/", listReports);
 reportRoutes.post("/generate", generateReport);
-

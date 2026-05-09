@@ -4,6 +4,20 @@ import { Subscription } from "../models/Subscription.js";
 import { Vendor } from "../models/Vendor.js";
 import { buildAuditSummary } from "../services/wasteDetection.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { buildPagination, parsePagination } from "../utils/query.js";
+
+export const listReports = asyncHandler(async (req, res) => {
+  const { page, limit, skip } = parsePagination(req.query);
+  const [reports, total] = await Promise.all([
+    Report.find({ company: req.companyId }).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    Report.countDocuments({ company: req.companyId }),
+  ]);
+
+  res.json({
+    reports,
+    pagination: buildPagination({ page, limit, total }),
+  });
+});
 
 export const generateReport = asyncHandler(async (req, res) => {
   const { title, type = "monthly_waste", periodStart, periodEnd } = req.body;
@@ -23,9 +37,22 @@ export const generateReport = asyncHandler(async (req, res) => {
     periodEnd,
     summary,
     findings: summary.wasteSignals,
+    content: buildManualReportContent(summary),
     status: "ready",
   });
 
   res.status(201).json({ report });
 });
 
+function buildManualReportContent(summary) {
+  return [
+    "SaaS Waste Report",
+    "",
+    `Monthly spend: $${Number(summary.monthlySpend ?? 0).toLocaleString("en-US")}`,
+    `Estimated annual savings: $${Number(summary.estimatedAnnualSavings ?? 0).toLocaleString("en-US")}`,
+    `Monthly waste found: $${Number(summary.monthlyWasteFound ?? 0).toLocaleString("en-US")}`,
+    `Zombie subscriptions: ${summary.zombieSubscriptionCount ?? 0}`,
+    `Unused seats: ${summary.unusedSeatCount ?? 0}`,
+    `Upcoming renewals: ${summary.upcomingRenewalCount ?? 0}`,
+  ].join("\n");
+}

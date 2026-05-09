@@ -88,6 +88,10 @@ Required backend variables:
 - `AUTH_RATE_LIMIT_MAX`
 - `AI_RATE_LIMIT_WINDOW_MS`
 - `AI_RATE_LIMIT_MAX`
+- `CONTACT_ADMIN_EMAILS`
+- `CONTACT_TO_EMAIL`
+- `RESEND_API_KEY` optional, for contact-form email alerts
+- `EMAIL_FROM` optional, for contact-form email alerts
 
 Required frontend variable:
 
@@ -95,12 +99,18 @@ Required frontend variable:
 
 ## Key Routes
 
+- `/`
+- `/pricing`
+- `/demo`
+- `/contact`
+- `/about-developer`
+- `/privacy`
+- `/terms`
 - `/login`
 - `/signup`
 
 Protected:
 
-- `/`
 - `/dashboard`
 - `/dashboard/:section`
 
@@ -123,6 +133,11 @@ API:
 - `POST /api/ai/renegotiate-email`
 - `POST /api/ai/monthly-report`
 - `POST /api/ai/vendor-analysis`
+- `GET /api/reports`
+- `POST /api/contact`
+- `GET /api/contact`
+- `PATCH /api/contact/:id`
+- `POST /api/analytics`
 
 ## Production Readiness
 
@@ -155,6 +170,16 @@ Short version:
 - Render backend: build command `npm install`, start command `npm run start:api`, set backend environment variables.
 - After deploying Vercel, copy the frontend origin into Render `CORS_ORIGIN`, without a page path like `/login`.
 
+Deployment checklist:
+
+- Vercel `VITE_API_URL` points to the Render API origin.
+- Render `CORS_ORIGIN` includes the Vercel frontend origin only, not `/login` or another page path.
+- Render has `MONGODB_URI`, `JWT_SECRET`, `OPENAI_API_KEY`, and rate-limit variables.
+- Render has `CONTACT_ADMIN_EMAILS=exehassan62@gmail.com` and `CONTACT_TO_EMAIL=exehassan62@gmail.com`.
+- Add `RESEND_API_KEY` and `EMAIL_FROM` when you want contact-form email alerts.
+- After frontend changes, redeploy Vercel.
+- After backend changes, redeploy Render.
+
 ## Verification
 
 ```bash
@@ -169,5 +194,5 @@ If Vite fails locally with a Windows `spawn EPERM`, retry from a normal terminal
 1. Saved CSV mapping templates and import history.
 2. Gmail and Outlook renewal import.
 3. SSO usage signal ingestion.
-4. Saved report library and approval workflow.
-5. Billing integration and savings capture ledger.
+4. Billing integration and savings capture ledger.
+5. Deeper analytics dashboard for conversion and activation.

@@ -38,6 +38,11 @@ const reportSchema = new mongoose.Schema(
       type: [mongoose.Schema.Types.Mixed],
       default: [],
     },
+    content: {
+      type: String,
+      trim: true,
+      maxlength: 20000,
+    },
     status: {
       type: String,
       enum: ["draft", "ready", "archived"],
@@ -48,4 +53,3 @@ const reportSchema = new mongoose.Schema(
 );
 
 export const Report = mongoose.model("Report", reportSchema);
-

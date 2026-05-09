@@ -1,8 +1,10 @@
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { FormEvent, useState } from "react";
 import { CheckCircle2, Eye, EyeOff, Moon, ShieldCheck, Sun } from "lucide-react";
+import { analyticsApi } from "../api/services";
 import { useAuth } from "../auth/AuthContext";
 import { getApiErrorMessage } from "../api/client";
+import { PageMeta } from "../components/PageMeta";
 import { useTheme } from "../theme/ThemeContext";
 
 export function SignupPage() {
@@ -30,6 +32,7 @@ export function SignupPage() {
 
     try {
       await signup({ ...form, plan: selectedPlan });
+      analyticsApi.track("signup_completed", { plan: selectedPlan });
       navigate("/dashboard", { replace: true });
     } catch (err) {
       setError(getApiErrorMessage(err));
@@ -40,6 +43,7 @@ export function SignupPage() {
 
   return (
     <main className="grid min-h-screen bg-canvas px-4 py-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(420px,0.6fr)] lg:p-6">
+      <PageMeta title="Create Account - AutoAudit.ai" description="Start an AutoAudit.ai trial and create your SaaS waste control workspace." />
       <section className="hidden rounded-lg bg-inverse p-8 text-inverse-ink shadow-2xl lg:flex lg:flex-col lg:justify-between">
         <div className="flex items-center gap-3">
           <span className="grid size-11 place-items-center rounded-lg bg-brand-soft text-brand">

@@ -3,6 +3,7 @@ import { FormEvent, useState } from "react";
 import { Eye, EyeOff, Moon, ShieldCheck, Sun } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { getApiErrorMessage } from "../api/client";
+import { PageMeta } from "../components/PageMeta";
 import { useTheme } from "../theme/ThemeContext";
 
 export function LoginPage() {
@@ -33,7 +34,8 @@ export function LoginPage() {
   }
 
   return (
-      <AuthLayout title="Welcome back" subtitle="Sign in to review SaaS waste, renewals, and vendor actions.">
+    <AuthLayout title="Welcome back" subtitle="Sign in to review SaaS waste, renewals, and vendor actions.">
+      <PageMeta title="Sign In - AutoAudit.ai" description="Sign in to your AutoAudit.ai SaaS waste control dashboard." />
       <form className="grid gap-4" onSubmit={handleSubmit}>
         {error && <AuthError message={error} />}
         <AuthField label="Email">

@@ -141,3 +141,27 @@ export type AiTextMetadata = {
   generatedAt?: string;
   savedReportId?: string;
 };
+
+export type ApiContactRequest = {
+  _id: string;
+  name: string;
+  email: string;
+  company?: string;
+  message: string;
+  source: "contact" | "custom_plan";
+  status: "new" | "reviewed" | "closed";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ApiReport = {
+  _id: string;
+  title: string;
+  type: "monthly_waste" | "renewal_risk" | "unused_seats" | "custom";
+  summary?: Partial<AuditSummary>;
+  findings?: Array<Record<string, unknown>>;
+  content?: string;
+  status: "draft" | "ready" | "archived";
+  createdAt: string;
+  updatedAt: string;
+};

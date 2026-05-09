@@ -144,6 +144,7 @@ export const generateMonthlyReport = asyncHandler(async (req, res) => {
     periodEnd,
     summary,
     findings: [{ type: "ai_report", content: reportText }],
+    content: reportText,
     status: "ready",
   });
   await incrementPlanUsage(req.companyId, "reportsGenerated");

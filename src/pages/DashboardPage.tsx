@@ -29,6 +29,7 @@ import {
   Filter,
   Inbox,
   LayoutDashboard,
+  ListChecks,
   LogOut,
   Mail,
   Menu,
@@ -48,11 +49,11 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { ChangeEvent, ReactNode } from "react";
-import { aiApi, auditApi, profileApi, renewalApi, vendorApi } from "../api/services";
+import { aiApi, analyticsApi, auditApi, contactApi, profileApi, renewalApi, reportApi, vendorApi } from "../api/services";
 import { getApiErrorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useTheme } from "../theme/ThemeContext";
-import type { AiEmailGoal, ApiCompany, ApiRenewal, ApiVendor, AuditSummary, CreateVendorInput, PaginationMeta } from "../types/api";
+import type { AiEmailGoal, ApiCompany, ApiContactRequest, ApiRenewal, ApiReport, ApiVendor, AuditSummary, CreateVendorInput, PaginationMeta } from "../types/api";
 
 type PageId = "overview" | "vendors" | "waste" | "renewals" | "reports" | "email" | "billing" | "settings";
 type RiskLevel = "critical" | "high" | "medium" | "low";
@@ -132,6 +133,12 @@ type PlanLimitSet = {
   vendorAnalyses: number | null;
 };
 
+type OnboardingItem = {
+  label: string;
+  done: boolean;
+  page: PageId;
+};
+
 const navItems: NavItem[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "vendors", label: "Vendors", icon: Inbox },
@@ -174,6 +181,16 @@ const reports = [
   { name: "Renewal Risk Brief", owner: "Ops", status: "Scheduled", savings: 31900, date: "May 15, 2026" },
   { name: "Unused Seat Audit", owner: "IT", status: "Draft", savings: 20520, date: "May 21, 2026" },
 ];
+
+type ReportCard = {
+  id?: string;
+  name: string;
+  owner: string;
+  status: string;
+  savings: number;
+  date: string;
+  content?: string;
+};
 
 const integrations = [
   { name: "CSV import", status: "Available", detail: "Manual vendor and spend uploads are ready now." },
@@ -228,6 +245,7 @@ export function DashboardPage() {
   const [toast, setToast] = useState("");
   const [apiVendors, setApiVendors] = useState<ApiVendor[]>([]);
   const [apiRenewals, setApiRenewals] = useState<ApiRenewal[]>([]);
+  const [apiReports, setApiReports] = useState<ApiReport[]>([]);
   const [vendorPagination, setVendorPagination] = useState<PaginationMeta | null>(null);
   const [auditSummary, setAuditSummary] = useState<AuditSummary | null>(null);
   const [isDataLoading, setDataLoading] = useState(true);
@@ -240,6 +258,7 @@ export function DashboardPage() {
   const toastTimer = useRef<number | undefined>(undefined);
 
   const pageTitle = navItems.find((item) => item.id === activePage)?.label ?? "Overview";
+  const isTrialExpired = company ? getTrialState(company).isExpired : false;
 
   const dashboardVendors = useMemo(() => apiVendors.map(mapApiVendorToDashboardVendor), [apiVendors]);
   const renewalRows = useMemo(() => buildRenewalRows({ renewals: apiRenewals, auditSummary }), [apiRenewals, auditSummary]);
@@ -248,6 +267,15 @@ export function DashboardPage() {
   const dashboardWasteSignals = useMemo(() => buildWasteSignals(auditSummary), [auditSummary]);
   const dashboardCategorySpend = useMemo(() => buildCategorySpend(apiVendors), [apiVendors]);
   const dashboardRenewalChart = useMemo(() => buildRenewalChart(renewalRows), [renewalRows]);
+  const onboardingItems = useMemo<OnboardingItem[]>(() => {
+    return [
+      { label: "Load sample data", done: dashboardVendors.length > 0, page: "vendors" },
+      { label: "Import CSV", done: dashboardVendors.length > 0, page: "vendors" },
+      { label: "Review waste", done: dashboardWasteSignals.length > 0, page: "waste" },
+      { label: "Generate report", done: Boolean(monthlyReportDraft || company?.planUsage?.reportsGenerated), page: "reports" },
+      { label: "Create email draft", done: draft !== defaultDraft || Boolean(company?.planUsage?.aiEmailsGenerated), page: "email" },
+    ];
+  }, [company?.planUsage?.aiEmailsGenerated, company?.planUsage?.reportsGenerated, dashboardVendors.length, dashboardWasteSignals.length, draft, monthlyReportDraft]);
 
   const totals = useMemo(() => {
     return {
@@ -272,16 +300,18 @@ export function DashboardPage() {
     setDataError("");
 
     try {
-      const [vendorsResponse, summaryResponse, renewalsResponse] = await Promise.all([
+      const [vendorsResponse, summaryResponse, renewalsResponse, reportsResponse] = await Promise.all([
         vendorApi.list({ limit: 100 }),
         auditApi.summary(),
         renewalApi.list({ limit: 100 }),
+        reportApi.list({ limit: 20 }),
       ]);
 
       setApiVendors(vendorsResponse.vendors);
       setVendorPagination(vendorsResponse.pagination);
       setAuditSummary(summaryResponse);
       setApiRenewals(renewalsResponse.renewals);
+      setApiReports(reportsResponse.reports);
     } catch (error) {
       setDataError(getApiErrorMessage(error));
     } finally {
@@ -316,6 +346,10 @@ export function DashboardPage() {
   };
 
   const handleCreateVendor = async (input: CreateVendorInput) => {
+    if (isTrialExpired) {
+      throw new Error("Trial ended. Choose a plan before adding more vendors.");
+    }
+
     try {
       const vendor = await vendorApi.create(input);
       setApiVendors((current) => [vendor, ...current]);
@@ -327,6 +361,10 @@ export function DashboardPage() {
   };
 
   const handleImportVendors = async (inputs: CreateVendorInput[]) => {
+    if (isTrialExpired) {
+      return { created: 0, failed: inputs.length, errors: ["Trial ended. Choose a plan before importing vendors."] };
+    }
+
     const results = await Promise.allSettled(inputs.map((input) => vendorApi.create(input)));
     await refreshDashboardData();
 
@@ -341,6 +379,11 @@ export function DashboardPage() {
   };
 
   const handleLoadDemoData = async () => {
+    if (isTrialExpired) {
+      showToast("Trial ended. Choose a plan before loading sample data.");
+      return;
+    }
+
     if (dashboardVendors.length > 0) {
       showToast("Demo data is best for an empty workspace.");
       return;
@@ -353,6 +396,7 @@ export function DashboardPage() {
       await refreshDashboardData();
       const created = results.filter((result) => result.status === "fulfilled").length;
       const firstError = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+      analyticsApi.track("sample_data_loaded", { created });
       showToast(firstError ? withUpgradePrompt(getApiErrorMessage(firstError.reason)) : `${created} sample vendors loaded.`);
     } finally {
       setLoadingDemo(false);
@@ -376,20 +420,31 @@ export function DashboardPage() {
   };
 
   const handleGenerateMonthlyReport = async () => {
+    if (isTrialExpired) {
+      showToast("Trial ended. Choose a plan before generating reports.");
+      return;
+    }
+
     setReportGenerating(true);
 
     try {
       const { report } = await aiApi.monthlyReport({ audience: "CFO" });
       setMonthlyReportDraft(report);
+      await refreshDashboardData();
       showToast("AI CFO report generated.");
     } catch (error) {
-      showToast(withUpgradePrompt(getApiErrorMessage(error)));
+      showToast(getAiUnavailableMessage(error));
     } finally {
       setReportGenerating(false);
     }
   };
 
   const handleSuggestDuplicateTools = async () => {
+    if (isTrialExpired) {
+      showToast("Trial ended. Choose a plan before running AI analysis.");
+      return;
+    }
+
     setWasteAnalyzing(true);
 
     try {
@@ -397,13 +452,18 @@ export function DashboardPage() {
       setWasteAnalysis(analysis);
       showToast("AI duplicate-tool suggestions generated.");
     } catch (error) {
-      showToast(withUpgradePrompt(getApiErrorMessage(error)));
+      showToast(getAiUnavailableMessage(error));
     } finally {
       setWasteAnalyzing(false);
     }
   };
 
   const handleExplainWaste = async (signal: WasteSignal) => {
+    if (isTrialExpired) {
+      showToast("Trial ended. Choose a plan before running AI analysis.");
+      return;
+    }
+
     setWasteAnalyzing(true);
 
     try {
@@ -411,7 +471,7 @@ export function DashboardPage() {
       setWasteAnalysis(analysis);
       showToast(`${signal.vendor} waste explanation generated.`);
     } catch (error) {
-      showToast(withUpgradePrompt(getApiErrorMessage(error)));
+      showToast(getAiUnavailableMessage(error));
     } finally {
       setWasteAnalyzing(false);
     }
@@ -424,6 +484,7 @@ export function DashboardPage() {
 
         <div className="min-w-0">
           <Topbar
+            checklistItems={onboardingItems}
             companyName={company?.name ?? "Workspace"}
             pageTitle={pageTitle}
             searchValue={vendorSearch}
@@ -459,7 +520,7 @@ export function DashboardPage() {
                 />
               )}
               {activePage === "renewals" && <RenewalsPage hasVendors={dashboardVendors.length > 0} isLoadingDemo={isLoadingDemo} renewalChartData={dashboardRenewalChart} renewalRows={renewalRows} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} onToast={showToast} />}
-              {activePage === "reports" && <ReportsPage hasVendors={dashboardVendors.length > 0} isGenerating={isReportGenerating} isLoadingDemo={isLoadingDemo} reportDraft={monthlyReportDraft} onGenerateReport={handleGenerateMonthlyReport} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} onToast={showToast} />}
+              {activePage === "reports" && <ReportsPage hasVendors={dashboardVendors.length > 0} isGenerating={isReportGenerating} isLoadingDemo={isLoadingDemo} reports={apiReports} reportDraft={monthlyReportDraft} trialExpired={isTrialExpired} onGenerateReport={handleGenerateMonthlyReport} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} onToast={showToast} />}
               {activePage === "email" && (
                 <EmailGeneratorPage
                   vendors={dashboardVendors}
@@ -469,6 +530,10 @@ export function DashboardPage() {
                   onCopyDraft={copyDraft}
                   onDraftChange={setDraft}
                   onGenerate={async (vendorName, tone, goal) => {
+                    if (isTrialExpired) {
+                      throw new Error("Trial ended. Choose a plan before generating AI emails.");
+                    }
+
                     const apiVendor = apiVendors.find((vendor) => vendor.name === vendorName);
                     const goalConfig = emailGoalOptions.find((item) => item.value === goal) ?? emailGoalOptions[0];
                     const generatedDraft =
@@ -572,6 +637,7 @@ function Sidebar({
 }
 
 function Topbar({
+  checklistItems,
   companyName,
   pageTitle,
   searchValue,
@@ -582,6 +648,7 @@ function Topbar({
   onNavigate,
   onRefresh,
 }: {
+  checklistItems: OnboardingItem[];
   companyName: string;
   pageTitle: string;
   searchValue: string;
@@ -593,7 +660,9 @@ function Topbar({
   onRefresh: () => void;
 }) {
   const { theme, toggleTheme } = useTheme();
+  const [isChecklistOpen, setChecklistOpen] = useState(false);
   const initialsLabel = initials(userName || companyName);
+  const hasOpenItems = checklistItems.some((item) => !item.done);
 
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-canvas/90 backdrop-blur-xl">
@@ -620,6 +689,45 @@ function Topbar({
         </label>
 
         <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 lg:overflow-visible lg:pb-0">
+        <div className="relative shrink-0">
+          <button
+            className="relative grid size-10 place-items-center rounded-lg border border-line bg-panel text-quiet transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand"
+            type="button"
+            aria-label="Open onboarding checklist"
+            title="Onboarding checklist"
+            onClick={() => setChecklistOpen((current) => !current)}
+          >
+            <ListChecks aria-hidden="true" size={18} />
+            {hasOpenItems && <span className="absolute right-2 top-2 size-2 rounded-full bg-risk" />}
+          </button>
+          {isChecklistOpen && (
+            <div className="absolute right-0 top-12 z-50 w-[280px] rounded-lg border border-line bg-panel p-3 shadow-2xl">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <strong className="text-sm font-extrabold">Quick setup</strong>
+                <span className="text-xs font-bold text-quiet">{checklistItems.filter((item) => item.done).length}/{checklistItems.length}</span>
+              </div>
+              <div className="grid gap-2">
+                {checklistItems.map((item) => (
+                  <button
+                    className="flex items-center justify-between gap-3 rounded-md bg-panel-subtle px-3 py-2 text-left text-sm font-bold text-ink transition hover:bg-panel-muted"
+                    type="button"
+                    key={item.label}
+                    onClick={() => {
+                      onNavigate(item.page);
+                      setChecklistOpen(false);
+                    }}
+                  >
+                    <span>{item.label}</span>
+                    <span className={`grid size-5 place-items-center rounded-full text-[10px] font-extrabold ${item.done ? "bg-good-soft text-good" : "bg-risk-soft text-risk"}`}>
+                      {item.done ? "✓" : "!"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         <button className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand" type="button" onClick={onRefresh}>
           <RefreshCw aria-hidden="true" size={17} />
           Sync
@@ -767,6 +875,8 @@ function VendorsPage({
   const [importMessage, setImportMessage] = useState("");
   const [importError, setImportError] = useState("");
   const [isImporting, setImporting] = useState(false);
+  const [pendingImportRows, setPendingImportRows] = useState<CreateVendorInput[]>([]);
+  const [pendingImportFileName, setPendingImportFileName] = useState("");
   const [form, setForm] = useState({
     name: "",
     category: "",
@@ -858,26 +968,49 @@ function VendorsPage({
     const file = event.target.files?.[0];
     if (!file) return;
 
-    setImporting(true);
     setImportMessage("");
     setImportError("");
+    setPendingImportRows([]);
+    setPendingImportFileName("");
 
     try {
       const text = await file.text();
       const inputs = parseVendorCsv(text);
-      const result = await onImportVendors(inputs);
-      const successMessage = result.failed > 0 ? `Imported ${result.created} vendors. ${result.failed} rows need review.` : `Imported ${result.created} vendors.`;
-
-      setImportMessage(successMessage);
-      setImportError(result.errors.join(" "));
-      onToast(successMessage);
+      setPendingImportRows(inputs);
+      setPendingImportFileName(file.name);
+      setImportMessage(`Preview ready: ${inputs.length} vendors found.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : getApiErrorMessage(error);
       setImportError(message);
       onToast(message);
     } finally {
-      setImporting(false);
       event.target.value = "";
+    }
+  }
+
+  async function handleConfirmImport() {
+    if (pendingImportRows.length === 0) return;
+
+    setImporting(true);
+    setImportMessage("");
+    setImportError("");
+
+    try {
+      const result = await onImportVendors(pendingImportRows);
+      const successMessage = result.failed > 0 ? `Imported ${result.created} vendors. ${result.failed} rows need review.` : `Imported ${result.created} vendors.`;
+
+      analyticsApi.track("csv_import_confirmed", { rows: pendingImportRows.length, created: result.created, failed: result.failed });
+      setPendingImportRows([]);
+      setPendingImportFileName("");
+      setImportMessage(successMessage);
+      setImportError(result.errors.join(" "));
+      onToast(successMessage);
+    } catch (error) {
+      const message = getApiErrorMessage(error);
+      setImportError(message);
+      onToast(message);
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -892,6 +1025,9 @@ function VendorsPage({
             <input ref={importInputRef} accept=".csv,text/csv" className="hidden" type="file" onChange={handleImportFile} />
             <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line bg-panel px-4 text-sm font-extrabold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" disabled={isImporting} type="button" onClick={() => importInputRef.current?.click()}>
               {isImporting ? "Importing..." : "Import CSV"}
+            </button>
+            <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line bg-panel px-4 text-sm font-extrabold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0" type="button" onClick={() => downloadCsvTemplate(onToast)}>
+              Download template
             </button>
             <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line bg-panel px-4 text-sm font-extrabold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" disabled={isLoadingDemo || vendors.length > 0} type="button" onClick={onLoadDemoData}>
               {isLoadingDemo ? "Loading..." : "Load sample data"}
@@ -934,6 +1070,51 @@ function VendorsPage({
             <PrimaryButton onClick={handleCreateVendor}>{isSubmitting ? "Saving..." : "Save vendor"}</PrimaryButton>
             <SecondaryButton onClick={() => setShowForm(false)}>Cancel</SecondaryButton>
           </div>
+        </Panel>
+      )}
+
+      {pendingImportRows.length > 0 && (
+        <Panel
+          title="Preview CSV import"
+          eyebrow={`${pendingImportRows.length} vendors from ${pendingImportFileName}`}
+          action={
+            <div className="flex flex-wrap gap-2">
+              <PrimaryButton onClick={handleConfirmImport}>{isImporting ? "Importing..." : `Import ${pendingImportRows.length} vendors`}</PrimaryButton>
+              <SecondaryButton onClick={() => {
+                setPendingImportRows([]);
+                setPendingImportFileName("");
+                setImportMessage("");
+              }}>
+                Cancel
+              </SecondaryButton>
+            </div>
+          }
+        >
+          <div className="overflow-x-auto">
+            <table className="min-w-[760px] w-full border-separate border-spacing-y-2 text-left">
+              <thead>
+                <tr className="text-xs uppercase text-quiet">
+                  <th className="px-3 py-2">Vendor</th>
+                  <th className="px-3 py-2">Category</th>
+                  <th className="px-3 py-2">Owner</th>
+                  <th className="px-3 py-2">Monthly spend</th>
+                  <th className="px-3 py-2">Seats</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingImportRows.slice(0, 5).map((row, index) => (
+                  <tr className="bg-panel-subtle text-sm font-bold" key={`${row.name}-${index}`}>
+                    <td className="rounded-l-lg border-y border-l border-line px-3 py-3">{row.name}</td>
+                    <td className="border-y border-line px-3 py-3">{row.category || "Uncategorized"}</td>
+                    <td className="border-y border-line px-3 py-3">{row.ownerName || "Unassigned"}</td>
+                    <td className="border-y border-line px-3 py-3">{currency(Number(row.monthlySpend ?? 0))}</td>
+                    <td className="rounded-r-lg border-y border-r border-line px-3 py-3">{Number(row.activeSeats ?? 0)} / {Number(row.seatsPurchased ?? 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {pendingImportRows.length > 5 && <p className="mt-3 text-sm font-bold text-quiet">Showing first 5 rows. The full import includes {pendingImportRows.length} vendors.</p>}
         </Panel>
       )}
 
@@ -1329,7 +1510,9 @@ function ReportsPage({
   hasVendors,
   isGenerating,
   isLoadingDemo,
+  reports: savedReports,
   reportDraft,
+  trialExpired,
   onGenerateReport,
   onLoadDemoData,
   onNavigate,
@@ -1338,13 +1521,21 @@ function ReportsPage({
   hasVendors: boolean;
   isGenerating: boolean;
   isLoadingDemo: boolean;
+  reports: ApiReport[];
   reportDraft: string;
+  trialExpired: boolean;
   onGenerateReport: () => Promise<void>;
   onLoadDemoData: () => Promise<void>;
   onNavigate: (page: PageId) => void;
   onToast: (message: string) => void;
 }) {
-  const [selectedReport, setSelectedReport] = useState(reports[0]);
+  const reportCards = savedReports.map(mapApiReportToCard);
+  const visibleReports: ReportCard[] = reportCards.length > 0 ? reportCards : reports;
+  const [selectedReport, setSelectedReport] = useState<ReportCard>(visibleReports[0]);
+
+  useEffect(() => {
+    setSelectedReport(visibleReports[0]);
+  }, [savedReports.length]);
 
   return (
     <div className="grid gap-4">
@@ -1352,7 +1543,7 @@ function ReportsPage({
         eyebrow="Board-ready output"
         title="Reports"
         detail="Generate monthly CFO packets, savings recaps, renewal briefs, and IT cleanup lists from the same audit data."
-        action={<PrimaryButton onClick={onGenerateReport}>{isGenerating ? "Generating..." : "Create AI report"}</PrimaryButton>}
+        action={<PrimaryButton onClick={onGenerateReport}>{trialExpired ? "Trial ended" : isGenerating ? "Generating..." : "Create AI report"}</PrimaryButton>}
       />
 
       {!hasVendors && (
@@ -1365,8 +1556,8 @@ function ReportsPage({
       )}
 
       {hasVendors && <div className="grid gap-4 lg:grid-cols-3">
-        {reports.map((report) => (
-          <article className="rounded-lg border border-line bg-panel p-5 shadow-[0_18px_45px_rgba(23,32,38,0.08)] transition hover:-translate-y-1 hover:shadow-xl" key={report.name}>
+        {visibleReports.map((report) => (
+          <article className="rounded-lg border border-line bg-panel p-5 shadow-[0_18px_45px_rgba(23,32,38,0.08)] transition hover:-translate-y-1 hover:shadow-xl" key={report.id ?? report.name}>
             <div className="flex items-start justify-between gap-3">
               <span className="grid size-11 place-items-center rounded-lg bg-brand-soft text-brand">
                 <FileText aria-hidden="true" size={22} />
@@ -1386,11 +1577,11 @@ function ReportsPage({
       </div>}
 
       {hasVendors && selectedReport && (
-        <Panel title={selectedReport.name} eyebrow="Report preview" action={<PanelAction label="Download summary" onClick={() => downloadTextFile(`${selectedReport.name}.txt`, buildReportSummary(selectedReport), onToast)} />}>
+        <Panel title={selectedReport.name} eyebrow={selectedReport.id ? "Saved report" : "Report preview"} action={<PanelAction label="Download summary" onClick={() => downloadTextFile(`${selectedReport.name}.txt`, buildReportSummary(selectedReport), onToast)} />}>
           <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
             <div className="rounded-lg border border-line bg-panel-subtle p-4">
               <h3 className="font-extrabold">Executive summary</h3>
-              <p className="mt-2 text-sm leading-7 text-quiet">{buildReportSummary(selectedReport)}</p>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-quiet">{buildReportSummary(selectedReport)}</p>
             </div>
             <div className="grid gap-3">
               <PlanMetric label="Owner" value={selectedReport.owner} />
@@ -1469,7 +1660,7 @@ function EmailGeneratorPage({
     try {
       await onGenerate(selectedVendor || vendors[0]?.name || "Vendor", emailTone, selectedGoal);
     } catch (err) {
-      setError(withUpgradePrompt(getApiErrorMessage(err)));
+      setError(getAiUnavailableMessage(err));
     } finally {
       setGenerating(false);
     }
@@ -1681,6 +1872,16 @@ function TrialStatusBanner({
               {isLoadingDemo ? "Loading..." : "Load sample data"}
             </button>
           )}
+          {trial.isExpired && (
+            <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:text-brand" type="button" onClick={() => window.location.assign("/contact")}>
+              Request custom plan
+            </button>
+          )}
+          {trial.isExpired && (
+            <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:text-brand" type="button" onClick={() => window.location.assign("/pricing")}>
+              View pricing
+            </button>
+          )}
           <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong" type="button" onClick={() => onNavigate("billing")}>
             {trial.isExpired ? "Choose plan" : "Review plan"}
           </button>
@@ -1700,10 +1901,33 @@ function SettingsPage({ companySettings, onToast }: { companySettings: ApiCompan
     return mapCompanySettings(companySettings);
   });
   const [isSaving, setSaving] = useState(false);
+  const [contactRequests, setContactRequests] = useState<ApiContactRequest[]>([]);
+  const [isLoadingRequests, setLoadingRequests] = useState(false);
 
   useEffect(() => {
     setSettings(mapCompanySettings(companySettings));
   }, [companySettings]);
+
+  useEffect(() => {
+    let isMounted = true;
+    setLoadingRequests(true);
+
+    contactApi
+      .list({ limit: 6 })
+      .then((response) => {
+        if (isMounted) setContactRequests(response.contactRequests);
+      })
+      .catch(() => {
+        if (isMounted) setContactRequests([]);
+      })
+      .finally(() => {
+        if (isMounted) setLoadingRequests(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleSaveSettings = async () => {
     setSaving(true);
@@ -1720,6 +1944,16 @@ function SettingsPage({ companySettings, onToast }: { companySettings: ApiCompan
       onToast(getApiErrorMessage(error));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleContactStatus = async (request: ApiContactRequest, status: ApiContactRequest["status"]) => {
+    try {
+      const updated = await contactApi.updateStatus(request._id, status);
+      setContactRequests((current) => current.map((item) => (item._id === updated._id ? updated : item)));
+      onToast("Lead status updated.");
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
     }
   };
 
@@ -1788,6 +2022,46 @@ function SettingsPage({ companySettings, onToast }: { companySettings: ApiCompan
             </article>
           ))}
         </div>
+      </Panel>
+
+      <Panel title="Custom plan requests" eyebrow={isLoadingRequests ? "Loading requests" : `${contactRequests.length} recent requests`}>
+        {contactRequests.length === 0 ? (
+          <EmptyState title="No custom requests yet" detail="When someone submits the contact form, the newest requests will appear here for follow-up." icon={Mail} />
+        ) : (
+          <div className="grid gap-3">
+            {contactRequests.map((request) => (
+              <article className="rounded-lg border border-line bg-panel-subtle p-4" key={request._id}>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <strong className="block text-sm font-extrabold">{request.name}</strong>
+                    <p className="mt-1 text-sm font-bold text-quiet">{request.company || "No company"} - {request.email}</p>
+                  </div>
+                  <span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-extrabold uppercase text-brand-strong">{request.status}</span>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-quiet">{request.message}</p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {(["new", "reviewed", "closed"] as const).map((status) => (
+                    <button
+                      className={`min-h-9 rounded-lg border px-3 text-xs font-extrabold uppercase transition ${request.status === status ? "border-brand bg-brand text-white" : "border-line bg-panel text-quiet hover:border-brand hover:text-brand"}`}
+                      type="button"
+                      key={status}
+                      onClick={() => handleContactStatus(request, status)}
+                    >
+                      {status}
+                    </button>
+                  ))}
+                  <a className="inline-flex min-h-9 items-center justify-center rounded-lg border border-line bg-panel px-3 text-xs font-extrabold text-quiet transition hover:border-brand hover:text-brand" href={`mailto:${request.email}?subject=AutoAudit.ai custom plan`}>
+                    Email
+                  </a>
+                  <a className="inline-flex min-h-9 items-center justify-center rounded-lg border border-line bg-panel px-3 text-xs font-extrabold text-quiet transition hover:border-brand hover:text-brand" href="https://wa.me/918591079598" target="_blank" rel="noreferrer">
+                    WhatsApp
+                  </a>
+                </div>
+                <p className="mt-3 text-xs font-bold text-quiet">{new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit", year: "numeric" }).format(new Date(request.createdAt))}</p>
+              </article>
+            ))}
+          </div>
+        )}
       </Panel>
     </div>
   );
@@ -2211,7 +2485,21 @@ function downloadTextFile(filename: string, content: string, onToast: (message: 
   onToast(`${filename} downloaded.`);
 }
 
-function buildReportSummary(report: (typeof reports)[number]) {
+function downloadCsvTemplate(onToast: (message: string) => void) {
+  const template = [
+    "name,category,owner,ownerEmail,monthlySpend,seatsPurchased,activeSeats,lastUsedAt,renewalDate,notes",
+    "Slack,Collaboration,Ops Lead,ops@example.com,890,80,52,2026-05-01,2026-06-15,Core messaging workspace",
+    "Clearbit,Sales,Revenue Lead,revenue@example.com,1200,12,0,2026-01-15,2026-05-30,Review cancellation before renewal",
+  ].join("\n");
+
+  downloadTextFile("autoaudit-vendor-template.csv", template, onToast);
+}
+
+function buildReportSummary(report: ReportCard) {
+  if (report.content) {
+    return report.content;
+  }
+
   return `${report.name}
 
 Owner: ${report.owner}
@@ -2221,6 +2509,18 @@ Savings identified: ${currency(report.savings)}
 
 Summary:
 This packet highlights SaaS waste drivers, renewal exposure, and recommended owner actions for the current review cycle.`;
+}
+
+function mapApiReportToCard(report: ApiReport): ReportCard {
+  return {
+    id: report._id,
+    name: report.title,
+    owner: "Workspace",
+    status: report.status === "ready" ? "Ready" : report.status,
+    savings: Number(report.summary?.estimatedAnnualSavings ?? 0),
+    date: new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit", year: "numeric" }).format(new Date(report.createdAt)),
+    content: report.content,
+  };
 }
 
 function parseShortDate(value: string, year: number) {
@@ -2603,6 +2903,16 @@ function withUpgradePrompt(message: string) {
   }
 
   return message;
+}
+
+function getAiUnavailableMessage(error: unknown) {
+  const message = getApiErrorMessage(error);
+
+  if (/openai|api key|quota|credit|billing|insufficient|model|ai|500|internal/i.test(message)) {
+    return "AI is temporarily unavailable. Manual audit tools still work.";
+  }
+
+  return withUpgradePrompt(message);
 }
 
 function daysAgoIso(days: number) {

@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { ArrowLeft, Mail, MessageCircle, Phone, ShieldCheck } from "lucide-react";
+import { PageMeta } from "../components/PageMeta";
 import { PublicFooter, publicContact } from "../components/PublicFooter";
 
 const socialLinks = [
@@ -12,6 +13,7 @@ const socialLinks = [
 export function AboutDeveloperPage() {
   return (
     <main className="min-h-screen bg-canvas text-ink">
+      <PageMeta title="About Developer - AutoAudit.ai" description="Meet Obaid, the self-taught full-stack developer behind AutoAudit.ai." />
       <section className="border-b border-line bg-panel">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
           <Link className="flex min-w-0 items-center gap-3" to="/">

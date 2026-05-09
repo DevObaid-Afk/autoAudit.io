@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { ApiRenewal, ApiVendor, AuditSummary, AuthResponse, CreateVendorInput, PaginationMeta } from "../types/api";
+import type { ApiContactRequest, ApiRenewal, ApiReport, ApiVendor, AuditSummary, AuthResponse, CreateVendorInput, PaginationMeta } from "../types/api";
 
 export const authApi = {
   async signup(input: { name: string; email: string; password: string; companyName: string; companyDomain?: string; plan?: string }) {
@@ -84,5 +84,43 @@ export const aiApi = {
   async vendorAnalysis(input: { vendorId?: string; vendorName?: string; mode?: "duplicate_tools" | "waste_explanation" }) {
     const { data } = await apiClient.post<{ analysis: string }>("/api/ai/vendor-analysis", input);
     return data.analysis;
+  },
+};
+
+export const contactApi = {
+  async create(input: { name: string; email: string; company?: string; message: string }) {
+    const { data } = await apiClient.post<{ message: string; request: { id: string; status: string } }>("/api/contact", input);
+    return data;
+  },
+
+  async list(params: { page?: number; limit?: number } = {}) {
+    const { data } = await apiClient.get<{ contactRequests: ApiContactRequest[]; pagination: PaginationMeta }>("/api/contact", { params });
+    return data;
+  },
+
+  async updateStatus(id: string, status: ApiContactRequest["status"]) {
+    const { data } = await apiClient.patch<{ contactRequest: ApiContactRequest }>(`/api/contact/${id}`, { status });
+    return data.contactRequest;
+  },
+};
+
+export const reportApi = {
+  async list(params: { page?: number; limit?: number } = {}) {
+    const { data } = await apiClient.get<{ reports: ApiReport[]; pagination: PaginationMeta }>("/api/reports", { params });
+    return data;
+  },
+};
+
+export const analyticsApi = {
+  async track(eventName: string, metadata: Record<string, unknown> = {}) {
+    try {
+      await apiClient.post("/api/analytics", {
+        eventName,
+        metadata,
+        path: window.location.pathname,
+      });
+    } catch {
+      // Analytics should never block the core product flow.
+    }
   },
 };
