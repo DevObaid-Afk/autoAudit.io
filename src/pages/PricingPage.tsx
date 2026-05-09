@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Building2, Check, Moon, ShieldCheck, Sparkles, Sun } from "lucide-react";
+import { PublicFooter } from "../components/PublicFooter";
 import { useTheme } from "../theme/ThemeContext";
 
 const plans = [
@@ -143,6 +144,7 @@ export function PricingPage() {
           </p>
         </div>
       </section>
+      <PublicFooter />
     </main>
   );
 }

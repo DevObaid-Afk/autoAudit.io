@@ -14,6 +14,7 @@ import {
   Sun,
   Zap,
 } from "lucide-react";
+import { PublicFooter } from "../components/PublicFooter";
 import { useAuth } from "../auth/AuthContext";
 import { useTheme } from "../theme/ThemeContext";
 
@@ -149,7 +150,7 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section className="mx-auto grid w-full max-w-7xl gap-4 px-4 py-10 sm:px-6 md:grid-cols-3 lg:px-8">
+      <section id="features" className="mx-auto grid w-full max-w-7xl gap-4 px-4 py-10 sm:px-6 md:grid-cols-3 lg:px-8">
         {workflows.map((item) => (
           <article key={item.title} className="rounded-lg border border-line bg-panel p-5 shadow-[0_14px_34px_rgba(23,32,38,0.06)]">
             <span className="grid size-10 place-items-center rounded-lg bg-brand-soft text-brand">
@@ -161,7 +162,7 @@ export function LandingPage() {
         ))}
       </section>
 
-      <section className="border-y border-line bg-panel">
+      <section id="how-it-works" className="border-y border-line bg-panel">
         <div className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
           <div className="max-w-2xl">
             <p className="text-xs font-extrabold uppercase text-brand-strong">How it works</p>
@@ -179,7 +180,7 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+      <section id="sample-output" className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="max-w-2xl">
           <p className="text-xs font-extrabold uppercase text-brand-strong">Sample output</p>
           <h2 className="mt-2 text-3xl font-extrabold tracking-normal">Show the work behind every savings recommendation.</h2>
@@ -214,6 +215,8 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+
+      <PublicFooter />
     </main>
   );
 }

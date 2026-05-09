@@ -1,9 +1,8 @@
 import { FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Mail, Moon, Send, ShieldCheck, Sun } from "lucide-react";
+import { PublicFooter, publicContact } from "../components/PublicFooter";
 import { useTheme } from "../theme/ThemeContext";
-
-const contactEmail = "exehassan62@gmail.com";
 
 export function ContactPage() {
   const { theme, toggleTheme } = useTheme();
@@ -21,7 +20,7 @@ export function ContactPage() {
       `Name: ${form.name}\nEmail: ${form.email}\nCompany: ${form.company}\n\n${form.message}`,
     );
 
-    window.location.href = `mailto:${contactEmail}?subject=${subject}&body=${body}`;
+    window.location.href = `mailto:${publicContact.email}?subject=${subject}&body=${body}`;
   }
 
   return (
@@ -66,7 +65,7 @@ export function ContactPage() {
               </span>
               <div>
                 <strong className="block text-sm font-extrabold">Direct contact</strong>
-                <span className="text-sm text-quiet">{contactEmail}</span>
+                <span className="text-sm text-quiet">{publicContact.email}</span>
               </div>
             </div>
           </div>
@@ -93,6 +92,7 @@ export function ContactPage() {
           </div>
         </form>
       </section>
+      <PublicFooter />
     </main>
   );
 }
