@@ -3,9 +3,9 @@ import { ArrowLeft, Mail, MessageCircle, Phone, ShieldCheck } from "lucide-react
 import { PublicFooter, publicContact } from "../components/PublicFooter";
 
 const socialLinks = [
-  { label: "GitHub", className: "fa-brands fa-github", href: "#" },
-  { label: "Instagram", className: "fa-brands fa-instagram", href: "#" },
-  { label: "Facebook", className: "fa-brands fa-facebook", href: "#" },
+  { label: "GitHub", className: "fa-brands fa-github", href: "https://github.com/DevObaid-Afk" },
+  { label: "Instagram", className: "fa-brands fa-instagram", href: "https://www.instagram.com/dev_obaid.io/" },
+  { label: "Facebook", className: "fa-brands fa-facebook", href: "https://www.facebook.com/share/1LvvoCf7VU/" },
   { label: "X", className: "fa-brands fa-x-twitter", href: "#" },
 ];
 
