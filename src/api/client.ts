@@ -1,6 +1,7 @@
 import axios from "axios";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:5000";
+const isLocalApi = API_URL.includes("localhost") || API_URL.includes("127.0.0.1");
 const TOKEN_KEY = "autoaudit.authToken";
 
 export const apiClient = axios.create({
@@ -46,7 +47,11 @@ export function clearStoredToken() {
 export function getApiErrorMessage(error: unknown) {
   if (axios.isAxiosError(error)) {
     if (error.code === "ERR_NETWORK") {
-      return `Cannot reach the AutoAudit API at ${API_URL}, or the browser blocked the request. Make sure npm run dev:api is running, then refresh and try again.`;
+      if (isLocalApi) {
+        return `Cannot reach the AutoAudit API at ${API_URL}, or the browser blocked the request. Make sure npm run dev:api is running, then refresh and try again.`;
+      }
+
+      return `Cannot reach the AutoAudit API at ${API_URL}, or the browser blocked the request. Please refresh and try again.`;
     }
 
     return error.response?.data?.error?.message ?? error.message;

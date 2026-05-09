@@ -18,7 +18,7 @@
 5. Add the variables from `server/.env.example`.
 6. Set `NODE_ENV=production`.
 7. Set `MONGODB_URI` to the MongoDB Atlas connection string.
-8. Set `CORS_ORIGIN` to the deployed Vercel frontend URL.
+8. Set `CORS_ORIGIN` to the deployed Vercel frontend origin, without a path. For example, use `https://auto-audit-io.vercel.app`, not `https://auto-audit-io.vercel.app/login`.
 
 ## Production Checks
 

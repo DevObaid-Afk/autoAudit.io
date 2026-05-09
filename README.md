@@ -153,7 +153,7 @@ Short version:
 
 - Vercel frontend: build command `npm run build`, output `dist`, set `VITE_API_URL`.
 - Render backend: build command `npm install`, start command `npm run start:api`, set backend environment variables.
-- After deploying Vercel, copy the frontend URL into Render `CORS_ORIGIN`.
+- After deploying Vercel, copy the frontend origin into Render `CORS_ORIGIN`, without a page path like `/login`.
 
 ## Verification
 

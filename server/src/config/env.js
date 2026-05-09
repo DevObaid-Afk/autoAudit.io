@@ -16,11 +16,24 @@ export const env = {
   authRateLimitMax: Number(process.env.AUTH_RATE_LIMIT_MAX ?? 20),
   aiRateLimitWindowMs: Number(process.env.AI_RATE_LIMIT_WINDOW_MS ?? 60 * 1000),
   aiRateLimitMax: Number(process.env.AI_RATE_LIMIT_MAX ?? 20),
-  corsOrigins: (process.env.CORS_ORIGIN ?? "http://127.0.0.1:5173,http://localhost:5173")
+  corsOrigins: parseCorsOrigins(
+    process.env.CORS_ORIGIN ?? "http://127.0.0.1:5173,http://localhost:5173",
+  ),
+};
+
+function parseCorsOrigins(value) {
+  return value
     .split(",")
     .map((origin) => origin.trim())
-    .filter(Boolean),
-};
+    .filter(Boolean)
+    .map((origin) => {
+      try {
+        return new URL(origin).origin;
+      } catch {
+        return origin;
+      }
+    });
+}
 
 export function validateEnv() {
   const missing = [];
