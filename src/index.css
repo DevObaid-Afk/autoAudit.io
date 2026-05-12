@@ -28,26 +28,26 @@
 
   .dark {
     color-scheme: dark;
-    --color-canvas: 10 15 20;
-    --color-panel: 16 23 30;
-    --color-panel-muted: 26 36 45;
-    --color-panel-subtle: 20 29 37;
-    --color-ink: 235 242 246;
-    --color-inverse: 7 11 16;
-    --color-inverse-ink: 245 251 255;
-    --color-inverse-action: 245 251 255;
-    --color-inverse-action-ink: 10 15 20;
-    --color-quiet: 143 158 168;
-    --color-line: 43 58 69;
-    --color-brand: 33 174 188;
-    --color-brand-strong: 91 216 225;
-    --color-brand-soft: 14 60 68;
-    --color-risk: 255 135 126;
-    --color-risk-soft: 69 24 27;
-    --color-warning: 255 205 104;
-    --color-warning-soft: 72 52 18;
-    --color-good: 99 208 131;
-    --color-good-soft: 20 58 34;
+    --color-canvas: 7 11 18;
+    --color-panel: 15 22 32;
+    --color-panel-muted: 28 38 52;
+    --color-panel-subtle: 19 28 40;
+    --color-ink: 235 241 247;
+    --color-inverse: 4 8 14;
+    --color-inverse-ink: 248 251 255;
+    --color-inverse-action: 232 248 250;
+    --color-inverse-action-ink: 7 20 28;
+    --color-quiet: 142 156 174;
+    --color-line: 55 68 86;
+    --color-brand: 55 190 204;
+    --color-brand-strong: 126 229 236;
+    --color-brand-soft: 13 58 70;
+    --color-risk: 255 118 116;
+    --color-risk-soft: 73 27 33;
+    --color-warning: 245 180 80;
+    --color-warning-soft: 76 51 22;
+    --color-good: 90 215 148;
+    --color-good-soft: 17 68 48;
   }
 
   html {
@@ -63,11 +63,17 @@
     background:
       linear-gradient(
         180deg,
-        rgb(var(--color-brand-soft) / 0.72),
+        rgb(var(--color-brand-soft) / 0.32),
+        rgb(var(--color-canvas) / 0) 420px
+      ),
+      radial-gradient(
+        circle at 74% 0%,
+        rgb(var(--color-brand) / 0.12),
         rgb(var(--color-canvas) / 0) 360px
       ),
       rgb(var(--color-canvas));
     font-family:
+      "Plus Jakarta Sans",
       Inter,
       ui-sans-serif,
       system-ui,
@@ -111,7 +117,7 @@
 
   .motion-card:hover {
     border-color: rgb(var(--color-brand) / 0.42);
-    box-shadow: 0 18px 44px rgb(23 32 38 / 0.1);
+    box-shadow: 0 18px 44px rgb(0 0 0 / 0.18);
     transform: translateY(-2px);
   }
 

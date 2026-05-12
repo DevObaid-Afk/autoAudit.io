@@ -17,7 +17,6 @@ import {
 } from "recharts";
 import {
   AlertTriangle,
-  ArrowDownRight,
   BadgeDollarSign,
   Bell,
   Bot,
@@ -41,7 +40,6 @@ import {
   Sparkles,
   Sun,
   Trash2,
-  Users,
   X,
   Zap,
   type LucideIcon,
@@ -260,6 +258,7 @@ export function DashboardPage() {
   const sectionParam = params.section as PageId | undefined;
   const [activePage, setActivePage] = useState<PageId>(isPageId(sectionParam) ? sectionParam : "overview");
   const [isMobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [draft, setDraft] = useState(defaultDraft);
   const [emailTone, setEmailTone] = useState("Direct");
   const [vendorSearch, setVendorSearch] = useState("");
@@ -582,8 +581,8 @@ export function DashboardPage() {
   return (
     <div className="min-h-screen bg-canvas text-ink">
       <PageMeta title="Dashboard - AutoAudit.ai" description="Signed-in AutoAudit.ai SaaS waste control dashboard." canonicalPath="/dashboard" noindex />
-      <div className="lg:grid lg:grid-cols-[286px_minmax(0,1fr)]">
-        <Sidebar activePage={activePage} isOpen={isMobileNavOpen} onClose={() => setMobileNavOpen(false)} onNavigate={handleNav} />
+      <div className={`${isSidebarCollapsed ? "lg:grid-cols-[84px_minmax(0,1fr)]" : "lg:grid-cols-[244px_minmax(0,1fr)]"} lg:grid transition-[grid-template-columns] duration-300`}>
+        <Sidebar activePage={activePage} isCollapsed={isSidebarCollapsed} isOpen={isMobileNavOpen} onClose={() => setMobileNavOpen(false)} onNavigate={handleNav} onToggleCollapse={() => setSidebarCollapsed((current) => !current)} />
 
         <div className="min-w-0">
           <Topbar
@@ -599,13 +598,11 @@ export function DashboardPage() {
             onRefresh={refreshDashboardData}
           />
 
-          <main className="mx-auto max-w-[1500px] px-3 py-4 sm:px-6 lg:px-8">
-            <div className="animate-[fadeIn_420ms_ease-out]">
-              {user && !user.emailVerifiedAt && <EmailVerificationBanner email={user.email} onResend={handleResendVerification} />}
-              {company && <TrialStatusBanner company={company} isLoadingDemo={isLoadingDemo} vendorCount={dashboardVendors.length} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} />}
+          <main className="mx-auto max-w-[1480px] overflow-x-hidden px-3 py-4 sm:px-6 lg:px-8">
+            <div className="min-w-0 animate-[fadeIn_420ms_ease-out]">
               {dataError && <ErrorState message={dataError} onRetry={refreshDashboardData} />}
               {isDataLoading && <LoadingState label="Loading live audit data" />}
-              {activePage === "overview" && <OverviewPage categoryData={dashboardCategorySpend} duplicateTools={duplicateToolRows} totals={totals} unusedSeats={unusedSeatRows} onNavigate={handleNav} onToast={showToast} />}
+              {activePage === "overview" && <OverviewPage categoryData={dashboardCategorySpend} duplicateTools={duplicateToolRows} renewalRows={renewalRows} totals={totals} unusedSeats={unusedSeatRows} wasteSignals={dashboardWasteSignals} company={company} onNavigate={handleNav} onToast={showToast} />}
               {activePage === "vendors" && <VendorsPage categoryOptions={vendorCategoryOptions} isLoading={isDataLoading || isVendorLoading} isLoadingDemo={isLoadingDemo} pagination={vendorPagination} query={vendorQuery} vendors={dashboardVendors} onCreateVendor={handleCreateVendor} onDeleteVendor={handleDeleteVendor} onImportVendors={handleImportVendors} onLoadDemoData={handleLoadDemoData} onQueryChange={handleVendorQueryChange} onToast={showToast} />}
               {activePage === "waste" && (
                 <WasteDetectionPage
@@ -654,6 +651,10 @@ export function DashboardPage() {
               )}
               {activePage === "billing" && <PlanPage company={company} vendorCount={dashboardVendors.length} onToast={showToast} />}
               {activePage === "settings" && <SettingsPage companySettings={company?.settings} onToast={showToast} />}
+              <div className="mt-6 grid gap-4">
+                {user && !user.emailVerifiedAt && <EmailVerificationBanner email={user.email} onResend={handleResendVerification} />}
+                {company && <TrialStatusBanner company={company} isLoadingDemo={isLoadingDemo} vendorCount={dashboardVendors.length} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} />}
+              </div>
               <div className="mt-8 overflow-hidden rounded-lg border border-line shadow-[0_18px_45px_rgba(23,32,38,0.08)]">
                 <PublicFooter />
               </div>
@@ -669,34 +670,41 @@ export function DashboardPage() {
 
 function Sidebar({
   activePage,
+  isCollapsed,
   isOpen,
   onClose,
   onNavigate,
+  onToggleCollapse,
 }: {
   activePage: PageId;
+  isCollapsed: boolean;
   isOpen: boolean;
   onClose: () => void;
   onNavigate: (page: PageId) => void;
+  onToggleCollapse: () => void;
 }) {
   return (
     <>
       <div className={`fixed inset-0 z-40 bg-inverse/35 backdrop-blur-sm transition-opacity lg:hidden ${isOpen ? "opacity-100" : "pointer-events-none opacity-0"}`} onClick={onClose} />
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-[286px] flex-col border-r border-line bg-panel/95 shadow-2xl backdrop-blur-xl transition-transform duration-300 lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:translate-x-0 lg:shadow-none ${isOpen ? "translate-x-0" : "-translate-x-full"
+        className={`fixed inset-y-0 left-0 z-50 flex w-[244px] flex-col border-r border-line/60 bg-panel/86 shadow-2xl backdrop-blur-2xl transition-[width,transform] duration-300 lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:translate-x-0 lg:shadow-none ${isCollapsed ? "lg:w-[84px]" : "lg:w-[244px]"} ${isOpen ? "translate-x-0" : "-translate-x-full"
           }`}
       >
-        <div className="flex items-center justify-between px-5 py-5">
-          <button className="flex items-center gap-3 text-left" type="button" onClick={() => onNavigate("overview")}>
-            <span className="grid size-11 place-items-center rounded-lg bg-brand-soft text-brand shadow-sm">
-              <ShieldCheck aria-hidden="true" size={27} strokeWidth={2.2} />
+        <div className={`flex px-4 py-4 ${isCollapsed ? "flex-col items-center gap-3 lg:py-5" : "items-center justify-between"}`}>
+          <button className={`flex min-w-0 items-center gap-3 text-left ${isCollapsed ? "lg:justify-center" : ""}`} type="button" onClick={() => onNavigate("overview")} title="AutoAudit.ai">
+            <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-brand-soft text-brand shadow-sm ring-1 ring-brand/15">
+              <ShieldCheck aria-hidden="true" size={23} strokeWidth={2.2} />
             </span>
-            <span>
+            <span className={`min-w-0 transition ${isCollapsed ? "lg:hidden" : "lg:block"}`}>
               <strong className="block text-[15px] font-extrabold">AutoAudit.ai</strong>
               <span className="mt-0.5 block text-xs font-semibold text-quiet">SaaS waste control</span>
             </span>
           </button>
           <button className="grid size-9 place-items-center rounded-lg text-quiet hover:bg-panel-muted lg:hidden" type="button" onClick={onClose} aria-label="Close navigation">
             <X aria-hidden="true" size={19} />
+          </button>
+          <button className="hidden size-9 place-items-center rounded-lg text-quiet transition hover:bg-panel-muted hover:text-ink lg:grid" type="button" onClick={onToggleCollapse} aria-label={isCollapsed ? "Expand navigation" : "Collapse navigation"} title={isCollapsed ? "Expand navigation" : "Collapse navigation"}>
+            <Menu aria-hidden="true" size={18} />
           </button>
         </div>
 
@@ -707,24 +715,26 @@ function Sidebar({
 
             return (
               <button
-                className={`group flex min-h-11 items-center gap-3 rounded-lg px-3 text-left text-sm font-extrabold transition duration-200 ${isActive ? "bg-brand text-white shadow-[0_10px_24px_rgba(8,127,140,0.24)]" : "text-quiet hover:bg-panel-muted hover:text-ink"
+                className={`group relative flex min-h-10 items-center gap-3 rounded-lg px-3 text-left text-sm font-bold transition duration-200 ${isCollapsed ? "lg:justify-center lg:px-0" : ""} ${isActive ? "bg-brand/14 text-brand-strong ring-1 ring-brand/20" : "text-quiet hover:bg-panel-muted/70 hover:text-ink"
                   }`}
                 type="button"
                 key={item.id}
                 onClick={() => onNavigate(item.id)}
+                title={item.label}
               >
                 <Icon aria-hidden="true" size={18} />
-                <span className="flex-1">{item.label}</span>
-                {isActive && <ChevronRight aria-hidden="true" size={16} />}
+                <span className={`flex-1 ${isCollapsed ? "lg:hidden" : ""}`}>{item.label}</span>
+                {isActive && <ChevronRight className={isCollapsed ? "hidden" : ""} aria-hidden="true" size={16} />}
+                {isCollapsed && <span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 hidden -translate-y-1/2 whitespace-nowrap rounded-md border border-line bg-panel px-2.5 py-1.5 text-xs font-bold text-ink opacity-0 shadow-xl transition group-hover:opacity-100 lg:block">{item.label}</span>}
               </button>
             );
           })}
         </nav>
 
         <div className="mt-auto grid gap-3 p-4">
-          <div className="rounded-lg border border-line bg-panel-subtle p-4">
+          <div className={`rounded-lg border border-line/60 bg-panel-subtle/78 p-4 ${isCollapsed ? "hidden" : ""}`}>
             <div className="flex items-center justify-between">
-              <span className="text-xs font-extrabold uppercase text-quiet">Audit coverage</span>
+              <span className="text-xs font-bold text-quiet">Audit coverage</span>
               <span className="rounded-full bg-brand-soft px-2 py-1 text-xs font-extrabold text-brand-strong">82%</span>
             </div>
             <div className="mt-3 h-2 rounded-full bg-panel-muted">
@@ -733,9 +743,9 @@ function Sidebar({
             <p className="mt-3 text-sm leading-6 text-quiet">CSV imports are ready. Gmail, Ramp, and Okta are planned integrations.</p>
           </div>
 
-          <button className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-inverse px-4 text-sm font-extrabold text-inverse-ink shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-strong hover:shadow-lg active:translate-y-0" type="button" onClick={() => onNavigate("waste")}>
+          <button className={`flex min-h-10 items-center justify-center gap-2 rounded-lg bg-inverse px-4 text-sm font-extrabold text-inverse-ink shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-strong hover:shadow-lg active:translate-y-0 ${isCollapsed ? "lg:px-0" : ""}`} type="button" onClick={() => onNavigate("waste")} title="Run new audit">
             <Zap aria-hidden="true" size={17} />
-            Run new audit
+            <span className={isCollapsed ? "lg:hidden" : ""}>Run new audit</span>
           </button>
         </div>
       </aside>
@@ -772,20 +782,20 @@ function Topbar({
   const hasOpenItems = checklistItems.some((item) => !item.done);
 
   return (
-    <header className="sticky top-0 z-30 border-b border-line bg-canvas/90 backdrop-blur-xl">
-      <div className="mx-auto grid max-w-[1500px] gap-3 px-3 py-3 sm:px-6 lg:flex lg:items-center lg:px-8">
+    <header className="sticky top-0 z-30 border-b border-line/60 bg-canvas/82 backdrop-blur-2xl">
+      <div className="mx-auto grid max-w-[1480px] gap-3 px-3 py-3 sm:px-6 lg:flex lg:items-center lg:px-8">
         <div className="flex min-w-0 items-center gap-3">
-        <button className="grid size-10 place-items-center rounded-lg border border-line bg-panel text-quiet lg:hidden" type="button" onClick={onMenu} aria-label="Open navigation">
+        <button className="grid size-10 place-items-center rounded-lg border border-line/70 bg-panel/78 text-quiet lg:hidden" type="button" onClick={onMenu} aria-label="Open navigation">
           <Menu aria-hidden="true" size={20} />
         </button>
 
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-extrabold uppercase text-brand-strong">Authenticated workspace</p>
+          <p className="text-xs font-bold text-quiet">{companyName}</p>
           <h1 className="truncate text-xl font-extrabold tracking-normal sm:text-2xl">{pageTitle}</h1>
         </div>
         </div>
 
-        <label className="flex min-h-10 min-w-0 items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2 text-sm text-quiet lg:ml-auto lg:w-[360px]">
+        <label className="flex min-h-10 min-w-0 items-center gap-2 rounded-lg border border-line/70 bg-panel/78 px-3 py-2 text-sm text-quiet shadow-sm lg:ml-auto lg:w-[280px]">
           <Search aria-hidden="true" size={17} />
           <input
             className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-quiet"
@@ -798,7 +808,7 @@ function Topbar({
         <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 lg:overflow-visible lg:pb-0">
         <div className="relative shrink-0">
           <button
-            className="relative grid size-10 place-items-center rounded-lg border border-line bg-panel text-quiet transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand"
+            className="relative grid size-10 place-items-center rounded-lg border border-line/70 bg-panel/78 text-quiet transition hover:-translate-y-0.5 hover:border-brand/60 hover:bg-panel-muted hover:text-brand"
             type="button"
             aria-label="Open onboarding checklist"
             title="Onboarding checklist"
@@ -808,7 +818,7 @@ function Topbar({
             {hasOpenItems && <span className="absolute right-2 top-2 size-2 rounded-full bg-risk" />}
           </button>
           {isChecklistOpen && (
-            <div className="absolute right-0 top-12 z-50 w-[280px] rounded-lg border border-line bg-panel p-3 shadow-2xl">
+            <div className="absolute right-0 top-12 z-50 w-[280px] rounded-lg border border-line/70 bg-panel/95 p-3 shadow-2xl backdrop-blur-xl">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <strong className="text-sm font-extrabold">Quick setup</strong>
                 <span className="text-xs font-bold text-quiet">{checklistItems.filter((item) => item.done).length}/{checklistItems.length}</span>
@@ -835,13 +845,13 @@ function Topbar({
           )}
         </div>
 
-        <button className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand" type="button" onClick={onRefresh}>
+        <button className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-line/70 bg-panel/78 px-3 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand/60 hover:bg-panel-muted hover:text-brand" type="button" onClick={onRefresh}>
           <RefreshCw aria-hidden="true" size={17} />
           Sync
         </button>
 
         <button
-          className="grid size-10 shrink-0 place-items-center rounded-lg border border-line bg-panel text-quiet transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand"
+          className="grid size-10 shrink-0 place-items-center rounded-lg border border-line/70 bg-panel/78 text-quiet transition hover:-translate-y-0.5 hover:border-brand/60 hover:bg-panel-muted hover:text-brand"
           type="button"
           aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
           title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
@@ -850,18 +860,18 @@ function Topbar({
           {theme === "dark" ? <Sun aria-hidden="true" size={18} /> : <Moon aria-hidden="true" size={18} />}
         </button>
 
-        <button className="relative grid size-10 shrink-0 place-items-center rounded-lg border border-line bg-panel text-quiet transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand" type="button" aria-label="Open renewal alerts" onClick={() => onNavigate("renewals")}>
+        <button className="relative grid size-10 shrink-0 place-items-center rounded-lg border border-line/70 bg-panel/78 text-quiet transition hover:-translate-y-0.5 hover:border-brand/60 hover:bg-panel-muted hover:text-brand" type="button" aria-label="Open renewal alerts" onClick={() => onNavigate("renewals")}>
           <Bell aria-hidden="true" size={18} />
           <span className="absolute right-2 top-2 size-2 rounded-full bg-risk" />
         </button>
 
-        <button className="flex shrink-0 items-center gap-2 rounded-lg border border-line bg-panel p-1.5 pr-3 transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted" type="button" onClick={() => onNavigate("settings")}>
-          <span className="grid size-8 place-items-center rounded-md bg-brand text-xs font-extrabold text-white">{initialsLabel}</span>
+        <button className="flex shrink-0 items-center gap-2 rounded-lg border border-line/70 bg-panel/78 p-1.5 pr-3 transition hover:-translate-y-0.5 hover:border-brand/60 hover:bg-panel-muted" type="button" onClick={() => onNavigate("settings")}>
+          <span className="grid size-8 place-items-center rounded-md bg-brand-soft text-xs font-extrabold text-brand-strong">{initialsLabel}</span>
           <span className="hidden text-sm font-extrabold sm:block">{companyName}</span>
         </button>
 
         <button
-          className="group hidden min-h-10 shrink-0 items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm font-extrabold text-quiet shadow-sm transition hover:-translate-y-0.5 hover:border-risk hover:bg-risk-soft hover:text-risk hover:shadow-md active:translate-y-0 sm:inline-flex"
+          className="group hidden min-h-10 shrink-0 items-center gap-2 rounded-lg border border-line/70 bg-panel/78 px-3 text-sm font-extrabold text-quiet shadow-sm transition hover:-translate-y-0.5 hover:border-risk/60 hover:bg-risk-soft hover:text-risk hover:shadow-md active:translate-y-0 sm:inline-flex"
           type="button"
           onClick={onLogout}
         >
@@ -875,55 +885,63 @@ function Topbar({
 }
 
 function OverviewPage({
+  company,
   categoryData,
   duplicateTools,
+  renewalRows,
   totals,
   unusedSeats,
+  wasteSignals,
   onNavigate,
   onToast,
 }: {
+  company: ApiCompany | null;
   categoryData: typeof categorySpend;
   duplicateTools: DuplicateToolRow[];
+  renewalRows: RenewalRow[];
   totals: DashboardTotals;
   unusedSeats: UnusedSeatRow[];
+  wasteSignals: WasteSignal[];
   onNavigate: (page: PageId) => void;
   onToast: (message: string) => void;
 }) {
   return (
-    <div className="grid gap-4">
-      <HeroBand onNavigate={onNavigate} />
+    <div className="grid min-w-0 gap-5 overflow-hidden">
+      <HeroBand totals={totals} wasteSignals={wasteSignals} onNavigate={onNavigate} />
       <SummaryGrid totals={totals} />
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.8fr)]">
-        <Panel title="Spend, waste, and savings" eyebrow="Monthly trend" action={<PanelAction label="Open reports" onClick={() => onNavigate("reports")} />}>
-          <div className="h-[320px]">
+      <OverviewActionCenter duplicateTools={duplicateTools} renewalRows={renewalRows} unusedSeats={unusedSeats} wasteSignals={wasteSignals} onNavigate={onNavigate} onToast={onToast} />
+
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.8fr)]">
+        <Panel title="Spend, waste, and savings" eyebrow="Decision trend" action={<PanelAction label="Open reports" onClick={() => onNavigate("reports")} />}>
+          <div className="h-[280px] min-w-0 overflow-hidden">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 320 }}>
               <AreaChart data={spendTrend} margin={{ top: 10, right: 16, left: -12, bottom: 0 }}>
                 <defs>
                   <linearGradient id="spendFill" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="5%" stopColor="#087f8c" stopOpacity={0.26} />
-                    <stop offset="95%" stopColor="#087f8c" stopOpacity={0.02} />
+                    <stop offset="5%" stopColor="#37becc" stopOpacity={0.22} />
+                    <stop offset="95%" stopColor="#37becc" stopOpacity={0.02} />
                   </linearGradient>
                   <linearGradient id="wasteFill" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="5%" stopColor="#b3261e" stopOpacity={0.22} />
-                    <stop offset="95%" stopColor="#b3261e" stopOpacity={0.02} />
+                    <stop offset="5%" stopColor="#ff7674" stopOpacity={0.18} />
+                    <stop offset="95%" stopColor="#ff7674" stopOpacity={0.02} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke="#dce4e8" strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: "#66747d", fontSize: 12 }} />
-                <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `$${Number(value) / 1000}k`} tick={{ fill: "#66747d", fontSize: 12 }} />
+                <CartesianGrid stroke="rgb(var(--color-line) / 0.42)" strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: "rgb(var(--color-quiet))", fontSize: 12 }} />
+                <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `$${Number(value) / 1000}k`} tick={{ fill: "rgb(var(--color-quiet))", fontSize: 12 }} />
                 <Tooltip content={<ChartTooltip />} />
                 <Legend />
-                <Area type="monotone" dataKey="spend" name="Spend" stroke="#087f8c" strokeWidth={3} fill="url(#spendFill)" />
-                <Area type="monotone" dataKey="waste" name="Waste found" stroke="#b3261e" strokeWidth={3} fill="url(#wasteFill)" />
-                <Line type="monotone" dataKey="savings" name="Savings captured" stroke="#137333" strokeWidth={3} dot={false} />
+                <Area type="monotone" dataKey="spend" name="Spend" stroke="#37becc" strokeWidth={2.5} fill="url(#spendFill)" />
+                <Area type="monotone" dataKey="waste" name="Waste found" stroke="#ff7674" strokeWidth={2.5} fill="url(#wasteFill)" />
+                <Line type="monotone" dataKey="savings" name="Savings captured" stroke="#5ad794" strokeWidth={2.5} dot={false} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </Panel>
 
         <Panel title="Spend by function" eyebrow="Category map" action={<PanelAction label="Review vendors" onClick={() => onNavigate("vendors")} />}>
-          <div className="h-[320px]">
+          <div className="h-[280px] min-w-0 overflow-hidden">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 320 }}>
               <PieChart>
                 <Pie data={categoryData} innerRadius={70} outerRadius={108} paddingAngle={3} dataKey="value">
@@ -939,11 +957,205 @@ function OverviewPage({
         </Panel>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
         <UnusedSeatsTable rows={unusedSeats} />
         <DuplicateToolsPanel rows={duplicateTools} />
       </div>
+
+      <OverviewSystemStatus company={company} totals={totals} onNavigate={onNavigate} />
     </div>
+  );
+}
+
+function OverviewActionCenter({
+  duplicateTools,
+  renewalRows,
+  unusedSeats,
+  wasteSignals,
+  onNavigate,
+  onToast,
+}: {
+  duplicateTools: DuplicateToolRow[];
+  renewalRows: RenewalRow[];
+  unusedSeats: UnusedSeatRow[];
+  wasteSignals: WasteSignal[];
+  onNavigate: (page: PageId) => void;
+  onToast: (message: string) => void;
+}) {
+  const [expandedSection, setExpandedSection] = useState<"actions" | "alerts" | "renewals" | "duplicates">("actions");
+  const topSignals = wasteSignals.slice(0, 3);
+  const urgentRenewals = renewalRows.filter((row) => row.risk === "critical" || row.risk === "high").slice(0, 3);
+  const urgentUnusedSeats = unusedSeats.slice(0, 2);
+
+  return (
+    <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
+      <Panel title="Action center" eyebrow="Highest leverage work" action={<PanelAction label="Open waste detection" onClick={() => onNavigate("waste")} />}>
+        <div className="grid gap-2">
+          <DisclosureRow
+            count={topSignals.length}
+            icon={Sparkles}
+            isOpen={expandedSection === "actions"}
+            title="Recommended actions"
+            tone="brand"
+            onToggle={() => setExpandedSection(expandedSection === "actions" ? "alerts" : "actions")}
+          >
+            {topSignals.length === 0 ? (
+              <EmptyState title="No recommendations yet" detail="Load or import vendors to generate prioritized savings actions." />
+            ) : (
+              <div className="grid gap-3">
+                {topSignals.map((signal) => (
+                  <article className="min-w-0 rounded-lg border border-line/50 bg-panel-subtle/72 p-4" key={signal.title}>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <span className="text-xs font-bold text-quiet">{signal.type} - {signal.confidence}% confidence</span>
+                        <strong className="mt-1 block break-words text-base font-extrabold">{signal.title}</strong>
+                        <p className="mt-1 text-sm leading-6 text-quiet">{signal.vendor}</p>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-good-soft px-3 py-1.5 text-sm font-extrabold text-good">{currency(signal.impact)}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </DisclosureRow>
+
+          <DisclosureRow count={urgentUnusedSeats.length} icon={AlertTriangle} isOpen={expandedSection === "alerts"} title="Urgent alerts" tone="risk" onToggle={() => setExpandedSection(expandedSection === "alerts" ? "actions" : "alerts")}>
+            <div className="grid gap-3">
+              {urgentUnusedSeats.length === 0 ? (
+                <EmptyState title="No urgent seat alerts" detail="Seat leakage will appear here when paid seats are inactive." />
+              ) : (
+                urgentUnusedSeats.map((row) => (
+                  <article className="min-w-0 rounded-lg border border-line/50 bg-panel-subtle/72 p-4" key={row.tool}>
+                    <strong className="block break-words text-sm font-extrabold">{row.tool}</strong>
+                    <p className="mt-1 text-sm leading-6 text-quiet">{row.unused} unused seats owned by {row.owner}. {row.action}</p>
+                  </article>
+                ))
+              )}
+            </div>
+          </DisclosureRow>
+
+          <DisclosureRow count={urgentRenewals.length} icon={CalendarClock} isOpen={expandedSection === "renewals"} title="Renewals" tone="warning" onToggle={() => setExpandedSection(expandedSection === "renewals" ? "actions" : "renewals")}>
+            <div className="grid gap-3">
+              {urgentRenewals.length === 0 ? (
+                <EmptyState title="No high-risk renewals" detail="Upcoming contract risk appears once renewal dates and contract values are available." />
+              ) : (
+                urgentRenewals.map((row) => (
+                  <article className="min-w-0 rounded-lg border border-line/50 bg-panel-subtle/72 p-4" key={row.id}>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <strong className="break-words text-sm font-extrabold">{row.vendor}</strong>
+                      <RiskPill risk={row.risk} label={row.risk} />
+                    </div>
+                    <p className="mt-1 text-sm leading-6 text-quiet">{row.date} - {currency(row.amount)} - {row.owner}</p>
+                  </article>
+                ))
+              )}
+            </div>
+          </DisclosureRow>
+
+          <DisclosureRow count={duplicateTools.length} icon={Inbox} isOpen={expandedSection === "duplicates"} title="Duplicate tools" tone="good" onToggle={() => setExpandedSection(expandedSection === "duplicates" ? "actions" : "duplicates")}>
+            <div className="grid gap-3">
+              {duplicateTools.length === 0 ? (
+                <EmptyState title="No duplicates detected" detail="Overlapping vendor categories will appear here for consolidation review." />
+              ) : (
+                duplicateTools.slice(0, 3).map((row) => (
+                  <article className="min-w-0 rounded-lg border border-line/50 bg-panel-subtle/72 p-4" key={row.group}>
+                    <strong className="block break-words text-sm font-extrabold">{row.group}</strong>
+                    <p className="mt-1 text-sm leading-6 text-quiet">{row.tools}</p>
+                  </article>
+                ))
+              )}
+            </div>
+          </DisclosureRow>
+        </div>
+      </Panel>
+
+      <Panel title="Best next action" eyebrow="Command focus">
+        <div className="min-w-0 rounded-lg border border-brand/20 bg-brand-soft/45 p-4">
+          <span className="text-xs font-bold text-brand-strong">Priority recommendation</span>
+          <strong className="mt-2 block break-words text-2xl font-extrabold">{topSignals[0]?.vendor ? `Review ${topSignals[0].vendor}` : "Import vendor evidence"}</strong>
+          <p className="mt-2 text-sm leading-6 text-quiet">
+            {topSignals[0]?.detail ?? "Add spend, seats, owners, last-used dates, and renewals so AutoAudit can rank the savings queue."}
+          </p>
+          <div className="mt-5 grid gap-2">
+            <PrimaryButton onClick={() => onNavigate(topSignals[0] ? "waste" : "vendors")}>{topSignals[0] ? "Review action" : "Import vendors"}</PrimaryButton>
+            <SecondaryButton onClick={() => {
+              onToast("Open Reports to generate a CFO-ready packet.");
+              onNavigate("reports");
+            }}>
+              Generate CFO packet
+            </SecondaryButton>
+          </div>
+        </div>
+      </Panel>
+    </section>
+  );
+}
+
+function DisclosureRow({
+  children,
+  count,
+  icon: Icon,
+  isOpen,
+  title,
+  tone,
+  onToggle,
+}: {
+  children: ReactNode;
+  count: number;
+  icon: LucideIcon;
+  isOpen: boolean;
+  title: string;
+  tone: string;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="min-w-0 overflow-hidden rounded-lg border border-line/50 bg-panel-subtle/52">
+      <button className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-panel-muted/60" type="button" onClick={onToggle}>
+        <span className="flex min-w-0 items-center gap-3">
+          <span className={`grid size-9 place-items-center rounded-lg ${metricTone(tone)}`}>
+            <Icon aria-hidden="true" size={17} />
+          </span>
+          <span className="min-w-0">
+            <strong className="block truncate text-sm font-extrabold">{title}</strong>
+            <span className="text-xs font-bold text-quiet">{count} open</span>
+          </span>
+        </span>
+        <ChevronRight className={`shrink-0 text-quiet transition ${isOpen ? "rotate-90" : ""}`} aria-hidden="true" size={18} />
+      </button>
+      <div className={`grid transition-[grid-template-rows] duration-300 ${isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+        <div className="overflow-hidden">
+          <div className="border-t border-line/40 p-3">{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OverviewSystemStatus({ company, totals, onNavigate }: { company: ApiCompany | null; totals: DashboardTotals; onNavigate: (page: PageId) => void }) {
+  const limits = getPlanLimitSet(company?.plan ?? "free");
+  const usage = getPlanUsage(company, totals.vendorCount);
+
+  return (
+    <Panel title="System status" eyebrow="Coverage, usage, and sync" action={<PanelAction label="Open settings" onClick={() => onNavigate("settings")} />}>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <UsageMeter compact label="Audit coverage" used={Math.min(82, Math.max(18, totals.vendorCount * 8))} limit={100} />
+        <UsageMeter compact label="Vendors tracked" used={usage.vendors} limit={limits.vendors} />
+        <UsageMeter compact label="AI emails" used={usage.aiEmails} limit={limits.aiEmails} />
+        <UsageMeter compact label="Reports" used={usage.reports} limit={limits.reports} />
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        {[
+          { label: "Sync state", value: "Live backend connected", tone: "good" },
+          { label: "Integrations", value: "CSV available - 6 planned", tone: "brand" },
+          { label: "Plan", value: formatPlanLabel(company?.plan ?? "free"), tone: "warning" },
+        ].map((item) => (
+          <div className="rounded-lg border border-line/50 bg-panel-subtle/62 p-4" key={item.label}>
+            <span className="text-xs font-bold text-quiet">{item.label}</span>
+            <strong className={`mt-2 block text-sm font-extrabold ${item.tone === "good" ? "text-good" : item.tone === "warning" ? "text-warning" : "text-brand-strong"}`}>{item.value}</strong>
+          </div>
+        ))}
+      </div>
+    </Panel>
   );
 }
 
@@ -2238,38 +2450,41 @@ function formatLeadSource(request: ApiContactRequest) {
   return "Contact";
 }
 
-function HeroBand({ onNavigate }: { onNavigate: (page: PageId) => void }) {
+function HeroBand({ totals, wasteSignals, onNavigate }: { totals: DashboardTotals; wasteSignals: WasteSignal[]; onNavigate: (page: PageId) => void }) {
+  const bestAction = wasteSignals[0];
+
   return (
-    <section className="w-full max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-line bg-inverse text-inverse-ink shadow-[0_24px_70px_rgba(23,32,38,0.18)] sm:max-w-full">
-      <div className="grid min-w-0 max-w-full gap-6 p-5 sm:p-6 xl:grid-cols-[minmax(0,1fr)_390px] xl:items-center">
-        <div className="min-w-0 max-w-[calc(100vw-4.5rem)] sm:max-w-none">
-          <div className="inline-flex items-center gap-2 rounded-full bg-inverse-ink/10 px-3 py-1.5 text-sm font-extrabold text-inverse-ink">
+    <section className="relative min-w-0 overflow-hidden rounded-xl border border-brand/20 bg-inverse text-inverse-ink shadow-[0_30px_90px_rgba(0,0,0,0.28)]">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(55,190,204,0.18),transparent_34%),radial-gradient(circle_at_90%_18%,rgba(90,215,148,0.12),transparent_30%)]" />
+      <div className="relative grid min-w-0 max-w-full gap-7 p-5 sm:p-7 xl:grid-cols-[minmax(0,1fr)_390px] xl:items-center">
+        <div className="min-w-0">
+          <div className="inline-flex items-center gap-2 rounded-full border border-inverse-ink/10 bg-inverse-ink/8 px-3 py-1.5 text-sm font-extrabold text-inverse-ink">
             <Bot aria-hidden="true" size={17} />
             AI audit complete
           </div>
-          <h2 className="mt-5 max-w-full break-words text-2xl font-extrabold tracking-normal sm:max-w-3xl sm:text-4xl">Found $48,320 in annual SaaS savings across 7 high-priority actions.</h2>
-          <p className="mt-4 max-w-full text-sm leading-6 text-inverse-ink/70 sm:max-w-2xl">
+          <h2 className="mt-5 max-w-full break-words text-3xl font-extrabold tracking-normal sm:max-w-3xl sm:text-5xl">{currency(totals.estimatedSavings || 48320)} in annual SaaS savings found.</h2>
+          <p className="mt-4 max-w-full text-base leading-7 text-inverse-ink/72 sm:max-w-2xl">
             AutoAudit matched finance spend, renewal notices, and usage signals to rank cancellations, unused seats, duplicate tools, and contract risk.
           </p>
-          <div className="mt-5 flex flex-wrap gap-2.5">
-            <button className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-inverse-action px-4 text-sm font-extrabold text-inverse-action-ink shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg sm:w-auto" type="button" onClick={() => onNavigate("waste")}>
+          <div className="mt-6 grid gap-3 sm:flex sm:flex-wrap">
+            <button className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-inverse-action px-5 text-sm font-extrabold text-inverse-action-ink shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg sm:w-auto" type="button" onClick={() => onNavigate("waste")}>
               Review actions
               <ChevronRight aria-hidden="true" size={17} />
             </button>
-            <button className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-inverse-ink/20 px-4 text-center text-sm font-extrabold text-inverse-ink transition hover:-translate-y-0.5 hover:bg-inverse-ink/10 sm:w-auto" type="button" onClick={() => onNavigate("reports")}>
+            <button className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-inverse-ink/20 px-5 text-center text-sm font-extrabold text-inverse-ink transition hover:-translate-y-0.5 hover:bg-inverse-ink/10 sm:w-auto" type="button" onClick={() => onNavigate("reports")}>
               Generate CFO report
             </button>
           </div>
         </div>
 
-        <div className="min-w-0 max-w-[calc(100vw-4.5rem)] rounded-lg border border-inverse-ink/10 bg-inverse-ink/[0.08] p-4 sm:max-w-none">
-          <span className="text-xs font-extrabold uppercase text-inverse-ink/60">Next best action</span>
-          <strong className="mt-3 block text-2xl font-extrabold">Cancel Clearbit</strong>
-          <p className="mt-2 text-sm leading-6 text-inverse-ink/70">No usage in 117 days. Expected first-year savings: $14,400.</p>
+        <div className="min-w-0 rounded-xl border border-inverse-ink/10 bg-inverse-ink/[0.08] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur">
+          <span className="text-xs font-bold text-inverse-ink/60">Next best action</span>
+          <strong className="mt-3 block text-2xl font-extrabold">{bestAction ? bestAction.title : "Import vendor evidence"}</strong>
+          <p className="mt-2 text-sm leading-6 text-inverse-ink/70">{bestAction ? `${bestAction.vendor} - expected annual impact ${currency(bestAction.impact)}.` : "Add vendors, seats, usage, and renewals to unlock prioritized waste actions."}</p>
           <div className="mt-4 h-2 rounded-full bg-inverse-ink/10">
-            <div className="h-2 w-[96%] rounded-full bg-brand-soft" />
+            <div className="h-2 rounded-full bg-brand-strong" style={{ width: `${bestAction?.confidence ?? 82}%` }} />
           </div>
-          <span className="mt-2 block text-xs font-bold text-inverse-ink/60">96% confidence</span>
+          <span className="mt-2 block text-xs font-bold text-inverse-ink/60">{bestAction?.confidence ?? 82}% confidence</span>
         </div>
       </div>
     </section>
@@ -2281,21 +2496,18 @@ function SummaryGrid({ totals }: { totals: DashboardTotals }) {
     { label: "Monthly SaaS spend", value: currency(totals.monthlySpend), detail: "Tracked vendor charges", icon: CircleDollarSign, tone: "brand" },
     { label: "Monthly waste found", value: currency(totals.monthlyWaste), detail: "Across email, spend, and SSO", icon: AlertTriangle, tone: "risk" },
     { label: "Estimated savings", value: currency(totals.estimatedSavings), detail: "First-year opportunity", icon: BadgeDollarSign, tone: "good" },
-    { label: "Active vendors", value: totals.activeVendors.toString(), detail: `${totals.vendorCount} total tracked`, icon: Inbox, tone: "brand" },
-    { label: "Zombie subscriptions", value: totals.zombieCount.toString(), detail: "No usage in 90+ days", icon: ArrowDownRight, tone: "warning" },
-    { label: "Unused seats", value: totals.unusedSeatCount.toString(), detail: "Paid but inactive", icon: Users, tone: "brand" },
-    { label: "Upcoming renewals", value: currency(totals.renewalRisk), detail: "Next 90 days", icon: CalendarClock, tone: "warning" },
+    { label: "Renewals at risk", value: currency(totals.renewalRisk), detail: `${totals.vendorCount} vendors tracked`, icon: CalendarClock, tone: "warning" },
   ];
 
   return (
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-7">
+    <section className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {cards.map((card) => {
         const Icon = card.icon;
 
         return (
-          <article className="rounded-lg border border-line bg-panel p-4 shadow-[0_18px_45px_rgba(23,32,38,0.08)] transition duration-200 hover:-translate-y-1 hover:shadow-xl" key={card.label}>
+          <article className="min-w-0 rounded-lg border border-line/55 bg-panel/78 p-4 shadow-[0_18px_45px_rgba(0,0,0,0.14)] backdrop-blur transition duration-200 hover:-translate-y-1 hover:border-brand/35 hover:shadow-xl" key={card.label}>
             <div className="flex items-center justify-between gap-3">
-              <span className="text-xs font-extrabold uppercase text-quiet">{card.label}</span>
+              <span className="min-w-0 text-xs font-bold text-quiet">{card.label}</span>
               <span className={`grid size-9 place-items-center rounded-lg ${metricTone(card.tone)}`}>
                 <Icon aria-hidden="true" size={18} />
               </span>
@@ -2315,8 +2527,26 @@ function UnusedSeatsTable({ rows }: { rows: UnusedSeatRow[] }) {
       {rows.length === 0 ? (
         <EmptyState title="No unused seats detected" detail="Seat waste will appear once vendors include seat counts and usage data." />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-[640px] w-full text-left">
+        <>
+        <div className="grid gap-3 md:hidden">
+          {rows.map((row) => (
+            <article className="min-w-0 rounded-lg border border-line/50 bg-panel-subtle/72 p-4" key={row.tool}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <strong className="block break-words text-sm font-extrabold">{row.tool}</strong>
+                  <span className="mt-1 block text-xs text-quiet">{row.owner}</span>
+                </div>
+                <span className="shrink-0 rounded-full bg-warning-soft px-2.5 py-1 text-xs font-extrabold text-warning">{row.unused} unused</span>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-quiet">
+                <span className="rounded-full bg-panel px-2.5 py-1">{currency(row.cost)} annual cost</span>
+              </div>
+              <p className="mt-3 text-sm leading-6 text-quiet">{row.action}</p>
+            </article>
+          ))}
+        </div>
+        <div className="hidden max-w-full overflow-x-auto md:block">
+          <table className="w-full min-w-[560px] text-left">
             <thead>
               <tr className="border-b border-line text-xs uppercase text-quiet">
                 <th className="px-3 py-3">Tool</th>
@@ -2339,6 +2569,7 @@ function UnusedSeatsTable({ rows }: { rows: UnusedSeatRow[] }) {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </Panel>
   );
@@ -2391,9 +2622,9 @@ function DuplicateToolsPanel({ rows }: { rows: DuplicateToolRow[] }) {
 
 function PageHeader({ eyebrow, title, detail, action }: { eyebrow: string; title: string; detail: string; action: ReactNode }) {
   return (
-    <section className="flex flex-col gap-4 rounded-lg border border-line bg-panel p-5 shadow-[0_18px_45px_rgba(23,32,38,0.08)] sm:flex-row sm:items-center sm:justify-between">
+    <section className="flex flex-col gap-4 rounded-xl border border-line/55 bg-panel/78 p-5 shadow-[0_18px_45px_rgba(0,0,0,0.14)] backdrop-blur sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <p className="text-xs font-extrabold uppercase text-brand-strong">{eyebrow}</p>
+        <p className="text-xs font-bold text-brand-strong">{eyebrow}</p>
         <h2 className="mt-1 text-2xl font-extrabold tracking-normal sm:text-3xl">{title}</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-quiet">{detail}</p>
       </div>
@@ -2404,10 +2635,10 @@ function PageHeader({ eyebrow, title, detail, action }: { eyebrow: string; title
 
 function Panel({ title, eyebrow, action, children }: { title: string; eyebrow: string; action?: ReactNode; children: ReactNode }) {
   return (
-    <section className="rounded-lg border border-line bg-panel p-4 shadow-[0_18px_45px_rgba(23,32,38,0.08)] sm:p-5">
+    <section className="min-w-0 overflow-hidden rounded-xl border border-line/55 bg-panel/78 p-4 shadow-[0_18px_45px_rgba(0,0,0,0.14)] backdrop-blur sm:p-5">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-extrabold uppercase text-brand-strong">{eyebrow}</p>
+          <p className="text-xs font-bold text-brand-strong">{eyebrow}</p>
           <h2 className="mt-1 text-xl font-extrabold tracking-normal">{title}</h2>
         </div>
         {action}
@@ -2428,8 +2659,8 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function MobileMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-line bg-panel p-3">
-      <span className="block text-xs font-extrabold uppercase text-quiet">{label}</span>
+    <div className="rounded-lg border border-line/55 bg-panel/78 p-3">
+      <span className="block text-xs font-bold text-quiet">{label}</span>
       <strong className="mt-1 block truncate text-sm font-extrabold">{value}</strong>
     </div>
   );
@@ -2471,8 +2702,8 @@ function VendorIdentity({ vendor }: { vendor: Vendor }) {
 
 function PlanMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-line bg-panel-subtle p-4">
-      <span className="text-xs font-extrabold uppercase text-quiet">{label}</span>
+    <div className="rounded-lg border border-line/55 bg-panel-subtle/72 p-4">
+      <span className="text-xs font-bold text-quiet">{label}</span>
       <strong className="mt-2 block text-2xl font-extrabold">{value}</strong>
     </div>
   );
@@ -2484,9 +2715,9 @@ function UsageMeter({ label, used, limit, compact = false }: { label: string; us
   const isAtLimit = limit !== null && cappedUsed >= limit;
 
   return (
-    <div className={`rounded-lg border border-line bg-panel-subtle ${compact ? "p-3" : "p-4"}`}>
+    <div className={`rounded-lg border border-line/55 bg-panel-subtle/72 ${compact ? "p-3" : "p-4"}`}>
       <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-extrabold uppercase text-quiet">{label}</span>
+        <span className="text-xs font-bold text-quiet">{label}</span>
         <strong className={`text-sm font-extrabold ${isAtLimit ? "text-risk" : "text-ink"}`}>{limit === null ? `${cappedUsed} / Custom` : `${cappedUsed} / ${limit}`}</strong>
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-panel-muted">
@@ -2511,7 +2742,7 @@ function EmptySetupActions({ isLoadingDemo, onLoadDemoData, onNavigate }: { isLo
 
 function ToggleRow({ title, enabled, onToggle }: { title: string; enabled: boolean; onToggle?: () => void }) {
   return (
-    <button className="flex items-center justify-between gap-3 rounded-lg border border-line bg-panel-subtle p-4 text-left transition hover:-translate-y-0.5 hover:border-brand" type="button" onClick={onToggle}>
+    <button className="flex items-center justify-between gap-3 rounded-lg border border-line/55 bg-panel-subtle/72 p-4 text-left transition hover:-translate-y-0.5 hover:border-brand/60" type="button" onClick={onToggle}>
       <span className="text-sm font-extrabold">{title}</span>
       <span className={`flex h-7 w-12 items-center rounded-full p-1 transition ${enabled ? "bg-brand" : "bg-panel-muted"}`}>
         <span className={`size-5 rounded-full bg-white shadow transition ${enabled ? "translate-x-5" : "translate-x-0"}`} />
@@ -2522,7 +2753,7 @@ function ToggleRow({ title, enabled, onToggle }: { title: string; enabled: boole
 
 function PanelAction({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button className="inline-flex min-h-9 items-center justify-center rounded-lg border border-line bg-panel-subtle px-3 text-sm font-extrabold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0" type="button" onClick={onClick}>
+    <button className="inline-flex min-h-9 items-center justify-center rounded-lg border border-line/60 bg-panel-subtle/72 px-3 text-sm font-extrabold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-brand/60 hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0" type="button" onClick={onClick}>
       {label}
     </button>
   );
@@ -2530,7 +2761,7 @@ function PanelAction({ label, onClick }: { label: string; onClick: () => void })
 
 function PrimaryButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
   return (
-    <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong hover:shadow-[0_16px_32px_rgb(var(--color-brand)/0.28)] active:translate-y-0" type="button" onClick={onClick}>
+    <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong hover:text-inverse-action-ink hover:shadow-[0_16px_32px_rgb(var(--color-brand)/0.28)] active:translate-y-0" type="button" onClick={onClick}>
       {children}
     </button>
   );
@@ -2538,7 +2769,7 @@ function PrimaryButton({ children, onClick }: { children: ReactNode; onClick: ()
 
 function SecondaryButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
   return (
-    <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line bg-panel px-4 text-sm font-extrabold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0" type="button" onClick={onClick}>
+    <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line/60 bg-panel/78 px-4 text-sm font-extrabold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-brand/60 hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0" type="button" onClick={onClick}>
       {children}
     </button>
   );
@@ -2546,7 +2777,7 @@ function SecondaryButton({ children, onClick }: { children: ReactNode; onClick: 
 
 function IconButton({ children, label, onClick }: { children: ReactNode; label: string; onClick: () => void }) {
   return (
-    <button className="grid size-9 place-items-center rounded-lg border border-line bg-panel text-quiet shadow-sm transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0" type="button" aria-label={label} title={label} onClick={onClick}>
+    <button className="grid size-9 place-items-center rounded-lg border border-line/60 bg-panel/78 text-quiet shadow-sm transition hover:-translate-y-0.5 hover:border-brand/60 hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0" type="button" aria-label={label} title={label} onClick={onClick}>
       {children}
     </button>
   );

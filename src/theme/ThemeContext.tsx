@@ -14,7 +14,7 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
     const storedTheme = window.localStorage.getItem(THEME_KEY);
-    return storedTheme === "dark" ? "dark" : "light";
+    return storedTheme === "light" ? "light" : "dark";
   });
 
   useEffect(() => {
@@ -44,4 +44,3 @@ export function useTheme() {
 
   return context;
 }
-
