@@ -6,6 +6,33 @@ export type ApiUser = {
   role: "owner" | "admin" | "member";
   company: string;
   emailVerifiedAt?: string;
+  avatarUrl?: string;
+  avatarSource?: "initials" | "upload" | "ai";
+  avatarUpdatedAt?: string;
+  avatarGenerationUsage?: {
+    periodStart?: string;
+    count?: number;
+  };
+};
+
+export type AvatarStyle =
+  | "professional_executive"
+  | "minimal_3d"
+  | "modern_gradient_portrait"
+  | "abstract_corporate"
+  | "founder_style"
+  | "cyber_minimal"
+  | "clean_illustrated"
+  | "finance_ops";
+
+export type AvatarAccess = {
+  plan: ApiCompany["plan"];
+  canGenerate: boolean;
+  limit: number | null;
+  used: number;
+  remaining: number | null;
+  resetDate: string;
+  styles: AvatarStyle[];
 };
 
 export type ApiCompany = {

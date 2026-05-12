@@ -35,6 +35,29 @@ const userSchema = new mongoose.Schema(
     emailVerifiedAt: {
       type: Date,
     },
+    avatarUrl: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+    },
+    avatarSource: {
+      type: String,
+      enum: ["initials", "upload", "ai"],
+      default: "initials",
+    },
+    avatarUpdatedAt: {
+      type: Date,
+    },
+    avatarGenerationUsage: {
+      periodStart: {
+        type: Date,
+      },
+      count: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+    },
     emailVerificationTokenHash: {
       type: String,
       select: false,

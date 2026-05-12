@@ -100,7 +100,12 @@ export function SignupPage() {
                 </div>
               </div>
             </div>
-            <SignupField label="Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
+            <SignupField
+              label="Name"
+              value={form.name}
+              helperText="Use your preferred account name. It cannot be changed after the workspace is created."
+              onChange={(value) => setForm({ ...form, name: value })}
+            />
             <SignupField label="Email" type="email" value={form.email} onChange={(value) => setForm({ ...form, email: value })} />
             <label className="grid gap-2">
               <span className="text-sm font-extrabold text-quiet">Password</span>
@@ -167,12 +172,14 @@ function normalizeSignupPlan(value: string | null) {
 
 function SignupField({
   label,
+  helperText,
   type = "text",
   value,
   required = true,
   onChange,
 }: {
   label: string;
+  helperText?: string;
   type?: string;
   value: string;
   required?: boolean;
@@ -182,6 +189,7 @@ function SignupField({
     <label className="grid gap-2">
       <span className="text-sm font-extrabold text-quiet">{label}</span>
       <input className="input" type={type} value={value} required={required} onChange={(event) => onChange(event.target.value)} />
+      {helperText && <span className="text-xs font-bold leading-5 text-warning">{helperText}</span>}
     </label>
   );
 }

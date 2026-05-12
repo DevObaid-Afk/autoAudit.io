@@ -11,6 +11,8 @@ type AuthContextValue = {
   isAuthenticated: boolean;
   isBootstrapping: boolean;
   authError: string;
+  refreshSession: () => Promise<void>;
+  updateUser: (user: ApiUser) => void;
   login: (input: { email: string; password: string }) => Promise<void>;
   signup: (input: { name: string; email: string; password: string; companyName: string; companyDomain?: string; plan?: string }) => Promise<void>;
   logout: () => void;
@@ -68,6 +70,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: Boolean(token && user),
       isBootstrapping,
       authError,
+      async refreshSession() {
+        const profile = await authApi.me();
+        setUser(profile.user);
+        setCompany(profile.company);
+      },
+      updateUser(nextUser) {
+        setUser(nextUser);
+      },
       async login(input) {
         setAuthError("");
         const response = await authApi.login(input);

@@ -44,6 +44,12 @@ export function clearStoredToken() {
   window.localStorage.removeItem(TOKEN_KEY);
 }
 
+export function resolveApiAssetUrl(value?: string) {
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  return `${API_URL}${value.startsWith("/") ? value : `/${value}`}`;
+}
+
 export function getApiErrorMessage(error: unknown) {
   if (axios.isAxiosError(error)) {
     if (error.code === "ERR_NETWORK") {

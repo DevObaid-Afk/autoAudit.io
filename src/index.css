@@ -28,26 +28,41 @@
 
   .dark {
     color-scheme: dark;
-    --color-canvas: 7 11 18;
-    --color-panel: 15 22 32;
-    --color-panel-muted: 28 38 52;
-    --color-panel-subtle: 19 28 40;
-    --color-ink: 235 241 247;
-    --color-inverse: 4 8 14;
-    --color-inverse-ink: 248 251 255;
-    --color-inverse-action: 232 248 250;
-    --color-inverse-action-ink: 7 20 28;
-    --color-quiet: 142 156 174;
-    --color-line: 55 68 86;
-    --color-brand: 55 190 204;
-    --color-brand-strong: 126 229 236;
-    --color-brand-soft: 13 58 70;
-    --color-risk: 255 118 116;
-    --color-risk-soft: 73 27 33;
-    --color-warning: 245 180 80;
-    --color-warning-soft: 76 51 22;
-    --color-good: 90 215 148;
-    --color-good-soft: 17 68 48;
+    /* Core backgrounds: canvas, panels, and nested operational surfaces. */
+    --color-canvas: 10 16 24;
+    --color-panel: 17 25 39;
+    --color-panel-subtle: 21 31 45;
+    --color-panel-muted: 27 39 54;
+
+    /* Typography: primary readable text and calmer secondary labels. */
+    --color-ink: 244 247 251;
+    --color-quiet: 148 163 184;
+
+    /* Borders: pre-blended from rgba(148, 163, 184, 0.14) for Tailwind rgb tokens. */
+    --color-line: 29 37 46;
+
+    /* Brand: primary actions, focus states, active nav, and spend chart accents. */
+    --color-brand: 56 189 248;
+    --color-brand-strong: 125 211 252;
+    --color-brand-soft: 16 37 51;
+
+    /* Danger: waste, urgent alerts, failed states, and waste chart accents. */
+    --color-risk: 239 68 68;
+    --color-risk-soft: 42 23 27;
+
+    /* Warning: renewals, trial status, attention-needed states. */
+    --color-warning: 245 158 11;
+    --color-warning-soft: 43 36 22;
+
+    /* Success: savings, healthy states, completed actions, and savings chart accents. */
+    --color-good: 16 185 129;
+    --color-good-soft: 11 40 33;
+
+    /* Premium dark blocks and hero action buttons. */
+    --color-inverse: 6 11 18;
+    --color-inverse-ink: 248 250 252;
+    --color-inverse-action: 236 254 255;
+    --color-inverse-action-ink: 7 19 28;
   }
 
   html {
@@ -73,7 +88,7 @@
       ),
       rgb(var(--color-canvas));
     font-family:
-      "Plus Jakarta Sans",
+      Satoshi,
       Inter,
       ui-sans-serif,
       system-ui,

@@ -21,11 +21,15 @@ import {
   Bell,
   Bot,
   CalendarClock,
+  Camera,
   ChevronRight,
   CircleDollarSign,
   CreditCard,
+  Crown,
+  Download,
   FileText,
   Filter,
+  Image as ImageIcon,
   Inbox,
   LayoutDashboard,
   ListChecks,
@@ -48,12 +52,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { ChangeEvent, ReactNode } from "react";
 import { aiApi, analyticsApi, auditApi, authApi, contactApi, profileApi, renewalApi, reportApi, vendorApi } from "../api/services";
-import { getApiErrorMessage } from "../api/client";
+import { getApiErrorMessage, resolveApiAssetUrl } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { PageMeta } from "../components/PageMeta";
 import { PublicFooter } from "../components/PublicFooter";
 import { useTheme } from "../theme/ThemeContext";
-import type { AiEmailGoal, ApiCompany, ApiContactRequest, ApiRenewal, ApiReport, ApiVendor, AuditSummary, CreateVendorInput, PaginationMeta } from "../types/api";
+import type { AiEmailGoal, ApiCompany, ApiContactRequest, ApiRenewal, ApiReport, ApiUser, ApiVendor, AuditSummary, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta } from "../types/api";
 
 type PageId = "overview" | "vendors" | "waste" | "renewals" | "reports" | "email" | "billing" | "settings";
 type RiskLevel = "critical" | "high" | "medium" | "low";
@@ -168,11 +172,11 @@ const spendTrend = [
 ];
 
 const categorySpend = [
-  { name: "Sales", value: 31200, color: "#087f8c" },
-  { name: "Ops", value: 22600, color: "#2f6fed" },
-  { name: "Product", value: 18400, color: "#8a5a00" },
-  { name: "Marketing", value: 15600, color: "#b3261e" },
-  { name: "People", value: 9400, color: "#137333" },
+  { name: "Sales", value: 31200, color: "#38bdf8" },
+  { name: "Ops", value: 22600, color: "#7dd3fc" },
+  { name: "Product", value: 18400, color: "#f59e0b" },
+  { name: "Marketing", value: 15600, color: "#ef4444" },
+  { name: "People", value: 9400, color: "#10b981" },
 ];
 
 const renewalChart = [
@@ -252,7 +256,7 @@ Thank you,
 Finance Team`;
 
 export function DashboardPage() {
-  const { user, company, logout } = useAuth();
+  const { user, company, logout, updateUser } = useAuth();
   const navigate = useNavigate();
   const params = useParams();
   const sectionParam = params.section as PageId | undefined;
@@ -590,6 +594,7 @@ export function DashboardPage() {
             companyName={company?.name ?? "Workspace"}
             pageTitle={pageTitle}
             searchValue={vendorSearch}
+            userAvatarUrl={user?.avatarUrl}
             userName={user?.name ?? "User"}
             onGlobalSearch={handleGlobalSearch}
             onLogout={logout}
@@ -650,7 +655,7 @@ export function DashboardPage() {
                 />
               )}
               {activePage === "billing" && <PlanPage company={company} vendorCount={dashboardVendors.length} onToast={showToast} />}
-              {activePage === "settings" && <SettingsPage companySettings={company?.settings} onToast={showToast} />}
+              {activePage === "settings" && <SettingsPage company={company} companySettings={company?.settings} user={user} onToast={showToast} onUserUpdate={updateUser} />}
               <div className="mt-6 grid gap-4">
                 {user && !user.emailVerifiedAt && <EmailVerificationBanner email={user.email} onResend={handleResendVerification} />}
                 {company && <TrialStatusBanner company={company} isLoadingDemo={isLoadingDemo} vendorCount={dashboardVendors.length} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} />}
@@ -758,6 +763,7 @@ function Topbar({
   companyName,
   pageTitle,
   searchValue,
+  userAvatarUrl,
   userName,
   onGlobalSearch,
   onLogout,
@@ -769,6 +775,7 @@ function Topbar({
   companyName: string;
   pageTitle: string;
   searchValue: string;
+  userAvatarUrl?: string;
   userName: string;
   onGlobalSearch: (value: string) => void;
   onLogout: () => void;
@@ -866,7 +873,9 @@ function Topbar({
         </button>
 
         <button className="flex shrink-0 items-center gap-2 rounded-lg border border-line/70 bg-panel/78 p-1.5 pr-3 transition hover:-translate-y-0.5 hover:border-brand/60 hover:bg-panel-muted" type="button" onClick={() => onNavigate("settings")}>
-          <span className="grid size-8 place-items-center rounded-md bg-brand-soft text-xs font-extrabold text-brand-strong">{initialsLabel}</span>
+          <span className="grid size-8 overflow-hidden rounded-md bg-brand-soft text-xs font-extrabold text-brand-strong">
+            {userAvatarUrl ? <img className="size-full object-cover" src={resolveApiAssetUrl(userAvatarUrl)} alt="" /> : <span className="grid size-full place-items-center">{initialsLabel}</span>}
+          </span>
           <span className="hidden text-sm font-extrabold sm:block">{companyName}</span>
         </button>
 
@@ -919,12 +928,12 @@ function OverviewPage({
               <AreaChart data={spendTrend} margin={{ top: 10, right: 16, left: -12, bottom: 0 }}>
                 <defs>
                   <linearGradient id="spendFill" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="5%" stopColor="#37becc" stopOpacity={0.22} />
-                    <stop offset="95%" stopColor="#37becc" stopOpacity={0.02} />
+                    <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.22} />
+                    <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.02} />
                   </linearGradient>
                   <linearGradient id="wasteFill" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="5%" stopColor="#ff7674" stopOpacity={0.18} />
-                    <stop offset="95%" stopColor="#ff7674" stopOpacity={0.02} />
+                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.18} />
+                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0.02} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid stroke="rgb(var(--color-line) / 0.42)" strokeDasharray="3 3" vertical={false} />
@@ -932,9 +941,9 @@ function OverviewPage({
                 <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `$${Number(value) / 1000}k`} tick={{ fill: "rgb(var(--color-quiet))", fontSize: 12 }} />
                 <Tooltip content={<ChartTooltip />} />
                 <Legend />
-                <Area type="monotone" dataKey="spend" name="Spend" stroke="#37becc" strokeWidth={2.5} fill="url(#spendFill)" />
-                <Area type="monotone" dataKey="waste" name="Waste found" stroke="#ff7674" strokeWidth={2.5} fill="url(#wasteFill)" />
-                <Line type="monotone" dataKey="savings" name="Savings captured" stroke="#5ad794" strokeWidth={2.5} dot={false} />
+                <Area type="monotone" dataKey="spend" name="Spend" stroke="#38bdf8" strokeWidth={2.5} fill="url(#spendFill)" />
+                <Area type="monotone" dataKey="waste" name="Waste found" stroke="#ef4444" strokeWidth={2.5} fill="url(#wasteFill)" />
+                <Line type="monotone" dataKey="savings" name="Savings captured" stroke="#10b981" strokeWidth={2.5} dot={false} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -1678,7 +1687,7 @@ function WasteDetectionPage({
                 <XAxis type="number" axisLine={false} tickLine={false} tickFormatter={(value) => `$${Number(value) / 1000}k`} tick={{ fill: "#66747d", fontSize: 12 }} />
                 <YAxis type="category" dataKey="vendor" width={72} axisLine={false} tickLine={false} tick={{ fill: "#66747d", fontSize: 12 }} />
                 <Tooltip content={<ChartTooltip />} />
-                <Bar dataKey="impact" name="Savings" radius={[0, 8, 8, 0]} fill="#087f8c" />
+                <Bar dataKey="impact" name="Savings" radius={[0, 8, 8, 0]} fill="#38bdf8" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -1768,7 +1777,7 @@ function RenewalsPage({
                 <XAxis dataKey="window" axisLine={false} tickLine={false} tick={{ fill: "#66747d", fontSize: 12 }} />
                 <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `$${Number(value) / 1000}k`} tick={{ fill: "#66747d", fontSize: 12 }} />
                 <Tooltip content={<ChartTooltip />} />
-                <Bar dataKey="amount" name="Renewal exposure" radius={[8, 8, 0, 0]} fill="#8a5a00" />
+                <Bar dataKey="amount" name="Renewal exposure" radius={[8, 8, 0, 0]} fill="#f59e0b" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -1918,8 +1927,8 @@ function ReportsPage({
               <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: "#66747d", fontSize: 12 }} />
               <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `$${Number(value) / 1000}k`} tick={{ fill: "#66747d", fontSize: 12 }} />
               <Tooltip content={<ChartTooltip />} />
-              <Line type="monotone" dataKey="savings" name="Savings captured" stroke="#137333" strokeWidth={3} dot={{ r: 4 }} />
-              <Line type="monotone" dataKey="waste" name="Waste found" stroke="#b3261e" strokeWidth={3} dot={{ r: 4 }} />
+              <Line type="monotone" dataKey="savings" name="Savings captured" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} />
+              <Line type="monotone" dataKey="waste" name="Waste found" stroke="#ef4444" strokeWidth={3} dot={{ r: 4 }} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -2254,7 +2263,394 @@ function EmailVerificationBanner({ email, onResend }: { email: string; onResend:
   );
 }
 
-function SettingsPage({ companySettings, onToast }: { companySettings: ApiCompany["settings"]; onToast: (message: string) => void }) {
+const avatarStyleOptions: Array<{ value: AvatarStyle; label: string; detail: string }> = [
+  { value: "professional_executive", label: "Professional Executive", detail: "Board-ready portrait with refined corporate lighting." },
+  { value: "minimal_3d", label: "Minimal 3D", detail: "Dimensional but restrained, built for small UI surfaces." },
+  { value: "modern_gradient_portrait", label: "Modern Gradient Portrait", detail: "Realistic portrait with subtle fintech color depth." },
+  { value: "abstract_corporate", label: "Abstract Corporate", detail: "Clean executive silhouette with a polished abstract finish." },
+  { value: "founder_style", label: "Founder Style", detail: "Approachable operator profile with smart casual presence." },
+  { value: "cyber_minimal", label: "Cyber Minimal", detail: "Technical, minimal, and understated without security theatrics." },
+  { value: "clean_illustrated", label: "Clean Illustrated", detail: "Mature editorial illustration for crisp dashboard use." },
+  { value: "finance_ops", label: "Finance & Ops", detail: "Composed finance-operations leader in premium SaaS tones." },
+];
+
+function ProfileAvatarPanel({ company, user, onToast, onUserUpdate }: { company: ApiCompany; user: ApiUser; onToast: (message: string) => void; onUserUpdate: (user: ApiUser) => void }) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [avatarAccess, setAvatarAccess] = useState<AvatarAccess | null>(null);
+  const [isMenuOpen, setMenuOpen] = useState(false);
+  const [isUploading, setUploading] = useState(false);
+  const [isAvatarModalOpen, setAvatarModalOpen] = useState(false);
+  const [isUpgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const avatarUrl = resolveApiAssetUrl(user.avatarUrl);
+
+  useEffect(() => {
+    let isMounted = true;
+    profileApi
+      .avatarAccess()
+      .then((access) => {
+        if (isMounted) setAvatarAccess(access);
+      })
+      .catch(() => {
+        if (isMounted) setAvatarAccess(null);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user.avatarGenerationUsage?.count, company.plan]);
+
+  async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
+      onToast("Use a PNG, JPG, or WebP image.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      onToast("Avatar image must be 5MB or smaller.");
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const imageData = await readFileAsDataUrl(file);
+      const nextUser = await profileApi.uploadAvatar(imageData);
+      onUserUpdate(nextUser);
+      onToast("Profile image updated.");
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleRemoveAvatar() {
+    setMenuOpen(false);
+    setUploading(true);
+    try {
+      const nextUser = await profileApi.removeAvatar();
+      onUserUpdate(nextUser);
+      onToast("Profile image removed.");
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function openGenerationFlow() {
+    setMenuOpen(false);
+    if (!avatarAccess || avatarAccess.limit === 0 || !avatarAccess.canGenerate) {
+      setUpgradeModalOpen(true);
+      return;
+    }
+    setAvatarModalOpen(true);
+  }
+
+  return (
+    <Panel title="Profile" eyebrow="Account identity">
+      <div className="mb-5 flex items-center gap-3 rounded-lg border border-line/55 bg-panel-subtle/60 p-3">
+        <span className="grid size-10 place-items-center rounded-lg bg-brand-soft text-brand-strong">
+          <i className="fa-solid fa-user text-[15px]" aria-hidden="true" />
+        </span>
+        <div>
+          <strong className="block text-sm font-extrabold">Profile identity</strong>
+          <span className="mt-0.5 block text-xs font-bold text-quiet">Personal avatar, account image, and AI profile generation.</span>
+        </div>
+      </div>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.7fr)] lg:items-center">
+        <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center">
+          <div className="relative size-24 shrink-0">
+            <div className="size-full overflow-hidden rounded-full border border-brand/25 bg-brand-soft shadow-[0_18px_44px_rgb(var(--color-brand)/0.14)]">
+              {avatarUrl ? (
+                <img className="size-full object-cover" src={avatarUrl} alt={`${user.name} avatar`} />
+              ) : (
+                <span className="grid size-full place-items-center text-3xl font-extrabold text-brand-strong">{initials(user.name)}</span>
+              )}
+            </div>
+            <button
+              className="absolute bottom-1 right-1 grid size-9 place-items-center rounded-full border border-line/70 bg-panel/95 text-quiet shadow-xl transition hover:-translate-y-0.5 hover:border-brand hover:text-brand"
+              type="button"
+              aria-label="Edit profile image"
+              onClick={() => setMenuOpen((current) => !current)}
+            >
+              <Camera aria-hidden="true" size={16} />
+            </button>
+            {isMenuOpen && (
+              <div className="absolute left-0 top-[calc(100%+10px)] z-40 w-56 rounded-xl border border-line/70 bg-panel/95 p-2 shadow-2xl backdrop-blur-xl">
+                <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-bold text-ink transition hover:bg-panel-muted" type="button" onClick={() => fileInputRef.current?.click()}>
+                  <ImageIcon aria-hidden="true" size={16} />
+                  Upload image
+                </button>
+                <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-bold text-ink transition hover:bg-panel-muted" type="button" onClick={openGenerationFlow}>
+                  <Sparkles aria-hidden="true" size={16} />
+                  Generate AI avatar
+                </button>
+                <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-bold text-risk transition hover:bg-risk-soft" type="button" onClick={handleRemoveAvatar}>
+                  <Trash2 aria-hidden="true" size={16} />
+                  Remove image
+                </button>
+              </div>
+            )}
+            <input className="hidden" ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleUpload} />
+          </div>
+
+          <div className="min-w-0">
+            <h3 className="break-words text-2xl font-extrabold">{user.name}</h3>
+            <p className="mt-1 text-sm text-quiet">{user.email}</p>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
+              <span className="rounded-full bg-brand-soft px-2.5 py-1 text-brand-strong">{formatPlanLabel(company.plan)}</span>
+              <span className="rounded-full bg-panel-subtle px-2.5 py-1 text-quiet">{user.avatarSource === "ai" ? "AI avatar" : user.avatarSource === "upload" ? "Uploaded image" : "Initials avatar"}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-line/55 bg-panel-subtle/72 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs font-bold text-quiet">AI avatar generations</span>
+            <span className="rounded-full bg-inverse px-2.5 py-1 text-xs font-extrabold text-inverse-ink">{avatarAccess ? formatGenerationLimit(avatarAccess) : "Loading"}</span>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-quiet">
+            Create a professional dashboard-ready avatar with OpenAI image generation. Available on paid plans only.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <SecondaryButton onClick={() => fileInputRef.current?.click()}>{isUploading ? "Uploading..." : "Upload"}</SecondaryButton>
+            <PrimaryButton onClick={openGenerationFlow}>Generate AI avatar</PrimaryButton>
+          </div>
+        </div>
+      </div>
+
+      {isAvatarModalOpen && avatarAccess && (
+        <AiAvatarModal
+          access={avatarAccess}
+          user={user}
+          onClose={() => setAvatarModalOpen(false)}
+          onToast={onToast}
+          onUserUpdate={onUserUpdate}
+          onAccessChange={setAvatarAccess}
+        />
+      )}
+      {isUpgradeModalOpen && <AvatarUpgradeModal company={company} onClose={() => setUpgradeModalOpen(false)} />}
+    </Panel>
+  );
+}
+
+function AiAvatarModal({
+  access,
+  user,
+  onAccessChange,
+  onClose,
+  onToast,
+  onUserUpdate,
+}: {
+  access: AvatarAccess;
+  user: ApiUser;
+  onAccessChange: (access: AvatarAccess) => void;
+  onClose: () => void;
+  onToast: (message: string) => void;
+  onUserUpdate: (user: ApiUser) => void;
+}) {
+  const [selectedStyle, setSelectedStyle] = useState<AvatarStyle>("professional_executive");
+  const [generatedUrl, setGeneratedUrl] = useState("");
+  const [isGenerating, setGenerating] = useState(false);
+  const [isSaving, setSaving] = useState(false);
+
+  async function generate() {
+    setGenerating(true);
+    try {
+      const result = await profileApi.generateAvatar(selectedStyle);
+      setGeneratedUrl(result.generatedUrl);
+      onAccessChange(result.avatar);
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function save() {
+    if (!generatedUrl) return;
+    setSaving(true);
+    try {
+      const nextUser = await profileApi.saveGeneratedAvatar(generatedUrl);
+      onUserUpdate(nextUser);
+      onToast("AI avatar saved.");
+      onClose();
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <ModalFrame title="Generate AI avatar" eyebrow="Premium personalization" onClose={onClose}>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="grid gap-4">
+          <div className="rounded-lg border border-line/55 bg-panel-subtle/72 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-extrabold">Choose a professional style</span>
+              <span className="rounded-full bg-brand-soft px-2.5 py-1 text-xs font-extrabold text-brand-strong">{formatGenerationLimit(access)} left</span>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {avatarStyleOptions.map((style) => (
+                <button
+                  className={`rounded-lg border p-3 text-left transition hover:-translate-y-0.5 ${selectedStyle === style.value ? "border-brand bg-brand-soft shadow-[0_14px_34px_rgb(var(--color-brand)/0.16)]" : "border-line/55 bg-panel/70 hover:border-brand/50"}`}
+                  type="button"
+                  key={style.value}
+                  onClick={() => setSelectedStyle(style.value)}
+                >
+                  <strong className="block text-sm font-extrabold">{style.label}</strong>
+                  <span className="mt-1 block text-xs leading-5 text-quiet">{style.detail}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-line/55 bg-panel-subtle/72 p-4">
+            <span className="text-sm font-extrabold">Preview direction</span>
+            <div className="mt-4 grid grid-cols-4 gap-2">
+              {avatarStyleOptions.slice(0, 4).map((style) => (
+                <div className={`aspect-square rounded-lg border ${selectedStyle === style.value ? "border-brand bg-brand-soft" : "border-line/55 bg-panel-muted/60"}`} key={style.value}>
+                  <div className="grid size-full place-items-center text-brand-strong">
+                    <ImageIcon aria-hidden="true" size={22} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-line/55 bg-inverse p-4 text-inverse-ink shadow-2xl">
+          <div className="aspect-square overflow-hidden rounded-xl border border-inverse-ink/10 bg-inverse-ink/[0.06]">
+            {isGenerating ? (
+              <div className="grid size-full place-items-center p-5 text-center">
+                <span className="size-11 animate-spin rounded-full border-2 border-inverse-ink/20 border-t-brand" />
+                <span className="mt-4 block text-sm font-extrabold">Generating your avatar...</span>
+                <span className="mt-1 block text-xs leading-5 text-inverse-ink/60">OpenAI is creating a square dashboard-ready portrait.</span>
+              </div>
+            ) : generatedUrl ? (
+              <img className="size-full object-cover animate-[fadeIn_420ms_ease-out]" src={resolveApiAssetUrl(generatedUrl)} alt="Generated AI avatar preview" />
+            ) : (
+              <div className="grid size-full place-items-center p-5 text-center">
+                <span className="grid size-16 place-items-center rounded-full bg-brand-soft text-brand-strong">
+                  <Sparkles aria-hidden="true" size={28} />
+                </span>
+                <span className="mt-4 block text-sm font-extrabold">Ready to generate</span>
+                <span className="mt-1 block text-xs leading-5 text-inverse-ink/60">Square, clean, and optimized for the dashboard.</span>
+              </div>
+            )}
+          </div>
+          <div className="mt-4 grid gap-2">
+            <PrimaryButton onClick={generate}>{generatedUrl ? "Regenerate" : "Generate"}</PrimaryButton>
+            {generatedUrl && (
+              <>
+                <SecondaryButton onClick={save}>{isSaving ? "Saving..." : "Save avatar"}</SecondaryButton>
+                <a className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-inverse-ink/15 px-4 text-sm font-extrabold text-inverse-ink transition hover:-translate-y-0.5 hover:bg-inverse-ink/10" href={resolveApiAssetUrl(generatedUrl)} download>
+                  <Download aria-hidden="true" size={16} />
+                  Download
+                </a>
+              </>
+            )}
+            <button className="min-h-10 rounded-lg text-sm font-extrabold text-inverse-ink/70 transition hover:text-inverse-ink" type="button" onClick={onClose}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+      <p className="mt-4 text-xs leading-5 text-quiet">Generated images are stored as avatar files and only the image URL is saved to your account record.</p>
+    </ModalFrame>
+  );
+}
+
+function AvatarUpgradeModal({ company, onClose }: { company: ApiCompany; onClose: () => void }) {
+  return (
+    <ModalFrame title="AI avatars are a paid personalization feature" eyebrow="Premium" onClose={onClose}>
+      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_260px]">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full bg-brand-soft px-3 py-1.5 text-xs font-extrabold text-brand-strong">
+            <Crown aria-hidden="true" size={15} />
+            Premium profile system
+          </div>
+          <p className="mt-4 text-sm leading-6 text-quiet">
+            Uploading and removing profile images is included on every plan. AI avatar generation uses OpenAI image generation and is reserved for paid workspaces with monthly limits.
+          </p>
+          <div className="mt-5 grid gap-2">
+            <a className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong hover:text-inverse-action-ink" href="/pricing">
+              View plans
+            </a>
+            <button className="min-h-10 rounded-lg border border-line/60 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:text-brand" type="button" onClick={onClose}>
+              Keep current plan
+            </button>
+          </div>
+        </div>
+        <div className="grid gap-2">
+          {[
+            { plan: "Free", detail: "Upload, remove, initials avatar" },
+            { plan: "Starter", detail: "3 AI generations/month" },
+            { plan: "Pro", detail: "20 AI generations/month" },
+            { plan: "Enterprise", detail: "Custom generation limits" },
+          ].map((item) => (
+            <div className={`rounded-lg border p-3 ${formatPlanLabel(company.plan).startsWith(item.plan) ? "border-brand bg-brand-soft" : "border-line/55 bg-panel-subtle/72"}`} key={item.plan}>
+              <strong className="block text-sm font-extrabold">{item.plan}</strong>
+              <span className="mt-1 block text-xs leading-5 text-quiet">{item.detail}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </ModalFrame>
+  );
+}
+
+function ModalFrame({ children, eyebrow, title, onClose }: { children: ReactNode; eyebrow: string; title: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[70] grid place-items-center bg-inverse/70 px-3 py-6 backdrop-blur-md" role="dialog" aria-modal="true">
+      <div className="max-h-[calc(100vh-48px)] w-full max-w-4xl overflow-auto rounded-xl border border-line/70 bg-panel p-5 shadow-2xl animate-[fadeIn_220ms_ease-out]">
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold text-brand-strong">{eyebrow}</p>
+            <h2 className="mt-1 text-2xl font-extrabold">{title}</h2>
+          </div>
+          <button className="grid size-9 shrink-0 place-items-center rounded-lg text-quiet transition hover:bg-panel-muted hover:text-ink" type="button" onClick={onClose} aria-label="Close modal">
+            <X aria-hidden="true" size={19} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function formatGenerationLimit(access: AvatarAccess) {
+  if (access.limit === null) return "Unlimited";
+  return `${access.remaining} / ${access.limit}`;
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Could not read image file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function SettingsPage({
+  company,
+  companySettings,
+  user,
+  onToast,
+  onUserUpdate,
+}: {
+  company: ApiCompany | null;
+  companySettings: ApiCompany["settings"];
+  user: ApiUser | null;
+  onToast: (message: string) => void;
+  onUserUpdate: (user: ApiUser) => void;
+}) {
   const [settings, setSettings] = useState(() => {
     return mapCompanySettings(companySettings);
   });
@@ -2317,12 +2713,7 @@ function SettingsPage({ companySettings, onToast }: { companySettings: ApiCompan
 
   return (
     <div className="grid gap-4">
-      <PageHeader
-        eyebrow="Workspace controls"
-        title="Settings"
-        detail="Manage data sources, users, approval rules, report cadence, and finance ownership."
-        action={<PrimaryButton onClick={handleSaveSettings}>{isSaving ? "Saving..." : "Save settings"}</PrimaryButton>}
-      />
+      {user && company && <ProfileAvatarPanel company={company} user={user} onToast={onToast} onUserUpdate={onUserUpdate} />}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
         <Panel title="Integrations" eyebrow="Data sources">
@@ -2354,28 +2745,23 @@ function SettingsPage({ companySettings, onToast }: { companySettings: ApiCompan
         </Panel>
       </div>
 
-      <Panel title="How to use AutoAudit.ai" eyebrow="Manual">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <PageHeader
+        eyebrow="Workspace controls"
+        title="Settings"
+        detail="Manage data sources, users, approval rules, report cadence, and finance ownership."
+        action={<PrimaryButton onClick={handleSaveSettings}>{isSaving ? "Saving..." : "Save settings"}</PrimaryButton>}
+      />
+
+      <Panel title="Notice window" eyebrow="Action required">
+        <div className="grid gap-3 md:grid-cols-3">
           {[
-            {
-              title: "1. Add vendors",
-              detail: "Open Vendors, add each SaaS tool, monthly spend, owner, seats, last-used date, and renewal date.",
-            },
-            {
-              title: "2. Review waste",
-              detail: "Use Waste Detection to find zombie subscriptions, unused seats, duplicate tools, and savings estimates.",
-            },
-            {
-              title: "3. Work renewals",
-              detail: "Check Renewals before notice windows close, then decide whether to cancel, reduce, or renegotiate.",
-            },
-            {
-              title: "4. Send actions",
-              detail: "Use the AI Email Generator to draft cancellation or negotiation emails with vendor context.",
-            },
+            { label: "0-15 days", value: "Immediate review", detail: "Escalate owner decisions before renewal lock-in.", tone: "risk" },
+            { label: "16-30 days", value: "Finance approval", detail: "Confirm cancel, reduce, or renegotiate path.", tone: "warning" },
+            { label: "31-60 days", value: "Owner follow-up", detail: "Collect usage evidence and vendor context.", tone: "brand" },
           ].map((item) => (
-            <article className="rounded-lg border border-line bg-panel-subtle p-4 transition hover:-translate-y-1 hover:border-brand hover:shadow-md" key={item.title}>
-              <strong className="block text-sm font-extrabold">{item.title}</strong>
+            <article className="rounded-lg border border-line/55 bg-panel-subtle/72 p-4" key={item.label}>
+              <span className={`rounded-full px-2.5 py-1 text-xs font-extrabold ${metricTone(item.tone)}`}>{item.label}</span>
+              <strong className="mt-3 block text-sm font-extrabold">{item.value}</strong>
               <p className="mt-2 text-sm leading-6 text-quiet">{item.detail}</p>
             </article>
           ))}
@@ -2455,7 +2841,7 @@ function HeroBand({ totals, wasteSignals, onNavigate }: { totals: DashboardTotal
 
   return (
     <section className="relative min-w-0 overflow-hidden rounded-xl border border-brand/20 bg-inverse text-inverse-ink shadow-[0_30px_90px_rgba(0,0,0,0.28)]">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(55,190,204,0.18),transparent_34%),radial-gradient(circle_at_90%_18%,rgba(90,215,148,0.12),transparent_30%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(56,189,248,0.18),transparent_34%),radial-gradient(circle_at_90%_18%,rgba(16,185,129,0.12),transparent_30%)]" />
       <div className="relative grid min-w-0 max-w-full gap-7 p-5 sm:p-7 xl:grid-cols-[minmax(0,1fr)_390px] xl:items-center">
         <div className="min-w-0">
           <div className="inline-flex items-center gap-2 rounded-full border border-inverse-ink/10 bg-inverse-ink/8 px-3 py-1.5 text-sm font-extrabold text-inverse-ink">
@@ -3160,7 +3546,7 @@ function buildRenewalRows({ renewals, auditSummary }: { renewals: ApiRenewal[]; 
 }
 
 function buildCategorySpend(vendors: ApiVendor[]) {
-  const colors = ["#087f8c", "#2f6fed", "#8a5a00", "#b3261e", "#137333", "#5b5fc7"];
+  const colors = ["#38bdf8", "#7dd3fc", "#f59e0b", "#ef4444", "#10b981", "#94a3b8"];
   const totalsByCategory = vendors.reduce((groups, vendor) => {
     const category = vendor.category || "Uncategorized";
     groups.set(category, (groups.get(category) ?? 0) + Number(vendor.monthlySpend ?? 0));

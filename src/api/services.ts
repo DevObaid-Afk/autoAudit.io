@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { ApiContactRequest, ApiRenewal, ApiReport, ApiVendor, AuditSummary, AuthResponse, CreateVendorInput, PaginationMeta } from "../types/api";
+import type { ApiContactRequest, ApiRenewal, ApiReport, ApiUser, ApiVendor, AuditSummary, AuthResponse, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta } from "../types/api";
 
 export const authApi = {
   async signup(input: { name: string; email: string; password: string; companyName: string; companyDomain?: string; plan?: string }) {
@@ -39,6 +39,31 @@ export const authApi = {
 };
 
 export const profileApi = {
+  async avatarAccess() {
+    const { data } = await apiClient.get<{ avatar: AvatarAccess }>("/api/profile/avatar-access");
+    return data.avatar;
+  },
+
+  async uploadAvatar(imageData: string) {
+    const { data } = await apiClient.post<{ user: ApiUser }>("/api/profile/avatar-upload", { imageData });
+    return data.user;
+  },
+
+  async removeAvatar() {
+    const { data } = await apiClient.delete<{ user: ApiUser }>("/api/profile/avatar");
+    return data.user;
+  },
+
+  async generateAvatar(style: AvatarStyle) {
+    const { data } = await apiClient.post<{ generatedUrl: string; avatar: AvatarAccess }>("/api/profile/avatar-generate", { style });
+    return data;
+  },
+
+  async saveGeneratedAvatar(avatarUrl: string) {
+    const { data } = await apiClient.post<{ user: ApiUser }>("/api/profile/avatar-save", { avatarUrl });
+    return data.user;
+  },
+
   async updateCompanySettings(input: {
     requireCfoApprovalAbove: number;
     weeklyRenewalDigest: boolean;
