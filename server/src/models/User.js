@@ -32,11 +32,32 @@ const userSchema = new mongoose.Schema(
       ref: "Company",
       required: [true, "Company is required"],
     },
+    emailVerifiedAt: {
+      type: Date,
+    },
+    emailVerificationTokenHash: {
+      type: String,
+      select: false,
+    },
+    emailVerificationExpiresAt: {
+      type: Date,
+      select: false,
+    },
+    passwordResetTokenHash: {
+      type: String,
+      select: false,
+    },
+    passwordResetExpiresAt: {
+      type: Date,
+      select: false,
+    },
   },
   { timestamps: true },
 );
 
 userSchema.index({ company: 1, role: 1 });
+userSchema.index({ emailVerificationTokenHash: 1 }, { sparse: true });
+userSchema.index({ passwordResetTokenHash: 1 }, { sparse: true });
 
 userSchema.methods.comparePassword = function comparePassword(password) {
   return bcrypt.compare(password, this.passwordHash);

@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { ArrowLeft, Mail, MessageCircle, Phone, ShieldCheck } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Mail, MessageCircle, Phone, ShieldCheck } from "lucide-react";
 import { PageMeta } from "../components/PageMeta";
 import { PublicFooter, publicContact } from "../components/PublicFooter";
 
@@ -10,10 +10,30 @@ const socialLinks = [
   { label: "X", className: "fa-brands fa-x-twitter", href: "#" },
 ];
 
+const founderNotes = [
+  {
+    title: "Why I built it",
+    text: "Small teams often manage SaaS renewals across spreadsheets, inboxes, and memory. AutoAudit.ai is meant to turn that scattered work into a clear review queue.",
+  },
+  {
+    title: "What I am optimizing for",
+    text: "The product focuses on practical workflows: vendor ownership, renewal timing, seat usage, savings logic, and action-ready reports.",
+  },
+  {
+    title: "How it is improving",
+    text: "AutoAudit.ai is in active early access. I am using real feedback to tighten onboarding, reporting, trust copy, and the product roadmap.",
+  },
+];
+
 export function AboutDeveloperPage() {
   return (
     <main className="min-h-screen bg-canvas text-ink">
-      <PageMeta title="About Developer - AutoAudit.ai" description="Meet Obaid, the self-taught full-stack developer behind AutoAudit.ai." />
+      <PageMeta
+        title="About the Developer - AutoAudit.ai"
+        description="Meet Obaid, the self-taught full-stack developer building AutoAudit.ai for practical SaaS spend cleanup workflows."
+        canonicalPath="/about-developer"
+        keywords={["AutoAudit.ai developer", "SaaS audit founder", "AutoAudit founder"]}
+      />
       <section className="border-b border-line bg-panel">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
           <Link className="flex min-w-0 items-center gap-3" to="/">
@@ -35,18 +55,28 @@ export function AboutDeveloperPage() {
         </div>
 
         <div>
-          <p className="text-xs font-extrabold uppercase text-brand-strong">About Founder</p>
-          <h1 className="mt-3 text-4xl font-extrabold leading-tight tracking-normal sm:text-5xl">Obaid, self-taught full-stack web developer.</h1>
+          <p className="text-xs font-extrabold uppercase text-brand-strong">Founder-led SaaS</p>
+          <h1 className="mt-3 text-4xl font-extrabold leading-tight tracking-normal sm:text-5xl">Obaid, builder of AutoAudit.ai.</h1>
           <div className="mt-6 grid gap-4 text-sm leading-7 text-quiet">
             <p>
-              I am Obaid, a self-taught full-stack web developer passionate about building modern, fast, and visually polished web experiences. I work mainly with JavaScript, React, Node.js, Express, MongoDB, and Tailwind CSS, while also focusing on smooth UI animations and premium frontend design.
+              I am Obaid, a self-taught full-stack web developer building AutoAudit.ai as a focused tool for teams that want to find SaaS waste before renewals quietly turn into another billing cycle.
             </p>
             <p>
-              I enjoy creating websites and digital products that are not only visually strong but also practical, scalable, and business-focused. Alongside development, I am deeply interested in branding, product strategy, and building impactful online experiences.
+              The idea comes from a simple operational problem: software spend grows across teams, owners change, seat counts drift, and renewal dates get missed. AutoAudit.ai brings those signals into one workspace so founders, finance teams, and operators can review what to keep, reduce, cancel, or renegotiate.
             </p>
             <p>
-              My goal is simple: create clean, professional, and high-quality digital products that stand out.
+              I am keeping the product lightweight on purpose. The goal is not to replace a full procurement department; it is to give growing teams a practical audit workflow, transparent savings logic, and useful AI drafts that humans review before taking action.
             </p>
+          </div>
+
+          <div className="mt-7 grid gap-3 lg:grid-cols-3">
+            {founderNotes.map((note) => (
+              <article className="rounded-lg border border-line bg-panel-subtle p-4" key={note.title}>
+                <CheckCircle2 aria-hidden="true" className="text-good" size={18} />
+                <h2 className="mt-3 text-sm font-extrabold tracking-normal">{note.title}</h2>
+                <p className="mt-2 text-sm leading-6 text-quiet">{note.text}</p>
+              </article>
+            ))}
           </div>
 
           <div className="mt-7 grid gap-3 sm:grid-cols-2">

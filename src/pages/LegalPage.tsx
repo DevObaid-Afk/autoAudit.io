@@ -12,7 +12,11 @@ export function LegalPage({ type }: LegalPageProps) {
 
   return (
     <main className="min-h-screen bg-canvas text-ink">
-      <PageMeta title={`${isPrivacy ? "Privacy Policy" : "Terms of Use"} - AutoAudit.ai`} description={isPrivacy ? "AutoAudit.ai privacy basics for account, workspace, vendor, and contact data." : "AutoAudit.ai terms covering SaaS audit workflows, AI drafts, and product use."} />
+      <PageMeta
+        title={`${isPrivacy ? "Privacy Policy" : "Terms of Use"} - AutoAudit.ai`}
+        description={isPrivacy ? "AutoAudit.ai privacy basics for account, workspace, SaaS vendor, and contact data." : "AutoAudit.ai terms covering SaaS audit workflows, AI drafts, and product use."}
+        canonicalPath={isPrivacy ? "/privacy" : "/terms"}
+      />
       <section className="border-b border-line bg-panel">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
           <Link className="flex min-w-0 items-center gap-3" to="/">

@@ -10,6 +10,13 @@ export const env = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
   openaiApiKey: process.env.OPENAI_API_KEY,
   openaiModel: process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
+  appUrl: normalizeUrl(process.env.APP_URL ?? process.env.FRONTEND_URL ?? "http://127.0.0.1:5173"),
+  resendApiKey: process.env.RESEND_API_KEY,
+  emailFrom: process.env.EMAIL_FROM || "AutoAudit.ai <onboarding@resend.dev>",
+  contactToEmail: process.env.CONTACT_TO_EMAIL || "exehassan62@gmail.com",
+  sentryDsn: process.env.SENTRY_DSN,
+  sentryEnvironment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? "development",
+  sentryTracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0.1),
   rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 15 * 60 * 1000),
   rateLimitMax: Number(process.env.RATE_LIMIT_MAX ?? 600),
   authRateLimitWindowMs: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS ?? 15 * 60 * 1000),
@@ -33,6 +40,10 @@ function parseCorsOrigins(value) {
         return origin;
       }
     });
+}
+
+function normalizeUrl(value) {
+  return String(value).replace(/\/$/, "");
 }
 
 export function validateEnv() {

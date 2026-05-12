@@ -38,6 +38,7 @@ export function PublicFooter() {
             <strong className="text-sm font-extrabold">Guide</strong>
             <div className="mt-3 grid gap-2 text-sm font-bold text-quiet">
               <Link className="hover:text-brand" to="/starter-guide">Starter guide</Link>
+              <Link className="hover:text-brand" to="/trust">Trust Center</Link>
               <Link className="hover:text-brand" to="/starter-guide#step-by-step">Step-by-step use</Link>
               <Link className="hover:text-brand" to="/starter-guide#why-choose">Why choose AutoAudit</Link>
               <Link className="hover:text-brand" to="/starter-guide#pros">Pros</Link>
@@ -48,6 +49,7 @@ export function PublicFooter() {
             <strong className="text-sm font-extrabold">Legal</strong>
             <div className="mt-3 grid gap-2 text-sm font-bold text-quiet">
               <Link className="hover:text-brand" to="/about-developer">Founder</Link>
+              <Link className="hover:text-brand" to="/trust">Trust Center</Link>
               <Link className="hover:text-brand" to="/privacy">Privacy</Link>
               <Link className="hover:text-brand" to="/terms">Terms</Link>
             </div>

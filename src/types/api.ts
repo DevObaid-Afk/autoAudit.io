@@ -5,6 +5,7 @@ export type ApiUser = {
   email: string;
   role: "owner" | "admin" | "member";
   company: string;
+  emailVerifiedAt?: string;
 };
 
 export type ApiCompany = {

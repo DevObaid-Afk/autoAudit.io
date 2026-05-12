@@ -39,7 +39,12 @@ export function ContactPage() {
 
   return (
     <main className="min-h-screen bg-canvas text-ink">
-      <PageMeta title="Contact - AutoAudit.ai" description="Request a custom AutoAudit.ai plan, onboarding help, or SaaS audit workflow guidance." />
+      <PageMeta
+        title="Contact AutoAudit.ai - SaaS Audit Help"
+        description="Request an AutoAudit.ai custom plan, onboarding support, or SaaS audit workflow guidance for vendor spend and renewals."
+        canonicalPath="/contact"
+        keywords={["SaaS audit help", "SaaS vendor cleanup support", "custom SaaS management plan"]}
+      />
       <section className="border-b border-line bg-panel">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
           <Link className="flex min-w-0 items-center gap-3" to="/">

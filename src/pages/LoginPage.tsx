@@ -35,7 +35,7 @@ export function LoginPage() {
 
   return (
     <AuthLayout title="Welcome back" subtitle="Sign in to review SaaS waste, renewals, and vendor actions.">
-      <PageMeta title="Sign In - AutoAudit.ai" description="Sign in to your AutoAudit.ai SaaS waste control dashboard." />
+      <PageMeta title="Sign In - AutoAudit.ai" description="Sign in to your AutoAudit.ai SaaS waste control dashboard." canonicalPath="/login" noindex />
       <form className="grid gap-4" onSubmit={handleSubmit}>
         {error && <AuthError message={error} />}
         <AuthField label="Email">
@@ -58,6 +58,9 @@ export function LoginPage() {
         <button className="min-h-11 rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong hover:shadow-[0_16px_32px_rgb(var(--color-brand)/0.28)] disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSubmitting}>
           {isSubmitting ? "Signing in..." : "Sign in"}
         </button>
+        <Link className="text-center text-sm font-extrabold text-brand hover:text-brand-strong" to="/forgot-password">
+          Forgot password?
+        </Link>
         <p className="text-center text-sm text-quiet">
           New workspace?{" "}
           <Link className="font-extrabold text-brand hover:text-brand-strong" to="/signup">
@@ -69,7 +72,7 @@ export function LoginPage() {
   );
 }
 
-function AuthLayout({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+export function AuthLayout({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   const { theme, toggleTheme } = useTheme();
 
   return (
@@ -116,7 +119,7 @@ function AuthLayout({ title, subtitle, children }: { title: string; subtitle: st
   );
 }
 
-function AuthField({ label, children }: { label: string; children: React.ReactNode }) {
+export function AuthField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="grid gap-2">
       <span className="text-sm font-extrabold text-quiet">{label}</span>
@@ -125,6 +128,10 @@ function AuthField({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
-function AuthError({ message }: { message: string }) {
+export function AuthError({ message }: { message: string }) {
   return <div className="rounded-lg border border-risk/20 bg-risk-soft px-3 py-2 text-sm font-bold text-risk">{message}</div>;
+}
+
+export function AuthSuccess({ message }: { message: string }) {
+  return <div className="rounded-lg border border-good/20 bg-good-soft px-3 py-2 text-sm font-bold text-good">{message}</div>;
 }

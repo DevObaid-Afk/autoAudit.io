@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { env } from "../config/env.js";
+import { captureException } from "../config/sentry.js";
 import { AppError } from "../utils/AppError.js";
 
 export function notFoundHandler(req, _res, next) {
@@ -29,6 +30,11 @@ export function errorHandler(error, req, res, _next) {
   }
 
   if (statusCode >= 500 && env.nodeEnv !== "test") {
+    captureException(error, {
+      path: req.originalUrl,
+      method: req.method,
+      requestId: req.id,
+    });
     console.error({
       message: error.message,
       stack: error.stack,

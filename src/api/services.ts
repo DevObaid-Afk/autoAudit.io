@@ -12,6 +12,26 @@ export const authApi = {
     return data;
   },
 
+  async forgotPassword(input: { email: string }) {
+    const { data } = await apiClient.post<{ message: string }>("/api/auth/forgot-password", input);
+    return data;
+  },
+
+  async resetPassword(input: { token: string; password: string }) {
+    const { data } = await apiClient.post<{ message: string }>("/api/auth/reset-password", input);
+    return data;
+  },
+
+  async verifyEmail(input: { token: string }) {
+    const { data } = await apiClient.post<{ message: string }>("/api/auth/verify-email", input);
+    return data;
+  },
+
+  async requestEmailVerification(input: { email: string }) {
+    const { data } = await apiClient.post<{ message: string }>("/api/auth/request-email-verification", input);
+    return data;
+  },
+
   async me() {
     const { data } = await apiClient.get<Pick<AuthResponse, "user" | "company">>("/api/profile/me");
     return data;

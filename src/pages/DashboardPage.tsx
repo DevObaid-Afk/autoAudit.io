@@ -49,9 +49,10 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { ChangeEvent, ReactNode } from "react";
-import { aiApi, analyticsApi, auditApi, contactApi, profileApi, renewalApi, reportApi, vendorApi } from "../api/services";
+import { aiApi, analyticsApi, auditApi, authApi, contactApi, profileApi, renewalApi, reportApi, vendorApi } from "../api/services";
 import { getApiErrorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { PageMeta } from "../components/PageMeta";
 import { PublicFooter } from "../components/PublicFooter";
 import { useTheme } from "../theme/ThemeContext";
 import type { AiEmailGoal, ApiCompany, ApiContactRequest, ApiRenewal, ApiReport, ApiVendor, AuditSummary, CreateVendorInput, PaginationMeta } from "../types/api";
@@ -59,6 +60,13 @@ import type { AiEmailGoal, ApiCompany, ApiContactRequest, ApiRenewal, ApiReport,
 type PageId = "overview" | "vendors" | "waste" | "renewals" | "reports" | "email" | "billing" | "settings";
 type RiskLevel = "critical" | "high" | "medium" | "low";
 type VendorStatus = "Healthy" | "Zombie" | "Duplicate" | "Renewal risk" | "Unused seats";
+type VendorQueryState = {
+  page: number;
+  limit: number;
+  search: string;
+  status: string;
+  category: string;
+};
 
 type NavItem = {
   id: PageId;
@@ -195,9 +203,12 @@ type ReportCard = {
 
 const integrations = [
   { name: "CSV import", status: "Available", detail: "Manual vendor and spend uploads are ready now." },
-  { name: "Gmail", status: "Coming soon", detail: "Future receipt and renewal notice discovery." },
-  { name: "Ramp", status: "Coming soon", detail: "Future card and AP spend syncing." },
+  { name: "Google Workspace", status: "Coming soon", detail: "Future account, app usage, and renewal-notice discovery." },
+  { name: "Microsoft 365", status: "Coming soon", detail: "Future workspace and user activity signals." },
+  { name: "QuickBooks", status: "Coming soon", detail: "Future accounting-side SaaS spend checks." },
+  { name: "Stripe", status: "Coming soon", detail: "Future billing and subscription activation workflow." },
   { name: "Okta", status: "Coming soon", detail: "Future login activity and seat usage signals." },
+  { name: "Slack alerts", status: "Coming soon", detail: "Future renewal and owner follow-up notifications." },
 ];
 
 const planLimitSets = {
@@ -224,6 +235,15 @@ const emailGoalOptions: Array<{ value: AiEmailGoal; label: string; actionLabel: 
   { value: "reduce_seats", label: "Reduce seat count", actionLabel: "right-size seat count" },
 ];
 
+const vendorStatusFilters = ["All", "Healthy", "Zombie", "Duplicate", "Renewal risk", "Unused seats"];
+const defaultVendorQuery: VendorQueryState = {
+  page: 1,
+  limit: 10,
+  search: "",
+  status: "All",
+  category: "All",
+};
+
 const defaultDraft = `Hi Clearbit team,
 
 We are reviewing our SaaS stack and found no meaningful Clearbit usage in the last quarter.
@@ -243,13 +263,16 @@ export function DashboardPage() {
   const [draft, setDraft] = useState(defaultDraft);
   const [emailTone, setEmailTone] = useState("Direct");
   const [vendorSearch, setVendorSearch] = useState("");
+  const [vendorQuery, setVendorQuery] = useState<VendorQueryState>(defaultVendorQuery);
   const [toast, setToast] = useState("");
   const [apiVendors, setApiVendors] = useState<ApiVendor[]>([]);
   const [apiRenewals, setApiRenewals] = useState<ApiRenewal[]>([]);
   const [apiReports, setApiReports] = useState<ApiReport[]>([]);
   const [vendorPagination, setVendorPagination] = useState<PaginationMeta | null>(null);
+  const [vendorCategoryOptions, setVendorCategoryOptions] = useState<string[]>(["All"]);
   const [auditSummary, setAuditSummary] = useState<AuditSummary | null>(null);
   const [isDataLoading, setDataLoading] = useState(true);
+  const [isVendorLoading, setVendorLoading] = useState(true);
   const [dataError, setDataError] = useState("");
   const [monthlyReportDraft, setMonthlyReportDraft] = useState("");
   const [isReportGenerating, setReportGenerating] = useState(false);
@@ -290,6 +313,29 @@ export function DashboardPage() {
       monthlyWaste: auditSummary?.monthlyWasteFound ?? 0,
     };
   }, [auditSummary, dashboardVendors, renewalRows]);
+
+  const loadVendorDirectory = async (query: VendorQueryState) => {
+    setVendorLoading(true);
+    setDataError("");
+
+    const response = await vendorApi.list({
+      page: query.page,
+      limit: query.limit,
+      search: query.search.trim() || undefined,
+      status: mapVendorStatusFilterToApi(query.status),
+      category: query.category === "All" ? undefined : query.category,
+    });
+
+    setApiVendors(response.vendors);
+    setVendorPagination(response.pagination);
+
+    if (response.pagination.totalPages < query.page) {
+      setVendorQuery((current) => ({ ...current, page: response.pagination.totalPages }));
+    }
+
+    setVendorLoading(false);
+    return response;
+  };
   useEffect(() => {
     if (sectionParam && isPageId(sectionParam)) {
       setActivePage(sectionParam);
@@ -298,11 +344,18 @@ export function DashboardPage() {
 
   async function refreshDashboardData() {
     setDataLoading(true);
+    setVendorLoading(true);
     setDataError("");
 
     try {
       const [vendorsResponse, summaryResponse, renewalsResponse, reportsResponse] = await Promise.all([
-        vendorApi.list({ limit: 100 }),
+        vendorApi.list({
+          page: vendorQuery.page,
+          limit: vendorQuery.limit,
+          search: vendorQuery.search.trim() || undefined,
+          status: mapVendorStatusFilterToApi(vendorQuery.status),
+          category: vendorQuery.category === "All" ? undefined : vendorQuery.category,
+        }),
         auditApi.summary(),
         renewalApi.list({ limit: 100 }),
         reportApi.list({ limit: 20 }),
@@ -310,6 +363,7 @@ export function DashboardPage() {
 
       setApiVendors(vendorsResponse.vendors);
       setVendorPagination(vendorsResponse.pagination);
+      setVendorCategoryOptions(buildVendorCategoryOptions(vendorsResponse.vendors, vendorQuery.category));
       setAuditSummary(summaryResponse);
       setApiRenewals(renewalsResponse.renewals);
       setApiReports(reportsResponse.reports);
@@ -317,12 +371,37 @@ export function DashboardPage() {
       setDataError(getApiErrorMessage(error));
     } finally {
       setDataLoading(false);
+      setVendorLoading(false);
     }
   }
 
   useEffect(() => {
     refreshDashboardData();
   }, []);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function refreshVendors() {
+      try {
+        const response = await loadVendorDirectory(vendorQuery);
+        if (isCurrent) {
+          setVendorCategoryOptions((current) => mergeVendorCategoryOptions(current, response.vendors, vendorQuery.category));
+        }
+      } catch (error) {
+        if (isCurrent) {
+          setDataError(getApiErrorMessage(error));
+          setVendorLoading(false);
+        }
+      }
+    }
+
+    refreshVendors();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [vendorQuery]);
 
   const showToast = (message: string) => {
     if (toastTimer.current) {
@@ -341,8 +420,19 @@ export function DashboardPage() {
 
   const handleGlobalSearch = (value: string) => {
     setVendorSearch(value);
+    setVendorQuery((current) => ({ ...current, search: value, page: 1 }));
     if (value.trim() && activePage !== "vendors") {
       handleNav("vendors");
+    }
+  };
+
+  const handleVendorQueryChange = (update: Partial<VendorQueryState>) => {
+    setVendorQuery((current) => {
+      const next = { ...current, ...update, page: update.page ?? 1 };
+      return JSON.stringify(current) === JSON.stringify(next) ? current : next;
+    });
+    if (update.search !== undefined) {
+      setVendorSearch(update.search);
     }
   };
 
@@ -409,6 +499,17 @@ export function DashboardPage() {
     setApiVendors((current) => current.filter((item) => item._id !== vendor.id));
     await refreshDashboardData();
     showToast(`${vendor.name} deleted.`);
+  };
+
+  const handleResendVerification = async () => {
+    if (!user?.email) return;
+
+    try {
+      const response = await authApi.requestEmailVerification({ email: user.email });
+      showToast(response.message);
+    } catch (error) {
+      showToast(getApiErrorMessage(error));
+    }
   };
 
   const copyDraft = async () => {
@@ -480,6 +581,7 @@ export function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
+      <PageMeta title="Dashboard - AutoAudit.ai" description="Signed-in AutoAudit.ai SaaS waste control dashboard." canonicalPath="/dashboard" noindex />
       <div className="lg:grid lg:grid-cols-[286px_minmax(0,1fr)]">
         <Sidebar activePage={activePage} isOpen={isMobileNavOpen} onClose={() => setMobileNavOpen(false)} onNavigate={handleNav} />
 
@@ -499,11 +601,12 @@ export function DashboardPage() {
 
           <main className="mx-auto max-w-[1500px] px-3 py-4 sm:px-6 lg:px-8">
             <div className="animate-[fadeIn_420ms_ease-out]">
+              {user && !user.emailVerifiedAt && <EmailVerificationBanner email={user.email} onResend={handleResendVerification} />}
               {company && <TrialStatusBanner company={company} isLoadingDemo={isLoadingDemo} vendorCount={dashboardVendors.length} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} />}
               {dataError && <ErrorState message={dataError} onRetry={refreshDashboardData} />}
               {isDataLoading && <LoadingState label="Loading live audit data" />}
               {activePage === "overview" && <OverviewPage categoryData={dashboardCategorySpend} duplicateTools={duplicateToolRows} totals={totals} unusedSeats={unusedSeatRows} onNavigate={handleNav} onToast={showToast} />}
-              {activePage === "vendors" && <VendorsPage externalQuery={vendorSearch} isLoading={isDataLoading} isLoadingDemo={isLoadingDemo} pagination={vendorPagination} vendors={dashboardVendors} onCreateVendor={handleCreateVendor} onDeleteVendor={handleDeleteVendor} onImportVendors={handleImportVendors} onLoadDemoData={handleLoadDemoData} onSearchChange={setVendorSearch} onToast={showToast} />}
+              {activePage === "vendors" && <VendorsPage categoryOptions={vendorCategoryOptions} isLoading={isDataLoading || isVendorLoading} isLoadingDemo={isLoadingDemo} pagination={vendorPagination} query={vendorQuery} vendors={dashboardVendors} onCreateVendor={handleCreateVendor} onDeleteVendor={handleDeleteVendor} onImportVendors={handleImportVendors} onLoadDemoData={handleLoadDemoData} onQueryChange={handleVendorQueryChange} onToast={showToast} />}
               {activePage === "waste" && (
                 <WasteDetectionPage
                   aiAnalysis={wasteAnalysis}
@@ -845,34 +948,33 @@ function OverviewPage({
 }
 
 function VendorsPage({
-  externalQuery,
+  categoryOptions,
   isLoading,
   isLoadingDemo,
   pagination,
+  query,
   vendors,
   onCreateVendor,
   onDeleteVendor,
   onImportVendors,
   onLoadDemoData,
-  onSearchChange,
+  onQueryChange,
   onToast,
 }: {
-  externalQuery: string;
+  categoryOptions: string[];
   isLoading: boolean;
   isLoadingDemo: boolean;
   pagination: PaginationMeta | null;
+  query: VendorQueryState;
   vendors: Vendor[];
   onCreateVendor: (input: CreateVendorInput) => Promise<void>;
   onDeleteVendor: (vendor: Vendor) => Promise<void>;
   onImportVendors: (inputs: CreateVendorInput[]) => Promise<{ created: number; failed: number; errors: string[] }>;
   onLoadDemoData: () => Promise<void>;
-  onSearchChange: (value: string) => void;
+  onQueryChange: (update: Partial<VendorQueryState>) => void;
   onToast: (message: string) => void;
 }) {
   const importInputRef = useRef<HTMLInputElement | null>(null);
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("All");
-  const [page, setPage] = useState(1);
   const [pendingDelete, setPendingDelete] = useState<Vendor | null>(null);
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -894,34 +996,19 @@ function VendorsPage({
   const [formError, setFormError] = useState("");
   const [isSubmitting, setSubmitting] = useState(false);
 
-  const filteredVendors = vendors.filter((vendor) => {
-    const normalizedQuery = query.trim().toLowerCase();
-    const matchesQuery =
-      !normalizedQuery ||
-      vendor.name.toLowerCase().includes(normalizedQuery) ||
-      vendor.owner.toLowerCase().includes(normalizedQuery) ||
-      vendor.category.toLowerCase().includes(normalizedQuery) ||
-      vendor.status.toLowerCase().includes(normalizedQuery);
-    const matchesStatus = status === "All" || vendor.status === status;
-    return matchesQuery && matchesStatus;
-  });
-  const pageSize = 10;
-  const totalPages = Math.max(1, Math.ceil(filteredVendors.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const visibleVendors = filteredVendors.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-
-  useEffect(() => {
-    setPage(1);
-  }, [query, status]);
-
-  useEffect(() => {
-    setQuery(externalQuery);
-  }, [externalQuery]);
-
   const handleQueryChange = (value: string) => {
-    setQuery(value);
-    onSearchChange(value);
+    onQueryChange({ search: value });
   };
+
+  const currentPage = pagination?.page ?? query.page;
+  const totalPages = pagination?.totalPages ?? 1;
+  const visibleVendors = vendors;
+
+  useEffect(() => {
+    if (selectedVendor && !vendors.some((vendor) => vendor.id === selectedVendor.id)) {
+      setSelectedVendor(null);
+    }
+  }, [selectedVendor, vendors]);
 
   const handleConfirmDelete = async () => {
     if (!pendingDelete) return;
@@ -1130,11 +1217,12 @@ function VendorsPage({
 
       <Panel
         title="Vendor directory"
-        eyebrow={isLoading ? "Loading vendors" : `${filteredVendors.length} vendors shown${pagination ? ` of ${pagination.total}` : ""}`}
+        eyebrow={isLoading ? "Loading vendors" : `${vendors.length} vendors shown${pagination ? ` of ${pagination.total}` : ""}`}
         action={
           <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap">
-            <SearchBox value={query} onChange={handleQueryChange} />
-            <SelectPill value={status} onChange={setStatus} values={["All", "Healthy", "Zombie", "Duplicate", "Renewal risk", "Unused seats"]} />
+            <SearchBox value={query.search} onChange={handleQueryChange} />
+            <SelectPill value={query.status} onChange={(value) => onQueryChange({ status: value })} values={vendorStatusFilters} />
+            <SelectPill value={query.category} onChange={(value) => onQueryChange({ category: value })} values={categoryOptions} />
           </div>
         }
       >
@@ -1179,10 +1267,10 @@ function VendorsPage({
         )}
         {isLoading ? (
           <TableSkeleton rows={6} />
-        ) : filteredVendors.length === 0 ? (
+        ) : vendors.length === 0 ? (
           <EmptyState
-            title="No vendors yet"
-            detail="Add your first vendor to see live spend, renewal, and waste detection data from the backend."
+            title={pagination && pagination.total === 0 && (query.search || query.status !== "All" || query.category !== "All") ? "No matching vendors" : "No vendors yet"}
+            detail={pagination && pagination.total === 0 && (query.search || query.status !== "All" || query.category !== "All") ? "Adjust search or filters to see more live backend results." : "Start with sample vendors or import a CSV with spend, seats, owners, usage, and renewal dates. AutoAudit needs this evidence before it can flag waste."}
             action={
               <div className="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
                 <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel px-4 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:text-brand" type="button" onClick={() => setShowForm(true)}>
@@ -1268,8 +1356,8 @@ function VendorsPage({
               Page {currentPage} of {totalPages}
             </span>
             <div className="flex gap-2">
-              <SecondaryButton onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</SecondaryButton>
-              <SecondaryButton onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Next</SecondaryButton>
+              <SecondaryButton onClick={() => onQueryChange({ page: Math.max(1, currentPage - 1) })}>Previous</SecondaryButton>
+              <SecondaryButton onClick={() => onQueryChange({ page: Math.min(totalPages, currentPage + 1) })}>Next</SecondaryButton>
             </div>
           </div>
           </>
@@ -1323,7 +1411,7 @@ function WasteDetectionPage({
       <PageHeader
         eyebrow="AI detection"
         title="Waste signals"
-        detail="AutoAudit maps spend, receipts, usage, seats, and renewal windows to prioritize the highest-value actions."
+        detail="AutoAudit maps spend, usage, seats, and renewal windows to prioritize high-value actions. AI suggestions are reviewed by users before anything happens."
         action={<PrimaryButton onClick={onRunDetection}>{isAnalyzing ? "Analyzing..." : "Run AI detection"}</PrimaryButton>}
       />
 
@@ -1333,7 +1421,7 @@ function WasteDetectionPage({
             {wasteSignals.length === 0 && (
               <EmptyState
                 title={hasVendors ? "No waste signals yet" : "No vendor data yet"}
-                detail={hasVendors ? "Add spend, seats, usage, and renewal dates to sharpen waste findings." : "Load sample vendors or import a CSV to generate live waste findings."}
+                detail={hasVendors ? "Add seat counts, active users, last-used dates, and renewals to make the findings more evidence-backed." : "Load sample vendors or import a CSV to see why tools get flagged and how savings are estimated."}
                 action={<EmptySetupActions isLoadingDemo={isLoadingDemo} onLoadDemoData={onLoadDemoData} onNavigate={onNavigate} />}
               />
             )}
@@ -1403,6 +1491,20 @@ function WasteDetectionPage({
         </Panel>
       )}
 
+      <Panel title="Human review built in" eyebrow="AI guardrail">
+        <div className="grid gap-3 md:grid-cols-3">
+          {[
+            "AI explains why a vendor was flagged from the data you provided.",
+            "You decide whether to cancel, reduce seats, renegotiate, or keep monitoring.",
+            "AutoAudit does not contact vendors or change subscriptions automatically.",
+          ].map((note) => (
+            <div className="rounded-lg border border-line bg-panel-subtle p-4 text-sm font-bold leading-6 text-quiet" key={note}>
+              {note}
+            </div>
+          ))}
+        </div>
+      </Panel>
+
       <div className="grid gap-4 xl:grid-cols-2">
         <UnusedSeatsTable rows={unusedSeats} />
         <DuplicateToolsPanel rows={duplicateTools} />
@@ -1465,7 +1567,7 @@ function RenewalsPage({
             {renewalRows.length === 0 && (
               <EmptyState
                 title={hasVendors ? "No upcoming renewals" : "No renewal data yet"}
-                detail={hasVendors ? "Renewals will appear here when vendors include renewal dates." : "Load sample data or import a CSV with renewal dates to build the renewal queue."}
+                detail={hasVendors ? "Renewals appear here when vendors include renewal dates. Add dates to build an owner review queue before notice windows close." : "Load sample data or import a CSV with renewal dates to see contract exposure and calendar export."}
                 action={<EmptySetupActions isLoadingDemo={isLoadingDemo} onLoadDemoData={onLoadDemoData} onNavigate={onNavigate} />}
               />
             )}
@@ -1553,7 +1655,7 @@ function ReportsPage({
       {!hasVendors && (
         <EmptyState
           title="Reports need vendor data"
-          detail="Load sample vendors or import your own CSV before generating CFO-ready savings reports."
+          detail="Load sample vendors or import your own CSV before generating CFO-ready reports with evidence, savings estimates, and recommended next steps."
           action={<EmptySetupActions isLoadingDemo={isLoadingDemo} onLoadDemoData={onLoadDemoData} onNavigate={onNavigate} />}
           icon={FileText}
         />
@@ -1675,14 +1777,14 @@ function EmailGeneratorPage({
       <PageHeader
         eyebrow="AI workflow"
         title="AI Email Generator"
-        detail="Draft cancellation, renegotiation, owner follow-up, and renewal notice emails using audit evidence and company context."
+        detail="Draft cancellation, renegotiation, owner follow-up, and renewal notice emails using audit evidence. You review and edit every draft before sending."
         action={<PrimaryButton onClick={handleGenerate}>{isGenerating ? "Generating..." : "Generate draft"}</PrimaryButton>}
       />
 
       {vendors.length === 0 && (
         <EmptyState
           title="Email drafts need a vendor"
-          detail="Load sample data or import your vendor list so AutoAudit can attach spend, seats, renewal, and savings context to the draft."
+          detail="Load sample data or import your vendor list so AutoAudit can attach spend, seats, renewal, savings context, and a clear reason for the draft."
           action={<EmptySetupActions isLoadingDemo={isLoadingDemo} onLoadDemoData={onLoadDemoData} onNavigate={onNavigate} />}
           icon={Mail}
         />
@@ -1738,6 +1840,9 @@ function EmailGeneratorPage({
                 {selectedVendorRecord
                   ? `${selectedVendorRecord.status} status, ${selectedVendorRecord.activeSeats}/${selectedVendorRecord.seats} seats active, ${currency(selectedVendorRecord.savings)} estimated annual savings, renewal ${selectedVendorRecord.renewal}.`
                   : "Vendor status, seat usage, spend, renewal, and waste findings will be sent to the backend AI route."}
+              </p>
+              <p className="mt-2 text-xs font-bold leading-5 text-brand-strong">
+                AutoAudit only drafts the message. It does not email vendors or cancel subscriptions automatically.
               </p>
             </div>
           </div>
@@ -1916,6 +2021,22 @@ function TrialStatusBanner({
         <UsageMeter label="Vendors" used={usage.vendors} limit={limits.vendors} compact />
         <UsageMeter label="Reports" used={usage.reports} limit={limits.reports} compact />
         <UsageMeter label="AI emails" used={usage.aiEmails} limit={limits.aiEmails} compact />
+      </div>
+    </div>
+  );
+}
+
+function EmailVerificationBanner({ email, onResend }: { email: string; onResend: () => void }) {
+  return (
+    <div className="mb-4 rounded-lg border border-warning/20 bg-warning-soft p-4 text-warning">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <strong className="block text-sm font-extrabold">Verify your email</strong>
+          <span className="mt-1 block text-sm leading-6">A verification link was sent to {email}. Verify it to keep account recovery reliable.</span>
+        </div>
+        <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-white px-3 text-sm font-extrabold text-warning transition hover:-translate-y-0.5" type="button" onClick={onResend}>
+          Resend link
+        </button>
       </div>
     </div>
   );
@@ -2854,6 +2975,42 @@ function mapVendorStatus(status: ApiVendor["status"]): VendorStatus {
   } satisfies Record<ApiVendor["status"], VendorStatus>;
 
   return labels[status];
+}
+
+function mapVendorStatusFilterToApi(status: string) {
+  const statuses = {
+    Healthy: "active",
+    Zombie: "zombie",
+    Duplicate: "duplicate",
+    "Renewal risk": "renewal_risk",
+    "Unused seats": "unused_seats",
+  } satisfies Record<VendorStatus, ApiVendor["status"]>;
+
+  return status === "All" ? undefined : statuses[status as VendorStatus];
+}
+
+function buildVendorCategoryOptions(vendors: ApiVendor[], selectedCategory = "All") {
+  return mergeVendorCategoryOptions(["All"], vendors, selectedCategory);
+}
+
+function mergeVendorCategoryOptions(current: string[], vendors: ApiVendor[], selectedCategory = "All") {
+  const categories = new Set(current.length > 0 ? current : ["All"]);
+  categories.add("All");
+
+  vendors.forEach((vendor) => {
+    const category = vendor.category?.trim();
+    if (category) categories.add(category);
+  });
+
+  if (selectedCategory !== "All") {
+    categories.add(selectedCategory);
+  }
+
+  return Array.from(categories).sort((first, second) => {
+    if (first === "All") return -1;
+    if (second === "All") return 1;
+    return first.localeCompare(second);
+  });
 }
 
 function mapRiskScore(score: number, status: ApiVendor["status"]): RiskLevel {

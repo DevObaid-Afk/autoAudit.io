@@ -43,7 +43,12 @@ export function SignupPage() {
 
   return (
     <main className="grid min-h-screen bg-canvas px-4 py-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(420px,0.6fr)] lg:p-6">
-      <PageMeta title="Create Account - AutoAudit.ai" description="Start an AutoAudit.ai trial and create your SaaS waste control workspace." />
+      <PageMeta
+        title="Start AutoAudit.ai - Create a SaaS Audit Workspace"
+        description="Start an AutoAudit.ai trial and create a SaaS waste control workspace for vendor tracking, renewal reviews, and reports."
+        canonicalPath="/signup"
+        keywords={["start SaaS audit", "create vendor management workspace", "SaaS waste trial"]}
+      />
       <section className="hidden rounded-lg bg-inverse p-8 text-inverse-ink shadow-2xl lg:flex lg:flex-col lg:justify-between">
         <div className="flex items-center gap-3">
           <span className="grid size-11 place-items-center rounded-lg bg-brand-soft text-brand">
@@ -117,6 +122,9 @@ export function SignupPage() {
             <button className="min-h-11 rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong hover:shadow-[0_16px_32px_rgb(var(--color-brand)/0.28)] disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSubmitting}>
               {isSubmitting ? "Creating..." : "Create workspace"}
             </button>
+            <p className="text-center text-xs font-bold leading-5 text-quiet">
+              AutoAudit.ai sends a verification email after signup. You can still explore the workspace while you verify your address.
+            </p>
             <p className="text-center text-sm text-quiet">
               Already have an account?{" "}
               <Link className="font-extrabold text-brand hover:text-brand-strong" to="/login">

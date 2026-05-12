@@ -30,7 +30,12 @@ const risks = [
 export function StarterGuidePage() {
   return (
     <main className="min-h-screen bg-canvas text-ink">
-      <PageMeta title="Starter Guide - AutoAudit.ai" description="Learn how to use AutoAudit.ai step by step, why to choose it, and what teams risk by ignoring SaaS subscriptions." />
+      <PageMeta
+        title="SaaS Audit Starter Guide - AutoAudit.ai"
+        description="Learn how to use AutoAudit.ai to import vendor data, find SaaS waste, review renewals, and create reports or email drafts."
+        canonicalPath="/starter-guide"
+        keywords={["SaaS audit guide", "software spend audit", "vendor cleanup guide", "SaaS renewal management"]}
+      />
 
       <section className="border-b border-line bg-panel">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">

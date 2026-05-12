@@ -53,7 +53,12 @@ export function PricingPage() {
 
   return (
     <main className="min-h-screen bg-canvas text-ink">
-      <PageMeta title="Pricing - AutoAudit.ai" description="Choose a 7-day trial, Starter, Standard, or Custom AutoAudit.ai plan for SaaS waste cleanup." />
+      <PageMeta
+        title="AutoAudit.ai Pricing - SaaS Waste Cleanup Plans"
+        description="Compare AutoAudit.ai trial, Starter, Standard, and Custom plans for SaaS vendor tracking, renewal reviews, unused seat audits, and reports."
+        canonicalPath="/pricing"
+        keywords={["SaaS audit pricing", "SaaS management pricing", "vendor tracking pricing", "software spend optimization plans"]}
+      />
       <section className="border-b border-line bg-panel">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
           <Link className="flex min-w-0 items-center gap-3" to="/">
@@ -88,11 +93,11 @@ export function PricingPage() {
         <div className="mx-auto max-w-3xl text-center">
           <div className="mb-5 inline-flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2 text-sm font-extrabold text-brand-strong shadow-sm">
             <Sparkles aria-hidden="true" size={17} />
-            Simple pricing for SaaS cleanup
+            Founder-led early access
           </div>
           <h1 className="text-4xl font-extrabold leading-tight tracking-normal sm:text-5xl">Choose the plan that fits your audit workflow.</h1>
           <p className="mt-4 text-base leading-7 text-quiet">
-            Start with a week-long trial, then move into a monthly plan when AutoAudit becomes part of your finance rhythm.
+            Start with a week-long trial, then move into a monthly plan when AutoAudit becomes part of your finance rhythm. Payments are still handled manually while the product improves through real user feedback.
           </p>
         </div>
 
@@ -144,8 +149,21 @@ export function PricingPage() {
 
         <div className="mt-8 rounded-lg border border-line bg-panel p-5 text-center shadow-[0_18px_45px_rgba(23,32,38,0.06)]">
           <p className="text-sm font-bold leading-6 text-quiet">
-            Plans can be changed in future, stay tuned with the real pricing updates!
+            Early access note: plan activation is founder-reviewed for now, so early users can ask questions, request onboarding help, and share workflow feedback before committing. Review the <Link className="text-brand hover:text-brand-strong" to="/trust">Trust Center</Link> before uploading vendor data.
           </p>
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-3">
+          {[
+            "Workspace data is separated by company, with protected dashboard routes.",
+            "AI generates drafts and reports for review; it does not contact vendors or cancel subscriptions.",
+            "The roadmap is shaped by practical requests from founders, finance teams, and operators.",
+          ].map((note) => (
+            <div className="rounded-lg border border-line bg-panel p-4 text-sm font-bold leading-6 text-quiet shadow-[0_14px_34px_rgba(23,32,38,0.06)]" key={note}>
+              <ShieldCheck aria-hidden="true" className="mb-3 text-brand" size={18} />
+              {note}
+            </div>
+          ))}
         </div>
       </section>
       <PublicFooter />

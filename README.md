@@ -52,11 +52,11 @@ npm install
 
 Create a local environment file:
 
-```bash
+```bashAPI
 cp .env.example .env
 ```
 
-Start MongoDB locally, then run the API:
+Start MongoDB locally, then run the :
 
 ```bash
 npm run dev:api

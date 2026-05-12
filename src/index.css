@@ -94,6 +94,27 @@
 }
 
 @layer components {
+  .motion-enter {
+    animation: fadeIn 520ms ease both;
+  }
+
+  .motion-delay-1 {
+    animation-delay: 90ms;
+  }
+
+  .motion-card {
+    transition:
+      border-color 180ms ease,
+      box-shadow 180ms ease,
+      transform 180ms ease;
+  }
+
+  .motion-card:hover {
+    border-color: rgb(var(--color-brand) / 0.42);
+    box-shadow: 0 18px 44px rgb(23 32 38 / 0.1);
+    transform: translateY(-2px);
+  }
+
   .input {
     min-height: 2.75rem;
     width: 100%;

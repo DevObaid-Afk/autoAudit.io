@@ -11,16 +11,21 @@ const demoMetrics = [
 ];
 
 const demoRows = [
-  { vendor: "Clearbit", owner: "Revenue", spend: "$1,200", issue: "Zombie subscription", action: "Cancel before renewal" },
-  { vendor: "Slack", owner: "Operations", spend: "$890", issue: "28 unused seats", action: "Right-size seats" },
-  { vendor: "Asana", owner: "Operations", spend: "$510", issue: "Duplicate PM tool", action: "Review with Monday.com" },
-  { vendor: "Notion", owner: "Product", spend: "$420", issue: "Healthy", action: "Keep monitored" },
+  { vendor: "Clearbit", owner: "Revenue", spend: "$1,200", issue: "Zombie subscription", evidence: "12 seats purchased, 0 active", action: "Cancel before renewal" },
+  { vendor: "Slack", owner: "Operations", spend: "$890", issue: "28 unused seats", evidence: "52 of 80 seats active", action: "Right-size seats" },
+  { vendor: "Asana", owner: "Operations", spend: "$510", issue: "Duplicate PM tool", evidence: "Same category as Monday.com", action: "Review with Monday.com" },
+  { vendor: "Notion", owner: "Product", spend: "$420", issue: "Healthy", evidence: "31 of 45 seats active", action: "Keep monitored" },
 ];
 
 export function DemoPage() {
   return (
     <main className="min-h-screen bg-canvas text-ink">
-      <PageMeta title="Demo Dashboard - AutoAudit.ai" description="Explore a read-only AutoAudit.ai demo dashboard with sample SaaS waste, renewals, and reports." />
+      <PageMeta
+        title="SaaS Audit Demo Dashboard - AutoAudit.ai"
+        description="Explore a read-only AutoAudit.ai demo with sample vendor waste, unused seats, renewal risk, reports, and AI draft workflows."
+        canonicalPath="/demo"
+        keywords={["SaaS audit demo", "vendor management demo", "SaaS waste dashboard", "renewal tracking demo"]}
+      />
       <section className="border-b border-line bg-panel">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
           <Link className="flex min-w-0 items-center gap-3" to="/">
@@ -41,7 +46,7 @@ export function DemoPage() {
           <div>
             <p className="text-xs font-extrabold uppercase text-brand-strong">Read-only demo</p>
             <h1 className="mt-3 max-w-3xl text-4xl font-extrabold leading-tight tracking-normal sm:text-5xl">See the audit workflow before signup.</h1>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-quiet">This sample workspace shows how AutoAudit.ai turns vendor data into waste findings, renewal priorities, reports, and vendor email drafts.</p>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-quiet">This sample workspace shows how AutoAudit.ai turns vendor data into waste findings, renewal priorities, reports, and human-reviewed vendor email drafts.</p>
           </div>
           <Link className="inline-flex min-h-11 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong" to="/signup?plan=trial">
             Start your trial
@@ -71,6 +76,7 @@ export function DemoPage() {
                     <th className="px-3 py-2">Owner</th>
                     <th className="px-3 py-2">Spend</th>
                     <th className="px-3 py-2">Finding</th>
+                    <th className="px-3 py-2">Evidence</th>
                     <th className="px-3 py-2">Action</th>
                   </tr>
                 </thead>
@@ -81,6 +87,7 @@ export function DemoPage() {
                       <td className="border-y border-line px-3 py-3">{row.owner}</td>
                       <td className="border-y border-line px-3 py-3">{row.spend}</td>
                       <td className="border-y border-line px-3 py-3">{row.issue}</td>
+                      <td className="border-y border-line px-3 py-3">{row.evidence}</td>
                       <td className="rounded-r-lg border-y border-r border-line px-3 py-3">{row.action}</td>
                     </tr>
                   ))}
@@ -93,7 +100,7 @@ export function DemoPage() {
             {[
               { icon: CalendarClock, title: "Renewal queue", text: "Three contracts need owner review in the next 30 days." },
               { icon: FileText, title: "Report output", text: "CFO summary highlights $42.8k in annual savings opportunities." },
-              { icon: Mail, title: "Email draft", text: "Vendor cancellation draft is ready with usage and savings context." },
+              { icon: Mail, title: "Email draft", text: "Vendor cancellation draft is ready for review with usage and savings context. AutoAudit does not send it automatically." },
             ].map((item) => (
               <article className="rounded-lg border border-line bg-panel p-5 shadow-[0_18px_45px_rgba(23,32,38,0.08)]" key={item.title}>
                 <item.icon className="text-brand" aria-hidden="true" size={22} />
