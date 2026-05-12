@@ -112,6 +112,11 @@
   button {
     cursor: pointer;
   }
+
+  .custom-cursor-enabled,
+  .custom-cursor-enabled * {
+    cursor: none !important;
+  }
 }
 
 @layer components {
