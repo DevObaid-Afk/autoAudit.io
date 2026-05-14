@@ -6,6 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import { getApiErrorMessage } from "../api/client";
 import { PageMeta } from "../components/PageMeta";
 import { useTheme } from "../theme/ThemeContext";
+import { AuthDivider, GoogleAuthButton } from "./LoginPage";
 
 export function SignupPage() {
   const { signup } = useAuth();
@@ -86,6 +87,8 @@ export function SignupPage() {
           </div>
           <div className="grid gap-4">
             {error && <div className="rounded-lg border border-risk/20 bg-risk-soft px-3 py-2 text-sm font-bold text-risk">{error}</div>}
+            <GoogleAuthButton plan={selectedPlan} />
+            <AuthDivider />
             <div className="rounded-lg border border-line bg-panel-subtle p-4">
               <div className="flex items-start gap-3">
                 <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-good-soft text-good">

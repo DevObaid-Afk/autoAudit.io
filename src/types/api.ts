@@ -43,6 +43,7 @@ export type ApiCompany = {
   trialStartedAt?: string;
   trialEndsAt?: string;
   subscriptionStatus?: "trialing" | "active" | "expired";
+  stripeCustomerId?: string;
   planUsage?: {
     reportsGenerated?: number;
     aiEmailsGenerated?: number;
@@ -133,12 +134,14 @@ export type AuditSummary = {
     unusedSeats: number;
     annualWaste: number;
     recommendation: string;
+    evidence?: string[];
   }>;
   duplicateTools: Array<{
     category: string;
     vendorNames: string[];
     estimatedWaste: number;
     recommendation: string;
+    evidence?: string[];
   }>;
   upcomingRenewals: Array<{
     id: string;
@@ -157,6 +160,7 @@ export type AuditSummary = {
     annualImpact: number;
     confidence: number;
     recommendation: string;
+    evidence?: string[];
   }>;
 };
 

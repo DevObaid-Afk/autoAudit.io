@@ -3,6 +3,11 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react()],
+
+  server: {
+    open: true,
+  },
+
   build: {
     rollupOptions: {
       output: {
@@ -11,7 +16,11 @@ export default defineConfig({
             return "charts";
           }
 
-          if (id.includes("node_modules/react") || id.includes("node_modules/react-dom") || id.includes("node_modules/react-router-dom")) {
+          if (
+            id.includes("node_modules/react") ||
+            id.includes("node_modules/react-dom") ||
+            id.includes("node_modules/react-router-dom")
+          ) {
             return "react-vendor";
           }
         },

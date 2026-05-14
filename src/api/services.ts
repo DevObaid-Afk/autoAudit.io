@@ -161,6 +161,13 @@ export const reportApi = {
   },
 };
 
+export const billingApi = {
+  async createCheckoutSession(input: { plan: "starter" | "standard" }) {
+    const { data } = await apiClient.post<{ url: string }>("/api/billing/checkout", input);
+    return data;
+  },
+};
+
 export const analyticsApi = {
   async track(eventName: string, metadata: Record<string, unknown> = {}) {
     try {

@@ -166,7 +166,7 @@ export function ReportProofPage() {
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 rounded-lg border border-line bg-panel p-6 shadow-[0_18px_45px_rgba(23,32,38,0.08)] md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs font-extrabold uppercase text-brand-strong">Next product cue</p>
-            <h2 className="mt-2 text-2xl font-extrabold tracking-normal">Add “why flagged” details inside dashboard findings.</h2>
+            <h2 className="mt-2 text-2xl font-extrabold tracking-normal">Add "why flagged" details inside dashboard findings.</h2>
           </div>
           <Link className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong" to="/demo">
             <Target aria-hidden="true" size={17} />

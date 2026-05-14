@@ -51,7 +51,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { ChangeEvent, ReactNode } from "react";
-import { aiApi, analyticsApi, auditApi, authApi, contactApi, profileApi, renewalApi, reportApi, vendorApi } from "../api/services";
+import { aiApi, analyticsApi, auditApi, authApi, billingApi, contactApi, profileApi, renewalApi, reportApi, vendorApi } from "../api/services";
 import { getApiErrorMessage, resolveApiAssetUrl } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { PageMeta } from "../components/PageMeta";
@@ -134,6 +134,7 @@ type WasteSignal = {
   impact: number;
   confidence: number;
   detail: string;
+  evidence: string[];
   type: "Zombie app" | "Unused seats" | "Duplicate tool" | "Renewal";
 };
 
@@ -1662,6 +1663,21 @@ function WasteDetectionPage({
                     <strong className="block text-xl font-extrabold">{currency(signal.impact)}</strong>
                   </div>
                 </div>
+                {signal.evidence.length > 0 && (
+                  <div className="mt-4 rounded-lg border border-line bg-panel p-3">
+                    <div className="flex items-center gap-2 text-xs font-extrabold uppercase text-brand-strong">
+                      <ShieldCheck aria-hidden="true" size={15} />
+                      Why flagged
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {signal.evidence.map((item) => (
+                        <span className="rounded-lg bg-panel-muted px-3 py-2 text-sm font-bold leading-5 text-quiet" key={item}>
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="mt-4 flex flex-wrap gap-2">
                   <SecondaryButton onClick={() => onExplainWaste(signal)}>Explain waste</SecondaryButton>
                   <PrimaryButton onClick={() => queueAction(signal)}>Create action</PrimaryButton>
@@ -1904,7 +1920,17 @@ function ReportsPage({
       </div>}
 
       {hasVendors && selectedReport && (
-        <Panel title={selectedReport.name} eyebrow={selectedReport.id ? "Saved report" : "Report preview"} action={<PanelAction label="Download summary" onClick={() => downloadTextFile(`${selectedReport.name}.txt`, buildReportSummary(selectedReport), onToast)} />}>
+        <Panel
+          title={selectedReport.name}
+          eyebrow={selectedReport.id ? "Saved report" : "Report preview"}
+          action={
+            <div className="flex flex-wrap gap-2">
+              <PanelAction label="Export TXT" onClick={() => downloadTextFile(`${safeFilename(selectedReport.name)}.txt`, buildReportSummary(selectedReport), onToast)} />
+              <PanelAction label="Export CSV" onClick={() => exportReportCsv(selectedReport, onToast)} />
+              <PanelAction label="Print PDF" onClick={() => printReportPdf(selectedReport, onToast)} />
+            </div>
+          }
+        >
           <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
             <div className="rounded-lg border border-line bg-panel-subtle p-4">
               <h3 className="font-extrabold">Executive summary</h3>
@@ -2089,6 +2115,8 @@ function PlanPage({ company, vendorCount, onToast }: { company: ApiCompany | nul
   const usage = getPlanUsage(company, vendorCount);
   const [requestedPlan, setRequestedPlan] = useState<"starter" | "standard" | "custom" | null>(null);
   const [isRequestingUpgrade, setRequestingUpgrade] = useState(false);
+  const [isStartingCheckout, setStartingCheckout] = useState<"starter" | "standard" | null>(null);
+  const checkoutStatus = new URLSearchParams(window.location.search).get("checkout");
 
   async function handleUpgradeRequest(plan: "starter" | "standard" | "custom") {
     setRequestingUpgrade(true);
@@ -2102,6 +2130,20 @@ function PlanPage({ company, vendorCount, onToast }: { company: ApiCompany | nul
       onToast(getApiErrorMessage(error));
     } finally {
       setRequestingUpgrade(false);
+    }
+  }
+
+  async function handleCheckout(plan: "starter" | "standard") {
+    setStartingCheckout(plan);
+
+    try {
+      const response = await billingApi.createCheckoutSession({ plan });
+      analyticsApi.track("stripe_checkout_started", { plan });
+      window.location.assign(response.url);
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setStartingCheckout(null);
     }
   }
 
@@ -2119,15 +2161,25 @@ function PlanPage({ company, vendorCount, onToast }: { company: ApiCompany | nul
           <div className="grid gap-4 md:grid-cols-3">
             <PlanMetric label="Selected plan" value={trial.isExpired ? "Trial ended" : planLabel} />
             <PlanMetric label="Trial remaining" value={trial.label} />
-            <PlanMetric label="Payments" value="Manual" />
+            <PlanMetric label="Payments" value="Stripe-ready" />
           </div>
+          {checkoutStatus === "success" && (
+            <div className="mt-5 rounded-lg border border-good/20 bg-good-soft p-4 text-sm font-bold text-good">
+              Checkout completed. Your subscription will be reflected after payment confirmation is processed.
+            </div>
+          )}
+          {checkoutStatus === "cancelled" && (
+            <div className="mt-5 rounded-lg border border-warning/20 bg-warning-soft p-4 text-sm font-bold text-warning">
+              Checkout was cancelled. Your trial access is unchanged.
+            </div>
+          )}
           <div className="mt-5 rounded-lg border border-line bg-panel-subtle p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <strong className="block text-lg font-extrabold">Payments are not automated yet</strong>
-                <p className="mt-1 text-sm leading-6 text-quiet">Customers can use the product first. Paid plan activation can be handled manually until a payment provider is connected.</p>
+                <strong className="block text-lg font-extrabold">Hosted Stripe checkout</strong>
+                <p className="mt-1 text-sm leading-6 text-quiet">Starter and Standard can open a secure Stripe Checkout session when billing keys and price IDs are configured. Manual activation remains available as a fallback.</p>
               </div>
-              <span className="rounded-full bg-good-soft px-3 py-1.5 text-sm font-extrabold text-good">No card required</span>
+              <span className="rounded-full bg-good-soft px-3 py-1.5 text-sm font-extrabold text-good">Secure checkout</span>
             </div>
           </div>
         </Panel>
@@ -2141,14 +2193,17 @@ function PlanPage({ company, vendorCount, onToast }: { company: ApiCompany | nul
               </div>
             )}
             <div className="grid gap-2">
-              <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-60" disabled={isRequestingUpgrade} type="button" onClick={() => handleUpgradeRequest("starter")}>
-                Request Starter activation
+              <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-60" disabled={Boolean(isStartingCheckout)} type="button" onClick={() => handleCheckout("starter")}>
+                {isStartingCheckout === "starter" ? "Opening checkout..." : "Start Starter checkout"}
               </button>
-              <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60" disabled={isRequestingUpgrade} type="button" onClick={() => handleUpgradeRequest("standard")}>
-                {isRequestingUpgrade ? "Requesting..." : "Request Standard activation"}
+              <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60" disabled={Boolean(isStartingCheckout)} type="button" onClick={() => handleCheckout("standard")}>
+                {isStartingCheckout === "standard" ? "Opening checkout..." : "Start Standard checkout"}
               </button>
               <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-60" disabled={isRequestingUpgrade} type="button" onClick={() => handleUpgradeRequest("custom")}>
                 Request custom plan
+              </button>
+              <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-60" disabled={isRequestingUpgrade} type="button" onClick={() => handleUpgradeRequest("standard")}>
+                {isRequestingUpgrade ? "Requesting..." : "Request manual activation"}
               </button>
             </div>
             <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong" type="button" onClick={() => { window.location.href = "/pricing"; }}>
@@ -2158,12 +2213,12 @@ function PlanPage({ company, vendorCount, onToast }: { company: ApiCompany | nul
         </Panel>
       </div>
 
-      <Panel title="What happens after payment integration" eyebrow="Future billing">
+      <Panel title="Billing trust controls" eyebrow="Stripe checkout">
         <div className="grid gap-3 md:grid-cols-3">
-          {["Automatic subscriptions", "Real invoices", "Plan-based feature limits"].map((item) => (
+          {["Hosted payment page", "Stripe customer record", "Plan-based feature limits"].map((item) => (
             <div className="rounded-lg border border-line bg-panel-subtle p-4" key={item}>
               <strong className="block text-sm font-extrabold">{item}</strong>
-              <p className="mt-2 text-sm leading-6 text-quiet">This can be added after the first paying users validate the pricing.</p>
+              <p className="mt-2 text-sm leading-6 text-quiet">Keeps card collection outside AutoAudit while preserving the current workspace plan controls.</p>
             </div>
           ))}
           </div>
@@ -3263,6 +3318,76 @@ function downloadTextFile(filename: string, content: string, onToast: (message: 
   onToast(`${filename} downloaded.`);
 }
 
+function exportReportCsv(report: ReportCard, onToast: (message: string) => void) {
+  const rows = [
+    ["Report", "Owner", "Status", "Date", "Savings", "Summary"],
+    [report.name, report.owner, report.status, report.date, String(report.savings), buildReportSummary(report)],
+  ];
+  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
+  downloadTextFile(`${safeFilename(report.name)}.csv`, csv, onToast);
+}
+
+function printReportPdf(report: ReportCard, onToast: (message: string) => void) {
+  const printWindow = window.open("", "_blank", "width=900,height=900");
+  if (!printWindow) {
+    onToast("Allow popups to print this report.");
+    return;
+  }
+
+  const summary = escapeHtml(buildReportSummary(report));
+  printWindow.document.write(`<!doctype html>
+<html>
+  <head>
+    <title>${escapeHtml(report.name)}</title>
+    <style>
+      body { color: #172026; font-family: Arial, sans-serif; margin: 40px; }
+      h1 { font-size: 28px; margin: 0 0 8px; }
+      .meta { color: #66747d; font-size: 13px; margin-bottom: 24px; }
+      .metrics { display: grid; gap: 12px; grid-template-columns: repeat(3, 1fr); margin-bottom: 24px; }
+      .metric { border: 1px solid #dce4e8; border-radius: 8px; padding: 12px; }
+      .metric span { color: #66747d; display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+      .metric strong { display: block; font-size: 18px; margin-top: 6px; }
+      pre { background: #f6f8f9; border: 1px solid #dce4e8; border-radius: 8px; font-family: Arial, sans-serif; line-height: 1.6; padding: 16px; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>${escapeHtml(report.name)}</h1>
+    <div class="meta">Generated by AutoAudit.ai - ${escapeHtml(report.date)}</div>
+    <div class="metrics">
+      <div class="metric"><span>Owner</span><strong>${escapeHtml(report.owner)}</strong></div>
+      <div class="metric"><span>Status</span><strong>${escapeHtml(report.status)}</strong></div>
+      <div class="metric"><span>Savings</span><strong>${currency(report.savings)}</strong></div>
+    </div>
+    <pre>${summary}</pre>
+  </body>
+</html>`);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
+  onToast("PDF print view opened.");
+}
+
+function csvCell(value: string) {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function safeFilename(value: string) {
+  return value.trim().replace(/[^a-z0-9-]+/gi, "-").replace(/^-+|-+$/g, "") || "autoaudit-report";
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => {
+    const entities: Record<string, string> = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    };
+    return entities[char];
+  });
+}
+
 function downloadCsvTemplate(onToast: (message: string) => void) {
   const template = [
     "name,category,owner,ownerEmail,monthlySpend,seatsPurchased,activeSeats,lastUsedAt,renewalDate,notes",
@@ -3517,6 +3642,7 @@ function buildWasteSignals(summary: AuditSummary | null): WasteSignal[] {
     impact: signal.annualImpact,
     confidence: signal.confidence,
     detail: signal.recommendation,
+    evidence: signal.evidence ?? [],
     type: signal.type === "zombie_subscription" ? "Zombie app" : signal.type === "unused_seats" ? "Unused seats" : "Duplicate tool",
   }));
 }

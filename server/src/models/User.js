@@ -19,8 +19,18 @@ const userSchema = new mongoose.Schema(
     },
     passwordHash: {
       type: String,
-      required: [true, "Password hash is required"],
       select: false,
+    },
+    authProvider: {
+      type: String,
+      enum: ["password", "google"],
+      default: "password",
+    },
+    googleId: {
+      type: String,
+      trim: true,
+      sparse: true,
+      unique: true,
     },
     role: {
       type: String,
@@ -83,6 +93,10 @@ userSchema.index({ emailVerificationTokenHash: 1 }, { sparse: true });
 userSchema.index({ passwordResetTokenHash: 1 }, { sparse: true });
 
 userSchema.methods.comparePassword = function comparePassword(password) {
+  if (!this.passwordHash) {
+    return false;
+  }
+
   return bcrypt.compare(password, this.passwordHash);
 };
 

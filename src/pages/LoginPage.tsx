@@ -2,7 +2,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { FormEvent, useState } from "react";
 import { Eye, EyeOff, Moon, ShieldCheck, Sun } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
-import { getApiErrorMessage } from "../api/client";
+import { API_URL, getApiErrorMessage } from "../api/client";
 import { PageMeta } from "../components/PageMeta";
 import { useTheme } from "../theme/ThemeContext";
 
@@ -38,6 +38,8 @@ export function LoginPage() {
       <PageMeta title="Sign In - AutoAudit.ai" description="Sign in to your AutoAudit.ai SaaS waste control dashboard." canonicalPath="/login" noindex />
       <form className="grid gap-4" onSubmit={handleSubmit}>
         {error && <AuthError message={error} />}
+        <GoogleAuthButton returnTo={redirectTo} />
+        <AuthDivider />
         <AuthField label="Email">
           <input className="input" type="email" value={email} autoComplete="email" placeholder="you@company.com" onChange={(event) => setEmail(event.target.value)} required />
         </AuthField>
@@ -69,6 +71,30 @@ export function LoginPage() {
         </p>
       </form>
     </AuthLayout>
+  );
+}
+
+export function GoogleAuthButton({ plan = "free", returnTo = "/dashboard" }: { plan?: string; returnTo?: string }) {
+  const href = `${API_URL}/api/auth/google?returnTo=${encodeURIComponent(returnTo)}&plan=${encodeURIComponent(plan)}`;
+
+  return (
+    <a
+      className="inline-flex min-h-11 items-center justify-center gap-3 rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:text-brand"
+      href={href}
+    >
+      <span className="grid size-5 place-items-center rounded-full bg-white text-sm font-extrabold text-[#4285f4]">G</span>
+      Continue with Google
+    </a>
+  );
+}
+
+export function AuthDivider() {
+  return (
+    <div className="flex items-center gap-3 text-xs font-extrabold uppercase text-quiet">
+      <span className="h-px flex-1 bg-line" />
+      <span>or</span>
+      <span className="h-px flex-1 bg-line" />
+    </div>
   );
 }
 

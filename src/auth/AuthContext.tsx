@@ -15,6 +15,7 @@ type AuthContextValue = {
   updateUser: (user: ApiUser) => void;
   login: (input: { email: string; password: string }) => Promise<void>;
   signup: (input: { name: string; email: string; password: string; companyName: string; companyDomain?: string; plan?: string }) => Promise<void>;
+  completeOAuthLogin: (token: string) => Promise<void>;
   logout: () => void;
 };
 
@@ -93,6 +94,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setToken(response.token);
         setUser(response.user);
         setCompany(response.company);
+      },
+      async completeOAuthLogin(nextToken) {
+        setAuthError("");
+        setStoredToken(nextToken);
+        setToken(nextToken);
+        const profile = await authApi.me();
+        setUser(profile.user);
+        setCompany(profile.company);
       },
       logout() {
         clearStoredToken();

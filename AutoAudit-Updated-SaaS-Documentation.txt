@@ -1,0 +1,2153 @@
+AutoAudit.ai Updated SaaS Documentation
+Last updated: 2026-05-14
+
+============================================================
+1. PRODUCT SUMMARY
+============================================================
+
+AutoAudit.ai is a SaaS spend auditing platform for founders, finance teams,
+operations teams, and lean software operators.
+
+The product helps a company:
+
+- Build a clear SaaS vendor inventory.
+- Track software spend, seat usage, owners, renewal dates, and risk.
+- Detect wasted spend before contracts renew.
+- Identify zombie subscriptions, unused seats, duplicate tools, and renewal risk.
+- Generate CFO-ready reports from vendor evidence.
+- Draft vendor cancellation, renegotiation, and seat-reduction emails with AI.
+- Keep all vendor actions human-reviewed.
+- Export reports and renewal calendars.
+- Prepare for paid subscription activation through Stripe Checkout.
+
+The current product is an MVP/early-access SaaS with a real frontend, protected
+dashboard, Express API, MongoDB data models, JWT authentication, role-based
+permissions, audit logs, OpenAI-assisted workflows, and Stripe-ready billing.
+
+The core trust promise is:
+
+AutoAudit.ai does not silently contact vendors, cancel subscriptions, approve
+purchases, or make financial decisions. It organizes evidence, shows why a tool
+was flagged, drafts helpful text, and leaves the final action to humans.
+
+
+============================================================
+2. TARGET USERS
+============================================================
+
+Primary users:
+
+- Startup founders
+- Finance teams
+- Operations teams
+- IT managers
+- Procurement owners
+- SaaS operations leads
+
+Best-fit companies:
+
+- Teams with growing software spend.
+- Companies that manage renewals manually in spreadsheets.
+- Teams that do not yet need a heavy procurement platform.
+- Companies that want quick visibility into unused subscriptions.
+- Startups that need board/CFO-ready savings summaries.
+
+Common user pain points:
+
+- Forgotten SaaS subscriptions.
+- Renewal dates missed until it is too late.
+- Paid seats that are not being used.
+- Duplicate tools bought by different teams.
+- Vendor ownership unclear after team changes.
+- SaaS decisions spread across spreadsheets, inboxes, and memory.
+- Finance needs a clean savings report but raw vendor data is messy.
+
+
+============================================================
+3. CORE VALUE PROPOSITION
+============================================================
+
+AutoAudit.ai turns scattered SaaS spend data into a practical review workflow.
+
+Before AutoAudit:
+
+- Vendors are tracked manually.
+- Renewal dates are easy to miss.
+- Owners are unclear.
+- Seat waste is hard to calculate.
+- Finance reports take manual work.
+- Vendor emails are written from scratch.
+
+With AutoAudit:
+
+- Vendors are organized in one workspace.
+- Waste signals are calculated automatically.
+- Every recommendation can show "why flagged" evidence.
+- Renewal exposure is visible before auto-renewal.
+- Reports and emails are generated from real audit data.
+- Users can export reports for finance review.
+- Paid activation can be connected through Stripe.
+
+
+============================================================
+4. LANGUAGES AND TECHNOLOGIES
+============================================================
+
+Frontend language:
+
+- TypeScript
+- TSX for React components
+- CSS through Tailwind utility classes
+
+Backend language:
+
+- JavaScript using ES modules
+- Node.js runtime
+
+Markup and styling:
+
+- HTML
+- Tailwind CSS
+- Custom CSS variables in src/index.css
+
+Database:
+
+- MongoDB
+- Mongoose ODM
+
+Frontend framework and build tools:
+
+- React
+- Vite
+- React Router
+- TypeScript compiler
+
+Backend framework:
+
+- Express
+
+Charts and UI:
+
+- Recharts for dashboard charts
+- lucide-react for icons
+- Custom React components
+
+API and data fetching:
+
+- Axios
+- Central API service wrapper in src/api/services.ts
+
+Authentication and security:
+
+- JWT
+- bcryptjs password hashing
+- Helmet security headers
+- CORS allow-listing
+- express-rate-limit
+- Role-based authorization
+
+AI:
+
+- OpenAI Responses API for text generation
+- OpenAI image generation for avatar generation
+
+Payments:
+
+- Stripe-ready Checkout Sessions
+- Stripe Customers
+- Stripe subscription mode
+- Requires STRIPE_SECRET_KEY, STRIPE_STARTER_PRICE_ID, and
+  STRIPE_STANDARD_PRICE_ID to activate live checkout
+
+Monitoring:
+
+- Sentry frontend config
+- Sentry backend config
+
+Deployment plan:
+
+- Frontend: Vercel
+- Backend: Render
+- Database: MongoDB Atlas or another MongoDB host
+
+
+============================================================
+5. REPOSITORY STRUCTURE
+============================================================
+
+Root-level important files:
+
+- package.json
+  Defines scripts and dependencies.
+
+- README.md
+  General project overview, routes, setup, and deployment notes.
+
+- AutoAudit-SaaS-Overview.txt
+  Earlier SaaS overview and roadmap notes.
+
+- AutoAudit-Updated-SaaS-Documentation.txt
+  This updated detailed product documentation.
+
+- .env.example
+  Combined local/deployment environment template.
+
+- index.html
+  Vite HTML entry file.
+
+- vite.config.js
+  Vite configuration.
+
+- tailwind.config.js
+  Tailwind theme configuration.
+
+- docs/ARCHITECTURE.md
+  Architecture notes.
+
+- docs/DEPLOYMENT.md
+  Deployment notes.
+
+Frontend folders:
+
+- src/api
+  Axios client and typed service wrappers.
+
+- src/auth
+  Auth context, JWT session bootstrapping, login/signup handling.
+
+- src/components
+  Shared UI and route protection components.
+
+- src/config
+  Frontend Sentry setup.
+
+- src/pages
+  Public pages, auth pages, protected dashboard pages.
+
+- src/theme
+  Theme provider and theme state.
+
+- src/types
+  TypeScript API types.
+
+Backend folders:
+
+- server/src/config
+  Environment, database, Sentry config.
+
+- server/src/controllers
+  Route handlers for auth, vendors, reports, AI, billing, and more.
+
+- server/src/middleware
+  Auth, roles, validation, rate limits, and error handling.
+
+- server/src/models
+  Mongoose data models.
+
+- server/src/routes
+  Express route modules.
+
+- server/src/services
+  AI service, email service, plan limits, waste detection.
+
+- server/src/utils
+  Shared utility functions.
+
+
+============================================================
+6. FRONTEND PUBLIC PAGES
+============================================================
+
+1. Landing page
+
+File:
+
+- src/pages/LandingPage.tsx
+
+Purpose:
+
+- Explains AutoAudit.ai's value.
+- Shows the workflow: import/add vendors, detect waste, review renewals,
+  generate reports, draft next actions.
+- Includes founder-led positioning.
+- Explains that recommendations are based on user-provided or imported data.
+- Shows planned integrations.
+- Answers common user questions.
+
+Trust role:
+
+- Sets expectations that AI is assistive, not autonomous.
+- Explains the current manual/CSV workflow.
+- Makes the product feel transparent and founder-led.
+
+2. Pricing page
+
+File:
+
+- src/pages/PricingPage.tsx
+
+Purpose:
+
+- Shows Free Trial, Starter, Standard, and Custom plan positioning.
+- Explains current pricing and plan differences.
+- Routes users toward signup/contact flows.
+
+Trust role:
+
+- Makes pricing visible.
+- Explains early-access payment activation.
+- Supports future Stripe checkout activation.
+
+3. Demo page
+
+File:
+
+- src/pages/DemoPage.tsx
+
+Purpose:
+
+- Shows sample vendors and example findings.
+- Demonstrates evidence behind sample waste signals.
+
+Trust role:
+
+- Helps users see the kind of proof AutoAudit expects before they upload data.
+
+4. Contact page
+
+File:
+
+- src/pages/ContactPage.tsx
+
+Purpose:
+
+- Lets prospects, users, and custom-plan leads contact the founder/team.
+- Sends contact requests to the backend.
+
+Trust role:
+
+- Provides a human contact path.
+
+5. About Developer page
+
+File:
+
+- src/pages/AboutDeveloperPage.tsx
+
+Purpose:
+
+- Introduces the founder/developer.
+- Explains why AutoAudit.ai was built.
+- Makes the product feel personal and early-access.
+
+Trust role:
+
+- Founder visibility can increase trust for early users and investors.
+
+6. Trust Center page
+
+File:
+
+- src/pages/TrustCenterPage.tsx
+
+Purpose:
+
+- Central trust page for data handling, AI boundaries, workspace separation,
+  human review, and account controls.
+
+Trust role:
+
+- Explains what AutoAudit.ai will not do.
+- Routes users to Data Safety, AI Boundaries, and Report Proof pages.
+
+7. Data Safety page
+
+File:
+
+- src/pages/DataSafetyPage.tsx
+
+Purpose:
+
+- Explains what account, company, vendor, subscription, report, and contact
+  data are used for.
+- Explains user controls such as correction, export, and deletion requests.
+
+Trust role:
+
+- Helps users understand how their data powers the audit workflow.
+
+8. AI Boundaries page
+
+File:
+
+- src/pages/AiBoundariesPage.tsx
+
+Purpose:
+
+- Explains what AI can and cannot do.
+- Reinforces human review.
+
+Trust role:
+
+- Reduces fear of hidden automation.
+- Makes it clear that AI drafts only.
+
+9. Report Proof page
+
+File:
+
+- src/pages/ReportProofPage.tsx
+
+Purpose:
+
+- Explains the proof standard behind findings and savings estimates.
+- Shows sample proof cards.
+- Explains that recommendations should show evidence before action.
+
+Recent update:
+
+- The page now references "why flagged" details using clean ASCII quotes.
+
+10. Starter Guide page
+
+File:
+
+- src/pages/StarterGuidePage.tsx
+
+Purpose:
+
+- Helps new users understand how to begin using the product.
+
+11. Legal pages
+
+File:
+
+- src/pages/LegalPage.tsx
+
+Purpose:
+
+- Privacy and Terms pages.
+
+Trust role:
+
+- Provides baseline legal and data-use explanations.
+
+
+============================================================
+7. AUTHENTICATION PAGES
+============================================================
+
+1. Signup page
+
+File:
+
+- src/pages/SignupPage.tsx
+
+User can enter:
+
+- Name
+- Email
+- Password
+- Company name
+- Company domain
+- Selected plan
+
+Backend behavior:
+
+- Creates a company workspace.
+- Creates the first user as owner.
+- Hashes the password.
+- Creates an email verification token.
+- Sends a verification email when email service is configured.
+- Returns a JWT token.
+
+2. Login page
+
+File:
+
+- src/pages/LoginPage.tsx
+
+User can enter:
+
+- Email
+- Password
+
+Backend behavior:
+
+- Validates credentials.
+- Compares password against bcrypt hash.
+- Returns JWT token, user, and company data.
+
+3. Forgot password page
+
+File:
+
+- src/pages/ForgotPasswordPage.tsx
+
+Purpose:
+
+- Lets users request a reset link.
+- Backend returns a generic response to avoid account enumeration.
+
+4. Reset password page
+
+File:
+
+- src/pages/ResetPasswordPage.tsx
+
+Purpose:
+
+- Lets users set a new password using a valid reset token.
+
+5. Verify email page
+
+File:
+
+- src/pages/VerifyEmailPage.tsx
+
+Purpose:
+
+- Verifies email ownership using a verification token.
+
+
+============================================================
+8. PROTECTED DASHBOARD SECTIONS
+============================================================
+
+Dashboard file:
+
+- src/pages/DashboardPage.tsx
+
+Dashboard sections:
+
+- Overview
+- Vendors
+- Waste Detection
+- Renewals
+- Reports
+- AI Email Generator
+- Plan
+- Settings
+
+1. Overview
+
+Function/component:
+
+- OverviewPage
+
+Purpose:
+
+- Displays high-level company SaaS audit metrics.
+- Shows total monthly spend.
+- Shows estimated annual savings.
+- Shows active vendors.
+- Shows waste found.
+- Shows unused seats.
+- Shows renewal exposure.
+- Displays charts for spend, category spend, and renewal windows.
+- Provides shortcut actions into deeper dashboard sections.
+
+Data used:
+
+- Vendor list
+- Audit summary
+- Renewal rows
+- Waste signals
+- Company plan/trial state
+
+2. Vendors
+
+Function/component:
+
+- VendorsPage
+
+Purpose:
+
+- Add vendors.
+- Search vendors.
+- Filter vendors by status and category.
+- Import vendor CSV files.
+- Download a CSV template.
+- View vendor details.
+- Delete vendors if the user has owner-level permission.
+
+Vendor fields:
+
+- Vendor name
+- Category
+- Owner name
+- Owner email
+- Monthly spend
+- Seats purchased
+- Active seats
+- Last used date
+- Renewal date
+- Notes
+
+CSV import supports:
+
+- name/vendor/tool/app
+- category/department/function
+- owner/ownerName/manager
+- email/ownerEmail
+- monthlySpend/spend/cost/amount
+- seatsPurchased/seats/licenses/licences
+- activeSeats/usedSeats/activeUsers/users
+- lastUsed/lastUsedAt/lastLogin/lastActivity
+- renewal/renewalDate/renewalAt/contractEnd
+- notes/note/description
+
+Trust role:
+
+- Gives users control over source data.
+- Keeps the current product useful before live integrations exist.
+
+3. Waste Detection
+
+Function/component:
+
+- WasteDetectionPage
+
+Purpose:
+
+- Shows highest-impact waste signals.
+- Supports AI explanation of duplicate tools and vendor waste.
+- Lets users add signals to an action queue.
+- Shows unused seat table.
+- Shows duplicate tools panel.
+
+Waste signal types:
+
+- Zombie app
+- Unused seats
+- Duplicate tool
+- Renewal risk
+
+Recent trust update:
+
+- Each waste signal can now show a "Why flagged" evidence block.
+
+Examples of evidence:
+
+- "$1,200 monthly spend"
+- "$14,400 estimated annual exposure"
+- "12 seats purchased"
+- "0 active seats"
+- "Last usage was 118 days ago"
+- "80 seats purchased"
+- "52 active seats"
+- "28 unused seats"
+- "$11 estimated monthly cost per seat"
+- "$3,738 estimated annual waste"
+- "2 tools share the Project Management category"
+- "Monday.com creates $4,560 estimated annual overlap"
+
+Trust role:
+
+- Users can verify recommendations instead of blindly trusting AI or hidden logic.
+
+4. Renewals
+
+Function/component:
+
+- RenewalsPage
+
+Purpose:
+
+- Shows upcoming renewal dates.
+- Shows renewal exposure by time window.
+- Shows owner and contract value.
+- Lets users export renewal calendar as an .ics file.
+- Helps users act before notice windows close.
+
+Export:
+
+- autoaudit-renewals.ics
+
+Trust role:
+
+- Converts audit data into a calendar-based workflow.
+
+5. Reports
+
+Function/component:
+
+- ReportsPage
+
+Purpose:
+
+- Lists saved reports.
+- Shows report previews.
+- Generates AI CFO waste reports.
+- Displays report summary, savings, owner, and status.
+- Shows savings/waste trend chart.
+
+Recent trust update:
+
+- Reports can now be exported as:
+  - TXT
+  - CSV
+  - Print-to-PDF
+
+Export functions:
+
+- downloadTextFile
+- exportReportCsv
+- printReportPdf
+
+Trust role:
+
+- Finance teams and founders can take reports outside the app.
+- Investors can see the product creates useful business artifacts, not only charts.
+
+6. AI Email Generator
+
+Function/component:
+
+- EmailGeneratorPage
+
+Purpose:
+
+- Drafts vendor emails using audit evidence.
+- Supports cancellation, renegotiation, and seat reduction goals.
+- Supports tone selection: Direct, Friendly, Firm.
+- Shows evidence attached to the selected vendor.
+- Lets users edit and copy drafts.
+
+AI guardrail:
+
+- AutoAudit only drafts the message.
+- It does not email vendors automatically.
+- It does not cancel subscriptions.
+
+7. Plan / Billing
+
+Function/component:
+
+- PlanPage
+
+Purpose:
+
+- Shows current plan.
+- Shows trial remaining.
+- Shows plan limits and usage.
+- Shows upgrade path.
+- Supports manual activation request.
+- Supports Stripe-ready checkout for Starter and Standard.
+
+Recent trust/payment update:
+
+- Plan page now has Stripe checkout buttons:
+  - Start Starter checkout
+  - Start Standard checkout
+
+Billing behavior:
+
+- Calls POST /api/billing/checkout.
+- Backend creates or reuses Stripe Customer.
+- Backend creates Stripe Checkout Session in subscription mode.
+- User is redirected to Stripe-hosted checkout when configured.
+- If Stripe keys or price IDs are missing, backend returns a safe 503 message.
+- Manual activation remains available as fallback.
+
+Trust role:
+
+- Card data is collected by Stripe, not AutoAudit.
+- Users get a more familiar paid-SaaS flow.
+- Investors see a path to real revenue activation.
+
+8. Settings
+
+Function/component:
+
+- SettingsPage
+
+Purpose:
+
+- Shows and edits company settings.
+- Supports CFO approval threshold.
+- Supports weekly renewal digest preference.
+- Supports auto-draft cancellation email preference.
+- Supports managed renegotiation preference.
+- Supports profile/avatar controls.
+
+Trust role:
+
+- Gives admins more control over workspace behavior.
+
+
+============================================================
+9. FRONTEND API SERVICE FUNCTIONS
+============================================================
+
+File:
+
+- src/api/services.ts
+
+1. authApi
+
+Functions:
+
+- signup(input)
+- login(input)
+- forgotPassword(input)
+- resetPassword(input)
+- verifyEmail(input)
+- requestEmailVerification(input)
+- me()
+
+Purpose:
+
+- Handles account creation, login, verification, password reset, and session
+  profile loading.
+
+2. profileApi
+
+Functions:
+
+- avatarAccess()
+- uploadAvatar(imageData)
+- removeAvatar()
+- generateAvatar(style)
+- saveGeneratedAvatar(avatarUrl)
+- updateCompanySettings(input)
+
+Purpose:
+
+- Handles user profile/avatar features and company settings.
+
+3. vendorApi
+
+Functions:
+
+- list(params)
+- create(input)
+- update(id, input)
+- remove(id)
+
+Purpose:
+
+- Handles vendor inventory CRUD operations.
+
+4. auditApi
+
+Functions:
+
+- summary()
+
+Purpose:
+
+- Fetches audit summary data used by dashboard metrics and waste detection.
+
+5. renewalApi
+
+Functions:
+
+- list(params)
+
+Purpose:
+
+- Fetches renewal rows and renewal exposure data.
+
+6. aiApi
+
+Functions:
+
+- cancelEmail(input)
+- renegotiateEmail(input)
+- monthlyReport(input)
+- vendorAnalysis(input)
+
+Purpose:
+
+- Calls AI-powered backend routes for emails, reports, and waste explanations.
+
+7. contactApi
+
+Functions:
+
+- create(input)
+- requestUpgrade(requestedPlan)
+- list(params)
+- updateStatus(id, status)
+
+Purpose:
+
+- Handles contact requests, manual upgrade requests, and admin contact request
+  management.
+
+8. reportApi
+
+Functions:
+
+- list(params)
+
+Purpose:
+
+- Fetches saved reports.
+
+9. billingApi
+
+Functions:
+
+- createCheckoutSession(input)
+
+Purpose:
+
+- Starts Stripe Checkout for Starter or Standard plans.
+
+10. analyticsApi
+
+Functions:
+
+- track(eventName, metadata)
+
+Purpose:
+
+- Sends analytics events without blocking core product flows.
+
+
+============================================================
+10. BACKEND API ROUTES
+============================================================
+
+Base API router:
+
+- server/src/routes/index.js
+
+Mounted routes:
+
+- /api/auth
+- /api/analytics
+- /api/contact
+- /api/profile
+- /api/billing
+- /api/vendors
+- /api/subscriptions
+- /api/audit
+- /api/audit-logs
+- /api/renewals
+- /api/reports
+- /api/ai
+
+Public API routes:
+
+- POST /api/auth/signup
+- POST /api/auth/login
+- POST /api/auth/verify-email
+- POST /api/auth/request-email-verification
+- POST /api/auth/forgot-password
+- POST /api/auth/reset-password
+- POST /api/analytics
+- POST /api/contact
+
+Protected API routes:
+
+- GET /api/profile/me
+- GET /api/profile/avatar-access
+- POST /api/profile/avatar-upload
+- POST /api/profile/avatar-generate
+- POST /api/profile/avatar-save
+- DELETE /api/profile/avatar
+- PATCH /api/profile/company-settings
+- POST /api/billing/checkout
+- GET /api/vendors
+- POST /api/vendors
+- PATCH /api/vendors/:id
+- DELETE /api/vendors/:id
+- GET /api/subscriptions
+- POST /api/subscriptions
+- GET /api/audit/summary
+- GET /api/audit-logs
+- GET /api/renewals
+- GET /api/reports
+- POST /api/reports/generate
+- POST /api/ai/cancel-email
+- POST /api/ai/renegotiate-email
+- POST /api/ai/monthly-report
+- POST /api/ai/vendor-analysis
+
+Role-protected routes:
+
+- Admin or owner:
+  - Create vendor
+  - Update vendor
+  - Create subscription
+  - Update company settings
+  - View audit logs
+  - View/manage contact requests
+
+- Owner only:
+  - Delete vendor
+
+
+============================================================
+11. BACKEND CONTROLLERS AND FUNCTIONS
+============================================================
+
+1. Auth controller
+
+File:
+
+- server/src/controllers/authController.js
+
+Functions:
+
+- signup
+- requestEmailVerification
+- verifyEmail
+- forgotPassword
+- resetPassword
+- login
+
+Responsibilities:
+
+- Validate auth input.
+- Create users and company workspaces.
+- Hash passwords with bcrypt.
+- Create verification/reset tokens.
+- Send verification/reset emails.
+- Sign JWT auth tokens.
+- Serialize user data safely.
+
+2. Profile controller
+
+File:
+
+- server/src/controllers/profileController.js
+
+Functions:
+
+- getMe
+- updateCompanySettings
+- getAvatarAccess
+- uploadAvatar
+- removeAvatar
+- generateAvatar
+- saveGeneratedAvatar
+
+Responsibilities:
+
+- Return signed-in user and company.
+- Update company settings.
+- Manage avatar upload/removal.
+- Generate AI avatar images.
+- Enforce avatar access/usage limits.
+
+3. Vendor controller
+
+File:
+
+- server/src/controllers/vendorController.js
+
+Functions:
+
+- listVendors
+- createVendor
+- updateVendor
+- deleteVendor
+
+Responsibilities:
+
+- List workspace-scoped vendors.
+- Create new vendor records.
+- Update vendor data.
+- Delete vendors.
+- Classify vendor waste state.
+- Record audit logs for write actions.
+
+4. Audit controller
+
+File:
+
+- server/src/controllers/auditController.js
+
+Functions:
+
+- getAuditSummary
+
+Responsibilities:
+
+- Load vendors, subscriptions, and renewals for a company.
+- Build audit summary.
+- Return metrics and waste signals to dashboard.
+
+5. AI controller
+
+File:
+
+- server/src/controllers/aiController.js
+
+Functions:
+
+- generateCancelEmail
+- generateRenegotiateEmail
+- generateMonthlyReport
+- analyzeVendor
+
+Responsibilities:
+
+- Generate vendor email drafts.
+- Generate monthly SaaS waste reports.
+- Analyze vendor waste.
+- Analyze duplicate tool groups.
+- Build evidence prompts for AI.
+- Save generated reports.
+- Increment plan usage.
+- Respect AI route rate limits.
+
+AI trust constraints:
+
+- AI is instructed not to invent contract terms, dates, discounts, or benchmarks.
+- AI output is treated as draft/review material.
+
+6. Billing controller
+
+File:
+
+- server/src/controllers/billingController.js
+
+Functions:
+
+- createCheckoutSession
+
+Responsibilities:
+
+- Validate selected billing plan.
+- Require Stripe secret key and Stripe price ID.
+- Find current company workspace.
+- Create Stripe Customer if one does not exist.
+- Store stripeCustomerId on Company.
+- Create Stripe Checkout Session in subscription mode.
+- Return checkout URL.
+- Return safe 503 if Stripe is not configured.
+
+Current limitation:
+
+- Webhook handling is not implemented yet, so subscription status is not
+  automatically updated after payment confirmation.
+
+7. Report controller
+
+File:
+
+- server/src/controllers/reportController.js
+
+Functions:
+
+- listReports
+- generateReport
+
+Responsibilities:
+
+- List saved reports.
+- Generate manual report content from current audit summary.
+- Save report records.
+
+8. Renewal controller
+
+File:
+
+- server/src/controllers/renewalController.js
+
+Functions:
+
+- listRenewals
+
+Responsibilities:
+
+- List renewals with pagination.
+- Scope results to the current company.
+
+9. Subscription controller
+
+File:
+
+- server/src/controllers/subscriptionController.js
+
+Functions:
+
+- listSubscriptions
+- createSubscription
+
+Responsibilities:
+
+- List subscriptions.
+- Create subscription records.
+- Track contract value and billing cycle.
+
+10. Contact controller
+
+File:
+
+- server/src/controllers/contactController.js
+
+Functions:
+
+- createContactRequest
+- createUpgradeRequest
+- listContactRequests
+- updateContactRequest
+
+Responsibilities:
+
+- Store public contact form messages.
+- Store manual upgrade requests.
+- Send contact notifications when email service is configured.
+- Let admins review and update request statuses.
+
+11. Audit log controller
+
+File:
+
+- server/src/controllers/auditLogController.js
+
+Functions:
+
+- listAuditLogs
+
+Responsibilities:
+
+- Return audit logs for admin/owner review.
+
+12. Analytics controller
+
+File:
+
+- server/src/controllers/analyticsController.js
+
+Functions:
+
+- createAnalyticsEvent
+
+Responsibilities:
+
+- Store lightweight analytics events.
+
+
+============================================================
+12. BACKEND SERVICES
+============================================================
+
+1. Waste detection service
+
+File:
+
+- server/src/services/wasteDetection.js
+
+Functions:
+
+- buildAuditSummary
+- classifyVendorWaste
+
+Responsibilities:
+
+- Calculate monthly spend.
+- Count active vendors.
+- Detect zombie subscriptions.
+- Detect unused seats.
+- Detect duplicate tools.
+- Detect upcoming renewals.
+- Estimate annual savings.
+- Build wasteSignals.
+- Attach evidence arrays to each waste signal.
+
+Waste logic:
+
+- Zombie subscription:
+  - Vendor is marked zombie, or
+  - Vendor has purchased seats and zero active seats, or
+  - Vendor has not been used for 90 or more days.
+
+- Unused seats:
+  - Purchased seats greater than active seats.
+  - Annual waste is calculated from monthly spend divided by seats purchased.
+
+- Duplicate tools:
+  - Multiple vendors share the same category.
+  - Highest-spend tool is treated as primary.
+  - Other tools are estimated as duplicate overlap.
+
+- Renewal risk:
+  - Renewal dates within 60 days are surfaced.
+  - Renewals within 30 days are treated as higher risk.
+
+Recent trust update:
+
+- Evidence is now returned for each waste signal so the dashboard can explain
+  why the vendor was flagged.
+
+2. OpenAI service
+
+File:
+
+- server/src/services/openaiService.js
+
+Functions:
+
+- generateAiText
+- generateAiImage
+
+Responsibilities:
+
+- Call OpenAI text model for reports/emails/analysis.
+- Call OpenAI image model for generated avatars.
+- Return output safely to controllers.
+
+3. Email service
+
+File:
+
+- server/src/services/emailService.js
+
+Functions:
+
+- sendContactNotification
+- sendVerificationEmail
+- sendPasswordResetEmail
+
+Responsibilities:
+
+- Send emails when Resend configuration is present.
+- Support contact notifications, account verification, and password reset.
+
+4. Plan limits service
+
+File:
+
+- server/src/services/planLimits.js
+
+Functions:
+
+- assertCanCreateVendors
+- assertCanGenerateReport
+- assertCanGenerateAiEmail
+- assertCanAnalyzeVendor
+- incrementPlanUsage
+- getPlanLimits
+
+Responsibilities:
+
+- Define plan limits.
+- Enforce usage limits.
+- Increment usage counters.
+
+
+============================================================
+13. DATABASE MODELS
+============================================================
+
+1. Company
+
+File:
+
+- server/src/models/Company.js
+
+Fields include:
+
+- name
+- domain
+- plan
+- trialStartedAt
+- trialEndsAt
+- subscriptionStatus
+- stripeCustomerId
+- stripeSubscriptionId
+- planUsage
+- trackedSpendLimit
+- settings
+- createdBy
+
+Settings include:
+
+- requireCfoApprovalAbove
+- weeklyRenewalDigest
+- autoDraftCancellationEmails
+- allowManagedRenegotiation
+
+Recent update:
+
+- stripeCustomerId and stripeSubscriptionId fields were added for Stripe-ready
+  billing.
+
+2. User
+
+File:
+
+- server/src/models/User.js
+
+Fields include:
+
+- name
+- email
+- passwordHash
+- role
+- company
+- emailVerifiedAt
+- avatarUrl
+- avatarSource
+- avatarUpdatedAt
+- avatarGenerationUsage
+- emailVerificationTokenHash
+- emailVerificationExpiresAt
+- passwordResetTokenHash
+- passwordResetExpiresAt
+
+Roles:
+
+- owner
+- admin
+- member
+
+3. Vendor
+
+File:
+
+- server/src/models/Vendor.js
+
+Fields include:
+
+- company
+- name
+- category
+- ownerName
+- ownerEmail
+- monthlySpend
+- seatsPurchased
+- activeSeats
+- lastUsedAt
+- renewalDate
+- status
+- riskScore
+- source
+- notes
+
+4. Subscription
+
+File:
+
+- server/src/models/Subscription.js
+
+Fields include:
+
+- company
+- vendor
+- renewalDate
+- cost
+- billingCycle
+- paymentSource
+- metadata
+
+5. Renewal
+
+File:
+
+- server/src/models/Renewal.js
+
+Fields include:
+
+- company
+- vendor
+- renewalDate
+- noticeDeadline
+- contractValue
+- status
+- riskLevel
+- recommendation
+
+6. Report
+
+File:
+
+- server/src/models/Report.js
+
+Fields include:
+
+- company
+- requestedBy
+- title
+- type
+- periodStart
+- periodEnd
+- summary
+- findings
+- content
+- status
+
+7. AuditLog
+
+File:
+
+- server/src/models/AuditLog.js
+
+Purpose:
+
+- Records sensitive write actions.
+
+8. ContactRequest
+
+File:
+
+- server/src/models/ContactRequest.js
+
+Purpose:
+
+- Stores contact messages and upgrade requests.
+
+9. AnalyticsEvent
+
+File:
+
+- server/src/models/AnalyticsEvent.js
+
+Purpose:
+
+- Stores product analytics events.
+
+
+============================================================
+14. SECURITY, TRUST, AND CONTROL FEATURES
+============================================================
+
+Current security features:
+
+- Passwords hashed with bcrypt.
+- JWT authentication.
+- Protected dashboard routes.
+- Role-based permissions.
+- Owner/admin/member roles.
+- Tenant scoping through company IDs.
+- Helmet security headers.
+- CORS origin allow-listing.
+- JSON body size limits.
+- Global API rate limits.
+- Auth-specific rate limits.
+- AI-specific rate limits.
+- Safer error responses with request IDs.
+- MongoDB indexes for common queries.
+- Audit logs for write actions.
+- Email verification flow.
+- Password reset flow with hashed reset token.
+
+Current trust features:
+
+- Trust Center.
+- Data Safety page.
+- AI Boundaries page.
+- Report Proof page.
+- Founder/About Developer page.
+- Visible AI guardrail messaging.
+- Human-reviewed action model.
+- "Why flagged" evidence in dashboard waste signals.
+- Report exports.
+- Stripe-hosted checkout path.
+- Manual payment fallback.
+- Contact/support path.
+
+AI trust boundaries:
+
+- AI can draft summaries.
+- AI can draft vendor emails.
+- AI can explain waste.
+- AI can help structure reports.
+- AI cannot send emails automatically.
+- AI cannot cancel subscriptions.
+- AI cannot approve purchases.
+- AI cannot approve renewals.
+- AI cannot replace finance/legal/procurement review.
+
+
+============================================================
+15. CURRENT PLAN LIMITS
+============================================================
+
+Free trial:
+
+- 10 vendors
+- 1 report
+- 3 AI emails
+- 3 AI analyses
+
+Starter:
+
+- 50 vendors
+- 3 reports
+- 0 AI emails
+- 0 AI analyses
+
+Standard:
+
+- 200 vendors
+- 25 reports
+- 100 AI emails
+- 50 AI analyses
+
+Growth:
+
+- 200 vendors
+- 25 reports
+- 100 AI emails
+- 50 AI analyses
+
+Enterprise/custom:
+
+- Custom or unlimited limits depending on configuration.
+
+
+============================================================
+16. BILLING AND STRIPE FLOW
+============================================================
+
+Current billing status:
+
+- Stripe checkout route exists.
+- Stripe customer creation exists.
+- Stripe subscription checkout session creation exists.
+- UI buttons exist for Starter and Standard checkout.
+- Manual upgrade request remains available.
+
+Backend route:
+
+- POST /api/billing/checkout
+
+Required environment variables:
+
+- STRIPE_SECRET_KEY
+- STRIPE_STARTER_PRICE_ID
+- STRIPE_STANDARD_PRICE_ID
+
+Checkout session behavior:
+
+- Uses Stripe API version 2026-02-25.clover.
+- Uses mode=subscription.
+- Uses Stripe Price IDs, not deprecated plan objects.
+- Adds company and plan metadata.
+- Uses APP_URL for success and cancel redirects.
+
+Current billing limitation:
+
+- Stripe webhooks are not yet implemented.
+- Subscription status is not automatically activated after checkout.
+- No Stripe Customer Portal yet.
+- No invoice display in dashboard yet.
+
+Recommended billing next steps:
+
+- Add Stripe webhook route.
+- Verify checkout.session.completed.
+- Verify customer.subscription.updated.
+- Verify customer.subscription.deleted.
+- Update Company.plan and Company.subscriptionStatus from webhook events.
+- Store stripeSubscriptionId.
+- Add Stripe Customer Portal.
+- Add billing history/invoice links.
+
+
+============================================================
+17. REPORTING AND EXPORTS
+============================================================
+
+Current report capabilities:
+
+- AI monthly CFO report generation.
+- Manual backend report generation.
+- Saved report listing.
+- Report preview.
+- Report copy action.
+- TXT export.
+- CSV export.
+- Print-to-PDF export.
+
+Why this matters:
+
+- Reports turn dashboard insights into shareable finance artifacts.
+- Investors can understand product value through generated outputs.
+- Users can send reports to CFOs, founders, or team owners.
+
+Possible reporting improvements:
+
+- True server-generated PDF files.
+- Shareable report links.
+- Report approval workflow.
+- Report comments.
+- Scheduled monthly report emails.
+- Board/investor summary template.
+- Per-finding evidence table in exported report.
+- Export all vendor rows as CSV.
+- Export action queue as CSV.
+
+
+============================================================
+18. CURRENTLY PLANNED OR IMPLIED INTEGRATIONS
+============================================================
+
+Currently available:
+
+- CSV import.
+
+Planned/future integrations:
+
+- Google Workspace
+- Microsoft 365
+- QuickBooks
+- Stripe
+- Okta
+- Slack alerts
+- Gmail renewal import
+- Outlook renewal import
+- SSO usage signal ingestion
+- Billing/card/accounting spend feeds
+
+Best first integration:
+
+- Google Workspace or Microsoft 365 for seat/activity evidence.
+
+Why:
+
+- It improves evidence quality.
+- It reduces manual data entry.
+- It makes recommendations more trustworthy.
+
+
+============================================================
+19. CURRENT LIMITATIONS
+============================================================
+
+Product limitations:
+
+- Most vendor evidence is still manual or CSV-based.
+- No live Google/Microsoft/Okta usage ingestion yet.
+- No automated spend ingestion from accounting/card systems yet.
+- No team invite UI yet.
+- No full team management screen yet.
+- No owner transfer UI yet.
+- No role-change UI yet.
+- No savings capture ledger yet.
+- No workflow status per finding yet.
+- No approval workflow for finance/procurement.
+
+Billing limitations:
+
+- Stripe checkout route exists, but webhooks are not implemented.
+- Subscription activation is not automated after successful checkout.
+- No Customer Portal.
+- No invoice list.
+- No payment method management UI.
+
+Security limitations:
+
+- No MFA/2FA yet.
+- No SSO/SAML yet.
+- No SOC 2 report.
+- No formal security whitepaper.
+- No data processing agreement page.
+- No explicit encryption-at-rest documentation.
+- No IP allow-listing.
+- No session/device management.
+
+Reporting limitations:
+
+- PDF export uses browser print view, not a server-rendered PDF engine.
+- Saved reports do not yet have public/shareable links.
+- Exported reports can include more structured evidence rows in the future.
+
+AI limitations:
+
+- AI output depends on the quality of user-provided/imported data.
+- AI should not be treated as legal, finance, or procurement advice.
+- AI may be unavailable if OpenAI API configuration, quota, or billing fails.
+
+
+============================================================
+20. POSSIBLE IMPROVEMENTS TO INCREASE USER TRUST
+============================================================
+
+Highest-priority user trust improvements:
+
+1. Add team management
+
+- Invite teammates.
+- Change roles.
+- Remove users.
+- Transfer ownership.
+- Show who has access to vendor data.
+
+2. Add savings capture ledger
+
+- Mark finding as reviewed.
+- Mark finding as accepted or rejected.
+- Mark action as completed.
+- Record expected savings.
+- Record captured savings.
+- Show total realized savings over time.
+
+3. Add Stripe webhooks and Customer Portal
+
+- Make billing truly self-service.
+- Update plan status automatically.
+- Let users manage payment methods and invoices.
+
+4. Add first read-only integration
+
+- Google Workspace or Microsoft 365.
+- Pull user/app usage signals.
+- Improve evidence quality.
+
+5. Add security details page expansion
+
+- Encryption in transit.
+- Password hashing.
+- Tenant separation.
+- Role permissions.
+- Audit logging.
+- AI data handling.
+- Data export/deletion request flow.
+- Incident/contact process.
+
+6. Add MFA/2FA
+
+- Increases trust for finance/ops users.
+
+7. Add workspace activity feed
+
+- Show vendor created/updated/deleted.
+- Show reports generated.
+- Show AI drafts generated.
+- Show billing events.
+
+8. Add report sharing controls
+
+- Private share links.
+- Expiring links.
+- Password-protected report links.
+- Revoke access.
+
+9. Add onboarding checklist improvements
+
+- Load sample data.
+- Import CSV.
+- Review waste.
+- Generate first report.
+- Create first email draft.
+- Invite teammate.
+- Start checkout.
+
+10. Add data retention controls
+
+- Delete workspace.
+- Export workspace.
+- Delete individual reports.
+- Delete uploaded vendor data.
+
+
+============================================================
+21. POSSIBLE IMPROVEMENTS TO INCREASE INVESTOR TRUST
+============================================================
+
+Highest-priority investor trust improvements:
+
+1. Prove ROI inside the product
+
+- Savings capture ledger.
+- Before/after spend chart.
+- Realized savings metric.
+- Customer-facing ROI summary.
+
+2. Complete billing lifecycle
+
+- Stripe webhooks.
+- Subscription status sync.
+- Customer Portal.
+- Plan upgrade/downgrade handling.
+
+3. Build integration moat
+
+- Google Workspace.
+- Microsoft 365.
+- Okta.
+- QuickBooks.
+- Stripe/Ramp/Brex/accounting feeds.
+
+4. Improve activation analytics
+
+- Track signup to first vendor.
+- Track first CSV import.
+- Track first waste signal.
+- Track first report generated.
+- Track first email draft copied.
+- Track upgrade request.
+- Track checkout start and completion.
+
+5. Add admin/team workflow
+
+- Shows product can support real companies, not only solo users.
+
+6. Add customer proof
+
+- Testimonials.
+- Case studies.
+- Sample savings stories.
+- Founder-assisted onboarding outcomes.
+
+7. Add security maturity roadmap
+
+- MFA.
+- SSO.
+- Audit log export.
+- Security page.
+- DPA.
+- SOC 2 readiness checklist.
+
+8. Improve reporting as a product artifact
+
+- Branded PDF.
+- CFO summary.
+- Board summary.
+- Owner-level action list.
+- Savings proof table.
+
+
+============================================================
+22. SUGGESTED NEXT ROADMAP
+============================================================
+
+Phase 1: Trust and conversion
+
+- Finish Stripe webhook activation.
+- Add Customer Portal.
+- Add team invite and role management.
+- Add savings capture ledger.
+- Improve exported reports with evidence tables.
+
+Phase 2: Evidence quality
+
+- Add Google Workspace read-only integration.
+- Add Microsoft 365 read-only integration.
+- Add Okta usage integration.
+- Add Gmail/Outlook renewal email import.
+
+Phase 3: Finance workflow
+
+- Add QuickBooks integration.
+- Add Stripe/Ramp/Brex spend import.
+- Add approval workflow.
+- Add vendor owner review queue.
+- Add monthly digest emails.
+
+Phase 4: Enterprise trust
+
+- Add MFA.
+- Add SSO/SAML.
+- Add audit log export.
+- Add security documentation.
+- Add DPA.
+- Add SOC 2 readiness work.
+
+Phase 5: Growth and investor story
+
+- Add activation analytics dashboard.
+- Add savings captured dashboard.
+- Add customer case studies.
+- Add benchmark insights.
+- Add more shareable executive report formats.
+
+
+============================================================
+23. CURRENT STRENGTHS
+============================================================
+
+Product strengths:
+
+- Clear problem: SaaS waste before renewals.
+- Practical user workflow.
+- Real dashboard experience.
+- Evidence-first trust direction.
+- AI is positioned safely as draft/review support.
+- Reports and emails create immediate user value.
+- Founder-led story feels transparent.
+- Stripe-ready billing creates a path to revenue.
+- Good MVP stack with React, Express, MongoDB, JWT, and OpenAI.
+
+Technical strengths:
+
+- Centralized API service layer.
+- Tenant-scoped backend data.
+- Role-based authorization.
+- Rate limits.
+- Security headers.
+- Error handling.
+- Mongoose validation and indexes.
+- Audit logs.
+- Plan usage enforcement.
+- Clear separation of routes, controllers, models, services, and middleware.
+
+Trust strengths:
+
+- Trust Center exists.
+- AI Boundaries page exists.
+- Data Safety page exists.
+- Report Proof page exists.
+- "Why flagged" evidence now exists in dashboard.
+- Report exports now exist.
+- Stripe-hosted checkout path now exists.
+
+
+============================================================
+24. BEST CURRENT INVESTOR POSITIONING
+============================================================
+
+AutoAudit.ai is an early SaaS spend-control product for lean finance and
+operations teams.
+
+The product starts with a simple vendor inventory and turns it into an
+evidence-backed workflow:
+
+1. Import or add vendors.
+2. Detect waste.
+3. Show why each item was flagged.
+4. Review renewal risk.
+5. Generate CFO-ready reports.
+6. Draft vendor action emails.
+7. Track plan limits and prepare paid activation through Stripe.
+
+The strongest investor story is:
+
+"AutoAudit.ai does not just find SaaS waste. It shows the evidence, creates
+finance-ready reports, drafts the next vendor action, and is moving toward a
+measurable savings ledger that proves ROI."
+
+
+============================================================
+25. BEST CURRENT USER POSITIONING
+============================================================
+
+For users, the simplest message is:
+
+"AutoAudit.ai helps your team find forgotten SaaS spend before it renews. Add
+your vendor list, review unused seats and duplicate tools, see why each item was
+flagged, and export a report your finance team can act on."
+
+Important user promise:
+
+"You stay in control. AutoAudit.ai does not email vendors, cancel tools, or make
+renewal decisions automatically."
+
+
+============================================================
+26. DEVELOPMENT COMMANDS
+============================================================
+
+Install dependencies:
+
+npm install
+
+Run frontend:
+
+npm run dev
+
+Run backend API:
+
+npm run dev:api
+
+Build production frontend:
+
+npm run build
+
+Preview built frontend:
+
+npm run preview
+
+Default local frontend:
+
+http://127.0.0.1:5173
+
+Default local backend:
+
+http://127.0.0.1:5000
+
+Health checks:
+
+GET /health
+GET /api/health
+
+
+============================================================
+27. ENVIRONMENT VARIABLES
+============================================================
+
+Core backend variables:
+
+- NODE_ENV
+- PORT
+- MONGODB_URI
+- JWT_SECRET
+- JWT_EXPIRES_IN
+- OPENAI_API_KEY
+- OPENAI_MODEL
+- OPENAI_IMAGE_MODEL
+- CORS_ORIGIN
+- APP_URL
+
+Rate limit variables:
+
+- RATE_LIMIT_WINDOW_MS
+- RATE_LIMIT_MAX
+- AUTH_RATE_LIMIT_WINDOW_MS
+- AUTH_RATE_LIMIT_MAX
+- AI_RATE_LIMIT_WINDOW_MS
+- AI_RATE_LIMIT_MAX
+
+Email variables:
+
+- CONTACT_ADMIN_EMAILS
+- CONTACT_TO_EMAIL
+- RESEND_API_KEY
+- EMAIL_FROM
+
+Sentry variables:
+
+- SENTRY_DSN
+- SENTRY_ENVIRONMENT
+- SENTRY_TRACES_SAMPLE_RATE
+- VITE_SENTRY_DSN
+- VITE_SENTRY_ENVIRONMENT
+- VITE_SENTRY_TRACES_SAMPLE_RATE
+
+Stripe variables:
+
+- STRIPE_SECRET_KEY
+- STRIPE_STARTER_PRICE_ID
+- STRIPE_STANDARD_PRICE_ID
+
+Frontend variables:
+
+- VITE_API_URL
+- VITE_SITE_URL
+
+
+============================================================
+28. FINAL SUMMARY
+============================================================
+
+AutoAudit.ai is now a stronger early SaaS product than a simple landing-page MVP.
+It has a protected product workflow, backend data model, AI-assisted reporting,
+email drafting, evidence-backed waste detection, report exports, and a
+Stripe-ready billing foundation.
+
+The most important recent improvements are:
+
+1. "Why flagged" dashboard evidence for waste findings.
+2. TXT, CSV, and print-to-PDF report exports.
+3. Stripe Checkout-ready billing flow for Starter and Standard.
+
+The next most important improvements are:
+
+1. Stripe webhook completion.
+2. Team invites and role management.
+3. Savings capture ledger.
+4. First usage/spend integration.
+5. Stronger security controls such as MFA and SSO.
+
+If AutoAudit.ai continues in this direction, the product can become a trustable
+SaaS spend-control workflow for teams that need fast ROI without buying a heavy
+procurement platform.

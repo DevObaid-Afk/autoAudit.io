@@ -20,6 +20,7 @@ export function buildAuditSummary({ vendors = [], subscriptions = [], renewals =
       annualImpact: numberValue(vendor.monthlySpend) * 12,
       confidence: 94,
       recommendation: `Cancel or downgrade ${vendor.name}; no meaningful usage detected.`,
+      evidence: buildZombieEvidence(vendor),
     })),
     ...unusedSeatFindings.map((finding) => ({
       type: "unused_seats",
@@ -28,6 +29,7 @@ export function buildAuditSummary({ vendors = [], subscriptions = [], renewals =
       annualImpact: finding.annualWaste,
       confidence: 88,
       recommendation: `Remove ${finding.unusedSeats} unused ${finding.vendorName} seats.`,
+      evidence: finding.evidence,
     })),
     ...duplicateTools.map((finding) => ({
       type: "duplicate_tools",
@@ -36,6 +38,7 @@ export function buildAuditSummary({ vendors = [], subscriptions = [], renewals =
       annualImpact: finding.estimatedWaste,
       confidence: 81,
       recommendation: `Consolidate ${finding.category} tools: ${finding.vendorNames.join(", ")}.`,
+      evidence: finding.evidence,
     })),
   ].sort((a, b) => b.annualImpact - a.annualImpact);
 
@@ -99,6 +102,13 @@ function buildUnusedSeatFinding(vendor) {
     unusedSeats,
     annualWaste,
     recommendation: `Reduce ${vendor.name} by ${unusedSeats} seats.`,
+    evidence: [
+      `${seatsPurchased} seats purchased`,
+      `${activeSeats} active seats`,
+      `${unusedSeats} unused seats`,
+      `$${Math.round(monthlySeatCost).toLocaleString("en-US")} estimated monthly cost per seat`,
+      `$${annualWaste.toLocaleString("en-US")} estimated annual waste`,
+    ],
   };
 }
 
@@ -123,9 +133,42 @@ function buildDuplicateToolFindings(vendors) {
         vendorNames: group.map((vendor) => vendor.name),
         estimatedWaste,
         recommendation: `Keep ${sortedBySpend[0].name}; review ${duplicateVendors.map((vendor) => vendor.name).join(", ")}.`,
+        evidence: [
+          `${group.length} tools share the ${category} category`,
+          `${sortedBySpend[0].name} has the highest monthly spend in this group`,
+          `${duplicateVendors.map((vendor) => vendor.name).join(", ")} creates $${estimatedWaste.toLocaleString("en-US")} estimated annual overlap`,
+        ],
       };
     })
     .filter((finding) => finding.estimatedWaste > 0);
+}
+
+function buildZombieEvidence(vendor) {
+  const evidence = [];
+  const monthlySpend = numberValue(vendor.monthlySpend);
+  const seatsPurchased = numberValue(vendor.seatsPurchased);
+  const activeSeats = numberValue(vendor.activeSeats);
+  const inactiveDays = daysSince(vendor.lastUsedAt);
+
+  if (monthlySpend > 0) {
+    evidence.push(`$${monthlySpend.toLocaleString("en-US")} monthly spend`);
+    evidence.push(`$${(monthlySpend * 12).toLocaleString("en-US")} estimated annual exposure`);
+  }
+
+  if (seatsPurchased > 0) {
+    evidence.push(`${seatsPurchased} seats purchased`);
+    evidence.push(`${activeSeats} active seats`);
+  }
+
+  if (Number.isFinite(inactiveDays)) {
+    evidence.push(`Last usage was ${inactiveDays} days ago`);
+  }
+
+  if (vendor.status === "zombie") {
+    evidence.push("Vendor status is marked as zombie");
+  }
+
+  return evidence;
 }
 
 function buildUpcomingRenewals({ vendors, renewals }) {

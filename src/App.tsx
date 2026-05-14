@@ -12,6 +12,7 @@ const LandingPage = lazy(() => import("./pages/LandingPage").then((module) => ({
 const LegalPage = lazy(() => import("./pages/LegalPage").then((module) => ({ default: module.LegalPage })));
 const LoginPage = lazy(() => import("./pages/LoginPage").then((module) => ({ default: module.LoginPage })));
 const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage").then((module) => ({ default: module.ForgotPasswordPage })));
+const GoogleOAuthCallbackPage = lazy(() => import("./pages/GoogleOAuthCallbackPage").then((module) => ({ default: module.GoogleOAuthCallbackPage })));
 const PricingPage = lazy(() => import("./pages/PricingPage").then((module) => ({ default: module.PricingPage })));
 const ReportProofPage = lazy(() => import("./pages/ReportProofPage").then((module) => ({ default: module.ReportProofPage })));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage").then((module) => ({ default: module.ResetPasswordPage })));
@@ -39,6 +40,7 @@ export function App() {
           <Route path="/privacy" element={<LegalPage type="privacy" />} />
           <Route path="/terms" element={<LegalPage type="terms" />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/oauth/google" element={<GoogleOAuthCallbackPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />

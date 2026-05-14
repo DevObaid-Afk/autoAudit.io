@@ -32,6 +32,16 @@ const companySchema = new mongoose.Schema(
       enum: ["trialing", "active", "expired"],
       default: "trialing",
     },
+    stripeCustomerId: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+    },
+    stripeSubscriptionId: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+    },
     planUsage: {
       reportsGenerated: {
         type: Number,
