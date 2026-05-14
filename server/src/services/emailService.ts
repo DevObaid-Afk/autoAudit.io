@@ -1,6 +1,27 @@
 import { env } from "../config/env.js";
 
-export async function sendContactNotification(request) {
+type EmailIdentityToken = {
+  email: string;
+  name?: string;
+  token: string;
+};
+
+type EmailPayload = {
+  to: string[];
+  subject: string;
+  text: string;
+  replyTo?: string;
+};
+
+type TeamInviteEmail = {
+  email: string;
+  role: string;
+  companyName: string;
+  inviterName: string;
+  token: string;
+};
+
+export async function sendContactNotification(request: Record<string, any>) {
   const subject = `New AutoAudit.ai request from ${request.name}`;
   const text = [
     "New AutoAudit.ai contact request",
@@ -24,7 +45,7 @@ export async function sendContactNotification(request) {
   });
 }
 
-export async function sendVerificationEmail({ email, name, token }) {
+export async function sendVerificationEmail({ email, name, token }: EmailIdentityToken) {
   const verifyUrl = `${env.appUrl}/verify-email?token=${encodeURIComponent(token)}`;
   const firstName = name?.split(" ")[0] || "there";
 
@@ -45,7 +66,7 @@ export async function sendVerificationEmail({ email, name, token }) {
   });
 }
 
-export async function sendPasswordResetEmail({ email, name, token }) {
+export async function sendPasswordResetEmail({ email, name, token }: EmailIdentityToken) {
   const resetUrl = `${env.appUrl}/reset-password?token=${encodeURIComponent(token)}`;
   const firstName = name?.split(" ")[0] || "there";
 
@@ -66,7 +87,29 @@ export async function sendPasswordResetEmail({ email, name, token }) {
   });
 }
 
-async function sendEmail({ to, subject, text, replyTo }) {
+export async function sendTeamInviteEmail({ email, role, companyName, inviterName, token }: TeamInviteEmail) {
+  const inviteUrl = `${env.appUrl}/dashboard/team?inviteToken=${encodeURIComponent(token)}`;
+
+  return sendEmail({
+    to: [email],
+    subject: `You're invited to AutoAudit.ai`,
+    text: [
+      `Hi there,`,
+      "",
+      `${inviterName} invited you to join ${companyName} on AutoAudit.ai as ${role}.`,
+      "",
+      "Sign in with this email address, then open the invite link below:",
+      "",
+      inviteUrl,
+      "",
+      "This invite expires in 7 days.",
+      "",
+      "AutoAudit.ai",
+    ].join("\n"),
+  });
+}
+
+async function sendEmail({ to, subject, text, replyTo }: EmailPayload) {
   if (!env.resendApiKey) {
     return { skipped: true, reason: "RESEND_API_KEY is not configured" };
   }

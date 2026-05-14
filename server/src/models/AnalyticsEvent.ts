@@ -43,4 +43,8 @@ const analyticsEventSchema = new mongoose.Schema(
 analyticsEventSchema.index({ eventName: 1, createdAt: -1 });
 analyticsEventSchema.index({ company: 1, createdAt: -1 });
 
+export type AnalyticsEventDocument = mongoose.InferSchemaType<typeof analyticsEventSchema> & {
+  _id: mongoose.Types.ObjectId;
+};
+
 export const AnalyticsEvent = mongoose.model("AnalyticsEvent", analyticsEventSchema);

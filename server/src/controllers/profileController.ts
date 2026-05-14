@@ -206,7 +206,12 @@ function buildAvatarAccess(user, company) {
   };
 }
 
-function normalizeAvatarUsage(usage = {}) {
+type AvatarUsage = {
+  periodStart?: Date | string;
+  count?: number;
+};
+
+function normalizeAvatarUsage(usage: AvatarUsage = {}) {
   const periodStart = getMonthStart(usage.periodStart ? new Date(usage.periodStart) : new Date());
   const currentPeriod = getMonthStart(new Date());
 
@@ -217,7 +222,7 @@ function normalizeAvatarUsage(usage = {}) {
   return { periodStart, count: Number(usage.count ?? 0) };
 }
 
-function nextAvatarUsage(usage) {
+function nextAvatarUsage(usage: AvatarUsage) {
   const normalized = normalizeAvatarUsage(usage);
   return {
     periodStart: normalized.periodStart,

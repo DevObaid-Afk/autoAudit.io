@@ -2,6 +2,8 @@
 
 Premium SaaS waste control for finance and operations teams.
 
+![AutoAudit.ai dashboard preview](docs/assets/readme-cover.png)
+
 AutoAudit.ai helps teams find forgotten software spend before it renews, prioritize the highest-value cleanup work, and turn vendor evidence into CFO-ready reports and action emails.
 
 ## What It Does
@@ -10,15 +12,18 @@ AutoAudit.ai helps teams find forgotten software spend before it renews, priorit
 - Imports vendor CSVs for faster workspace setup.
 - Detects zombie subscriptions, unused seats, duplicate tools, and renewal risk.
 - Generates monthly SaaS waste reports and vendor cancellation or renegotiation drafts.
+- Supports Google sign-in alongside email/password authentication.
 - Supports owner, admin, and member roles with audit logs for sensitive actions.
 - Ships as a protected dashboard-first SaaS workspace with responsive views.
+
+![AutoAudit.ai SaaS waste dashboard and report preview](docs/assets/saas-waste-dashboard-preview.png)
 
 ## Tech Stack
 
 - React, Vite, TypeScript
 - Tailwind CSS, Recharts, lucide-react
 - Node.js, Express, MongoDB, Mongoose
-- JWT auth, Helmet security headers, rate limiting
+- JWT auth, Google OAuth, Helmet security headers, rate limiting
 
 ## Project Structure
 
@@ -52,11 +57,11 @@ npm install
 
 Create a local environment file:
 
-```bashAPI
+```bash
 cp .env.example .env
 ```
 
-Start MongoDB locally, then run the :
+Start MongoDB locally, then run the API:
 
 ```bash
 npm run dev:api
@@ -68,7 +73,7 @@ Run the frontend:
 npm run dev
 ```
 
-The frontend defaults to `http://127.0.0.1:5173`. The API defaults to `http://127.0.0.1:5000`.
+The frontend is usually available at `http://localhost:5173`. The API defaults to `http://127.0.0.1:5000`.
 
 ## Environment
 
@@ -82,6 +87,10 @@ Required backend variables:
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL`
 - `CORS_ORIGIN`
+- `APP_URL`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_OAUTH_REDIRECT_URL`
 - `RATE_LIMIT_WINDOW_MS`
 - `RATE_LIMIT_MAX`
 - `AUTH_RATE_LIMIT_WINDOW_MS`
@@ -96,6 +105,21 @@ Required backend variables:
 Required frontend variable:
 
 - `VITE_API_URL`
+- `VITE_SITE_URL`
+
+For local Google sign-in, add this authorized redirect URI to the Google Cloud OAuth client:
+
+```text
+http://127.0.0.1:5000/api/auth/google/callback
+```
+
+For production Google sign-in, add:
+
+```text
+https://autoaudit-io.onrender.com/api/auth/google/callback
+```
+
+![AutoAudit.ai Google sign-in flow](docs/assets/google-signin-flow.png)
 
 ## Key Routes
 
@@ -108,6 +132,7 @@ Required frontend variable:
 - `/terms`
 - `/login`
 - `/signup`
+- `/oauth/google`
 
 Protected:
 
@@ -118,6 +143,8 @@ API:
 
 - `POST /api/auth/signup`
 - `POST /api/auth/login`
+- `GET /api/auth/google`
+- `GET /api/auth/google/callback`
 - `GET /api/profile/me`
 - `PATCH /api/profile/company-settings`
 - `GET /api/vendors?page=1&limit=25&search=slack&status=active&category=Sales`
@@ -167,16 +194,20 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for Vercel frontend and Render back
 Short version:
 
 - Vercel frontend: build command `npm run build`, output `dist`, set `VITE_API_URL`.
-- Render backend: build command `npm install`, start command `npm run start:api`, set backend environment variables.
-- After deploying Vercel, copy the frontend origin into Render `CORS_ORIGIN`, without a page path like `/login`.
+- Render backend: build command `npm install && npm run build:api`, start command `npm run start:api`, set backend environment variables.
+- After deploying Vercel, copy the frontend origin into Render `CORS_ORIGIN` and `APP_URL`, without a page path like `/login`.
 
 Deployment checklist:
 
 - Vercel `VITE_API_URL` points to the Render API origin.
+- Vercel `VITE_API_URL` does not end with a trailing slash.
 - Render `CORS_ORIGIN` includes the Vercel frontend origin only, not `/login` or another page path.
+- Render `APP_URL` points to the canonical Vercel frontend origin.
+- Render `GOOGLE_OAUTH_REDIRECT_URL` points to `https://autoaudit-io.onrender.com/api/auth/google/callback`.
 - Render has `MONGODB_URI`, `JWT_SECRET`, `OPENAI_API_KEY`, and rate-limit variables.
 - Render has `CONTACT_ADMIN_EMAILS=exehassan62@gmail.com` and `CONTACT_TO_EMAIL=exehassan62@gmail.com`.
 - Add `RESEND_API_KEY` and `EMAIL_FROM` when you want contact-form email alerts.
+- Keep `vercel.json` deployed so Vercel serves React Router deep links like `/oauth/google` and `/dashboard`.
 - After frontend changes, redeploy Vercel.
 - After backend changes, redeploy Render.
 

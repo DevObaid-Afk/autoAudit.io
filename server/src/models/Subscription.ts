@@ -67,4 +67,8 @@ const subscriptionSchema = new mongoose.Schema(
 subscriptionSchema.index({ company: 1, status: 1, renewalDate: 1 });
 subscriptionSchema.index({ company: 1, vendor: 1, status: 1 });
 
+export type SubscriptionDocument = mongoose.InferSchemaType<typeof subscriptionSchema> & {
+  _id: mongoose.Types.ObjectId;
+};
+
 export const Subscription = mongoose.model("Subscription", subscriptionSchema);

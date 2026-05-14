@@ -9,7 +9,7 @@ import { assertCanCreateVendors } from "../services/planLimits.js";
 
 export const listVendors = asyncHandler(async (req, res) => {
   const { page, limit, skip } = parsePagination(req.query);
-  const filter = { company: req.companyId };
+  const filter: Record<string, unknown> = { company: req.companyId };
   const search = cleanString(req.query.search, { field: "Search", max: 120 });
   const category = cleanString(req.query.category, { field: "Category", max: 100 });
   const status = cleanString(req.query.status, { field: "Status", max: 40 });
@@ -42,7 +42,7 @@ export const createVendor = asyncHandler(async (req, res) => {
     ...input,
     ...classification,
     company: req.companyId,
-  });
+  } as any);
 
   await recordAuditLog(req, {
     action: "vendor.created",
@@ -70,7 +70,7 @@ export const updateVendor = asyncHandler(async (req, res) => {
     { _id: req.params.id, company: req.companyId },
     { ...update, ...classification },
     { new: true, runValidators: true },
-  );
+  ) as any;
 
   await recordAuditLog(req, {
     action: "vendor.updated",

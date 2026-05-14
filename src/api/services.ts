@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { ApiContactRequest, ApiRenewal, ApiReport, ApiUser, ApiVendor, AuditSummary, AuthResponse, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta } from "../types/api";
+import type { ApiContactRequest, ApiRenewal, ApiReport, ApiSavingsEntry, ApiTeamInvite, ApiTeamMember, ApiUser, ApiVendor, AuditSummary, AuthResponse, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta, SavingsSummary, SavingsType, TeamRole } from "../types/api";
 
 export const authApi = {
   async signup(input: { name: string; email: string; password: string; companyName: string; companyDomain?: string; plan?: string }) {
@@ -72,6 +72,62 @@ export const profileApi = {
   }) {
     const { data } = await apiClient.patch<Pick<AuthResponse, "company">>("/api/profile/company-settings", input);
     return data.company;
+  },
+};
+
+export const teamApi = {
+  async members() {
+    const { data } = await apiClient.get<{ members: ApiTeamMember[] }>("/api/team/members");
+    return data.members;
+  },
+
+  async invites() {
+    const { data } = await apiClient.get<{ invites: ApiTeamInvite[] }>("/api/team/invites");
+    return data.invites;
+  },
+
+  async invite(input: { email: string; role: TeamRole }) {
+    const { data } = await apiClient.post<{ invite: ApiTeamInvite }>("/api/team/invite", input);
+    return data.invite;
+  },
+
+  async acceptInvite(token: string) {
+    const { data } = await apiClient.get<{ member: ApiTeamMember; invite: ApiTeamInvite }>(`/api/team/invite/${encodeURIComponent(token)}`);
+    return data;
+  },
+
+  async updateRole(userId: string, role: TeamRole) {
+    const { data } = await apiClient.patch<{ member: ApiTeamMember }>(`/api/team/members/${userId}/role`, { role });
+    return data.member;
+  },
+
+  async removeMember(userId: string) {
+    await apiClient.delete(`/api/team/members/${userId}`);
+  },
+
+  async cancelInvite(inviteId: string) {
+    await apiClient.delete(`/api/team/invite/${inviteId}`);
+  },
+};
+
+export const savingsApi = {
+  async list() {
+    const { data } = await apiClient.get<{ entries: ApiSavingsEntry[] }>("/api/savings");
+    return data.entries;
+  },
+
+  async summary() {
+    const { data } = await apiClient.get<{ summary: SavingsSummary }>("/api/savings/summary");
+    return data.summary;
+  },
+
+  async create(input: { vendorId?: string; vendorName: string; savingsType: SavingsType; monthlySavings: number; notes?: string }) {
+    const { data } = await apiClient.post<{ entry: ApiSavingsEntry }>("/api/savings", input);
+    return data.entry;
+  },
+
+  async remove(id: string) {
+    await apiClient.delete(`/api/savings/${id}`);
   },
 };
 

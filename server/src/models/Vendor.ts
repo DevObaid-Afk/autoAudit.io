@@ -81,4 +81,8 @@ vendorSchema.index({ company: 1, category: 1, monthlySpend: -1 });
 vendorSchema.index({ company: 1, renewalDate: 1 });
 vendorSchema.index({ name: "text", category: "text", ownerName: "text", ownerEmail: "text" });
 
+export type VendorDocument = mongoose.InferSchemaType<typeof vendorSchema> & {
+  _id: mongoose.Types.ObjectId;
+};
+
 export const Vendor = mongoose.model("Vendor", vendorSchema);

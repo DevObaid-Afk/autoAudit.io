@@ -10,6 +10,22 @@ const priceIdsByPlan = {
   standard: () => env.stripeStandardPriceId,
 };
 
+type BillingPlan = keyof typeof priceIdsByPlan;
+
+type StripeCustomerResponse = {
+  id: string;
+};
+
+type StripeCheckoutSessionResponse = {
+  url: string;
+};
+
+type StripeErrorResponse = {
+  error?: {
+    message?: string;
+  };
+};
+
 export const createCheckoutSession = asyncHandler(async (req, res) => {
   const plan = cleanBillingPlan(req.body.plan);
   const priceId = priceIdsByPlan[plan]?.();
@@ -39,7 +55,7 @@ export const createCheckoutSession = asyncHandler(async (req, res) => {
   res.json({ url: session.url });
 });
 
-function cleanBillingPlan(value) {
+function cleanBillingPlan(value: unknown): BillingPlan {
   if (value === "starter" || value === "standard") {
     return value;
   }
@@ -47,8 +63,8 @@ function cleanBillingPlan(value) {
   throw new AppError("Choose Starter or Standard to start checkout", 400);
 }
 
-async function createStripeCustomer({ company, user }) {
-  const customer = await stripeRequest("/v1/customers", {
+async function createStripeCustomer({ company, user }: { company: any; user: any }) {
+  const customer = await stripeRequest<StripeCustomerResponse>("/v1/customers", {
     name: company.name,
     email: user.email,
     metadata: {
@@ -60,8 +76,8 @@ async function createStripeCustomer({ company, user }) {
   return customer.id;
 }
 
-async function createStripeCheckoutSession({ customerId, priceId, plan, companyId }) {
-  return stripeRequest("/v1/checkout/sessions", {
+async function createStripeCheckoutSession({ customerId, priceId, plan, companyId }: { customerId: string; priceId: string; plan: BillingPlan; companyId: string }) {
+  return stripeRequest<StripeCheckoutSessionResponse>("/v1/checkout/sessions", {
     mode: "subscription",
     customer: customerId,
     "line_items[0][price]": priceId,
@@ -76,7 +92,7 @@ async function createStripeCheckoutSession({ customerId, priceId, plan, companyI
   });
 }
 
-async function stripeRequest(path, fields) {
+async function stripeRequest<TResponse extends object>(path: string, fields: Record<string, unknown>): Promise<TResponse> {
   const body = new URLSearchParams();
 
   Object.entries(fields).forEach(([key, value]) => {
@@ -95,7 +111,7 @@ async function stripeRequest(path, fields) {
     body,
   });
 
-  const data = await response.json();
+  const data = (await response.json()) as TResponse & StripeErrorResponse;
 
   if (!response.ok) {
     throw new AppError(data.error?.message || "Stripe request failed", response.status);

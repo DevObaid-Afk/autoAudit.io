@@ -36,7 +36,7 @@ export const createContactRequest = asyncHandler(async (req, res) => {
 });
 
 export const createUpgradeRequest = asyncHandler(async (req, res) => {
-  const requestedPlan = cleanString(req.body.requestedPlan, { required: true, field: "Requested plan", max: 30 });
+  const requestedPlan = cleanString(req.body.requestedPlan, { required: true, field: "Requested plan", max: 30 }) as "starter" | "standard" | "custom";
   if (!["starter", "standard", "custom"].includes(requestedPlan)) {
     throw new AppError("Requested plan must be starter, standard, or custom", 400);
   }
@@ -58,7 +58,7 @@ export const createUpgradeRequest = asyncHandler(async (req, res) => {
     requestedPlan,
     ipAddress: req.ip,
     userAgent: req.get("user-agent"),
-  });
+  } as any);
   sendContactNotification(request).catch(() => undefined);
 
   res.status(201).json({

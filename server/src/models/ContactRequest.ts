@@ -58,4 +58,8 @@ const contactRequestSchema = new mongoose.Schema(
 contactRequestSchema.index({ createdAt: -1 });
 contactRequestSchema.index({ email: 1, createdAt: -1 });
 
+export type ContactRequestDocument = mongoose.InferSchemaType<typeof contactRequestSchema> & {
+  _id: mongoose.Types.ObjectId;
+};
+
 export const ContactRequest = mongoose.model("ContactRequest", contactRequestSchema);

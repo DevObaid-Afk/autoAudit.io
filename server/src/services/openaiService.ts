@@ -4,7 +4,21 @@ import { AppError } from "../utils/AppError.js";
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OPENAI_IMAGE_GENERATIONS_URL = "https://api.openai.com/v1/images/generations";
 
-export async function generateAiText({ instructions, input, maxOutputTokens = 900 }) {
+type TextGenerationInput = {
+  instructions: string;
+  input: string;
+  maxOutputTokens?: number;
+};
+
+type ImageGenerationInput = {
+  prompt: string;
+  size?: string;
+  quality?: string;
+};
+
+type OpenAiPayload = Record<string, any>;
+
+export async function generateAiText({ instructions, input, maxOutputTokens = 900 }: TextGenerationInput) {
   if (!env.openaiApiKey) {
     throw new AppError("OPENAI_API_KEY is not configured. Add it to .env and restart the API server.", 503);
   }
@@ -28,7 +42,7 @@ export async function generateAiText({ instructions, input, maxOutputTokens = 90
     }),
   });
 
-  const payload = await response.json().catch(() => ({}));
+  const payload = (await response.json().catch(() => ({}))) as OpenAiPayload;
 
   if (!response.ok) {
     const message = payload?.error?.message ?? "OpenAI request failed";
@@ -43,7 +57,7 @@ export async function generateAiText({ instructions, input, maxOutputTokens = 90
   return text;
 }
 
-export async function generateAiImage({ prompt, size = "1024x1024", quality = "medium" }) {
+export async function generateAiImage({ prompt, size = "1024x1024", quality = "medium" }: ImageGenerationInput) {
   if (!env.openaiApiKey) {
     throw new AppError("OPENAI_API_KEY is not configured. Add it to .env and restart the API server.", 503);
   }
@@ -63,7 +77,7 @@ export async function generateAiImage({ prompt, size = "1024x1024", quality = "m
     }),
   });
 
-  const payload = await response.json().catch(() => ({}));
+  const payload = (await response.json().catch(() => ({}))) as OpenAiPayload;
 
   if (!response.ok) {
     const message = payload?.error?.message ?? "OpenAI image generation request failed";
@@ -78,7 +92,7 @@ export async function generateAiImage({ prompt, size = "1024x1024", quality = "m
   return Buffer.from(imageBase64, "base64");
 }
 
-function extractOutputText(payload) {
+function extractOutputText(payload: OpenAiPayload) {
   if (typeof payload.output_text === "string") {
     return payload.output_text;
   }

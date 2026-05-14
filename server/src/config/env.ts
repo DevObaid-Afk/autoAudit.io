@@ -2,11 +2,42 @@ import dotenv from "dotenv";
 
 dotenv.config({ quiet: true });
 
-export const env = {
+type Env = {
+  nodeEnv: string;
+  port: number;
+  mongoUri?: string;
+  jwtSecret: string;
+  jwtExpiresIn: string;
+  openaiApiKey?: string;
+  openaiModel: string;
+  openaiImageModel: string;
+  appUrl: string;
+  resendApiKey?: string;
+  emailFrom: string;
+  contactToEmail: string;
+  sentryDsn?: string;
+  sentryEnvironment: string;
+  sentryTracesSampleRate: number;
+  stripeSecretKey?: string;
+  stripeStarterPriceId?: string;
+  stripeStandardPriceId?: string;
+  googleClientId?: string;
+  googleClientSecret?: string;
+  googleOAuthRedirectUrl: string;
+  rateLimitWindowMs: number;
+  rateLimitMax: number;
+  authRateLimitWindowMs: number;
+  authRateLimitMax: number;
+  aiRateLimitWindowMs: number;
+  aiRateLimitMax: number;
+  corsOrigins: string[];
+};
+
+export const env: Env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: Number(process.env.PORT ?? 5000),
   mongoUri: process.env.MONGODB_URI,
-  jwtSecret: process.env.JWT_SECRET,
+  jwtSecret: process.env.JWT_SECRET ?? "",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
   openaiApiKey: process.env.OPENAI_API_KEY,
   openaiModel: process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
@@ -35,7 +66,7 @@ export const env = {
   ),
 };
 
-function parseCorsOrigins(value) {
+function parseCorsOrigins(value: string) {
   return value
     .split(",")
     .map((origin) => origin.trim())
@@ -49,7 +80,7 @@ function parseCorsOrigins(value) {
     });
 }
 
-function normalizeUrl(value) {
+function normalizeUrl(value: string) {
   return String(value).replace(/\/$/, "");
 }
 

@@ -52,4 +52,8 @@ const renewalSchema = new mongoose.Schema(
 renewalSchema.index({ company: 1, status: 1, renewalDate: 1 });
 renewalSchema.index({ company: 1, riskLevel: 1, renewalDate: 1 });
 
+export type RenewalDocument = mongoose.InferSchemaType<typeof renewalSchema> & {
+  _id: mongoose.Types.ObjectId;
+};
+
 export const Renewal = mongoose.model("Renewal", renewalSchema);

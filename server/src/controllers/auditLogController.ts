@@ -5,7 +5,7 @@ import { buildPagination, parsePagination } from "../utils/query.js";
 
 export const listAuditLogs = asyncHandler(async (req, res) => {
   const { page, limit, skip } = parsePagination(req.query);
-  const filter = { company: req.companyId };
+  const filter: Record<string, unknown> = { company: req.companyId };
   const action = cleanString(req.query.action, { field: "Action", max: 120 });
   const resourceType = cleanString(req.query.resourceType, { field: "Resource type", max: 80 });
 

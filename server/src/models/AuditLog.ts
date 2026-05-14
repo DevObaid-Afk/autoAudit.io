@@ -51,4 +51,8 @@ const auditLogSchema = new mongoose.Schema(
 auditLogSchema.index({ company: 1, createdAt: -1 });
 auditLogSchema.index({ company: 1, resourceType: 1, createdAt: -1 });
 
+export type AuditLogDocument = mongoose.InferSchemaType<typeof auditLogSchema> & {
+  _id: mongoose.Types.ObjectId;
+};
+
 export const AuditLog = mongoose.model("AuditLog", auditLogSchema);

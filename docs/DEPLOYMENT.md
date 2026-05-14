@@ -13,7 +13,7 @@
 
 1. Create a Render Web Service from the same repository.
 2. Set the runtime to Node.
-3. Use `npm install` as the build command.
+3. Use `npm install && npm run build:api` as the build command.
 4. Use `npm run start:api` as the start command.
 5. Add the variables from `server/.env.example`.
 6. Set `NODE_ENV=production`.

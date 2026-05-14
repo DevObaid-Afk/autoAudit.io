@@ -3,7 +3,7 @@ export type ApiUser = {
   _id?: string;
   name: string;
   email: string;
-  role: "owner" | "admin" | "member";
+  role: "owner" | "admin" | "member" | "viewer";
   company: string;
   emailVerifiedAt?: string;
   avatarUrl?: string;
@@ -63,6 +63,60 @@ export type AuthResponse = {
   token: string;
   user: ApiUser;
   company: ApiCompany;
+};
+
+export type TeamRole = "viewer" | "member" | "admin";
+
+export type ApiTeamMember = {
+  id: string;
+  name: string;
+  email: string;
+  role: ApiUser["role"];
+  joinedAt?: string;
+  emailVerifiedAt?: string;
+  avatarUrl?: string;
+  avatarSource?: ApiUser["avatarSource"];
+};
+
+export type ApiTeamInvite = {
+  id: string;
+  email: string;
+  role: TeamRole;
+  expiresAt: string;
+  acceptedAt?: string;
+  createdAt?: string;
+  createdBy?: {
+    name?: string;
+    email?: string;
+  };
+};
+
+export type SavingsType = "cancelled" | "renegotiated" | "seat_reduced" | "other";
+
+export type ApiSavingsEntry = {
+  id: string;
+  vendorId?: string;
+  vendorName: string;
+  savingsType: SavingsType;
+  monthlySavings: number;
+  annualSavings: number;
+  confirmedBy?: {
+    _id?: string;
+    id?: string;
+    name?: string;
+    email?: string;
+    role?: ApiUser["role"];
+  };
+  confirmedAt: string;
+  notes?: string;
+  companyId: string;
+};
+
+export type SavingsSummary = {
+  totalMonthlySavings: number;
+  totalAnnualSavings: number;
+  confirmedActionsCount: number;
+  breakdown: Record<SavingsType, { monthlySavings: number; annualSavings: number; count: number }>;
 };
 
 export type PaginationMeta = {

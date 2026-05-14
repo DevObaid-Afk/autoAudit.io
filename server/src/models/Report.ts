@@ -52,4 +52,8 @@ const reportSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+export type ReportDocument = mongoose.InferSchemaType<typeof reportSchema> & {
+  _id: mongoose.Types.ObjectId;
+};
+
 export const Report = mongoose.model("Report", reportSchema);

@@ -56,7 +56,7 @@ export function cleanDate(value, { field = "Date" } = {}) {
   return date;
 }
 
-export function cleanEnum(value, values, { field = "Value", defaultValue } = {}) {
+export function cleanEnum(value, values, { field = "Value", defaultValue }: { field?: string; defaultValue?: unknown } = {}) {
   if (value === undefined || value === null || value === "") return defaultValue;
   if (!values.includes(value)) throw new AppError(`${field} is invalid`, 400);
   return value;

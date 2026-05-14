@@ -1,7 +1,39 @@
 import bcrypt from "bcryptjs";
-import mongoose from "mongoose";
+import mongoose, { type HydratedDocument, type Model, type Types } from "mongoose";
 
-const userSchema = new mongoose.Schema(
+export type UserRole = "owner" | "admin" | "member" | "viewer";
+
+export interface IUser {
+  name: string;
+  email: string;
+  passwordHash?: string;
+  authProvider: "password" | "google";
+  googleId?: string;
+  role: UserRole;
+  company: Types.ObjectId;
+  emailVerifiedAt?: Date;
+  avatarUrl?: string;
+  avatarSource: "initials" | "upload" | "ai";
+  avatarUpdatedAt?: Date;
+  avatarGenerationUsage?: {
+    periodStart?: Date;
+    count?: number;
+  };
+  emailVerificationTokenHash?: string;
+  emailVerificationExpiresAt?: Date;
+  passwordResetTokenHash?: string;
+  passwordResetExpiresAt?: Date;
+}
+
+export interface IUserMethods {
+  comparePassword(password: string): Promise<boolean>;
+}
+
+export type IUserDocument = HydratedDocument<IUser, IUserMethods>;
+
+type UserModel = Model<IUser, {}, IUserMethods>;
+
+const userSchema = new mongoose.Schema<IUser, UserModel, IUserMethods>(
   {
     name: {
       type: String,
@@ -34,7 +66,7 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["owner", "admin", "member"],
+      enum: ["owner", "admin", "member", "viewer"],
       default: "owner",
     },
     company: {
@@ -92,12 +124,12 @@ userSchema.index({ company: 1, role: 1 });
 userSchema.index({ emailVerificationTokenHash: 1 }, { sparse: true });
 userSchema.index({ passwordResetTokenHash: 1 }, { sparse: true });
 
-userSchema.methods.comparePassword = function comparePassword(password) {
+userSchema.methods.comparePassword = function comparePassword(password: string) {
   if (!this.passwordHash) {
-    return false;
+    return Promise.resolve(false);
   }
 
   return bcrypt.compare(password, this.passwordHash);
 };
 
-export const User = mongoose.model("User", userSchema);
+export const User = mongoose.model<IUser, UserModel>("User", userSchema);

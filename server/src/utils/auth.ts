@@ -1,7 +1,8 @@
-import jwt from "jsonwebtoken";
+import jwt, { type SignOptions } from "jsonwebtoken";
+import type { IUserDocument } from "../models/User.js";
 import { env } from "../config/env.js";
 
-export function signAuthToken(user) {
+export function signAuthToken(user: IUserDocument) {
   const companyId = user.company?._id ?? user.company;
 
   return jwt.sign(
@@ -11,6 +12,6 @@ export function signAuthToken(user) {
       role: user.role,
     },
     env.jwtSecret,
-    { expiresIn: env.jwtExpiresIn },
+    { expiresIn: env.jwtExpiresIn } as SignOptions,
   );
 }

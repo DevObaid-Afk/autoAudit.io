@@ -1,6 +1,7 @@
 import { AppError } from "../utils/AppError.js";
 
 const roleRank = {
+  viewer: 0,
   member: 1,
   admin: 2,
   owner: 3,

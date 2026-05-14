@@ -141,6 +141,7 @@ Authentication and security:
 
 - JWT
 - bcryptjs password hashing
+- Google OAuth / OpenID Connect sign-in
 - Helmet security headers
 - CORS allow-listing
 - express-rate-limit
@@ -183,14 +184,15 @@ Root-level important files:
 - README.md
   General project overview, routes, setup, and deployment notes.
 
-- AutoAudit-SaaS-Overview.txt
-  Earlier SaaS overview and roadmap notes.
-
 - AutoAudit-Updated-SaaS-Documentation.txt
   This updated detailed product documentation.
 
 - .env.example
   Combined local/deployment environment template.
+
+- vercel.json
+  Vercel rewrite config that serves the React app for deep links such as
+  /oauth/google and /dashboard.
 
 - index.html
   Vite HTML entry file.
@@ -213,7 +215,8 @@ Frontend folders:
   Axios client and typed service wrappers.
 
 - src/auth
-  Auth context, JWT session bootstrapping, login/signup handling.
+  Auth context, JWT session bootstrapping, login/signup handling, and OAuth
+  session completion.
 
 - src/components
   Shared UI and route protection components.
@@ -790,6 +793,8 @@ Functions:
 
 - signup(input)
 - login(input)
+- complete Google OAuth is handled by redirecting to /api/auth/google and
+  finishing the returned token on /oauth/google
 - forgotPassword(input)
 - resetPassword(input)
 - verifyEmail(input)
@@ -934,6 +939,8 @@ Public API routes:
 
 - POST /api/auth/signup
 - POST /api/auth/login
+- GET /api/auth/google
+- GET /api/auth/google/callback
 - POST /api/auth/verify-email
 - POST /api/auth/request-email-verification
 - POST /api/auth/forgot-password
@@ -999,12 +1006,19 @@ Functions:
 - forgotPassword
 - resetPassword
 - login
+- startGoogleOAuth
+- handleGoogleOAuthCallback
 
 Responsibilities:
 
 - Validate auth input.
 - Create users and company workspaces.
 - Hash passwords with bcrypt.
+- Start Google OAuth with a signed short-lived state value.
+- Exchange Google authorization codes for Google ID tokens.
+- Verify Google ID token audience and email profile data.
+- Find or create Google-backed AutoAudit users.
+- Link Google identity to an existing account when the email already exists.
 - Create verification/reset tokens.
 - Send verification/reset emails.
 - Sign JWT auth tokens.
@@ -1381,6 +1395,8 @@ Fields include:
 - name
 - email
 - passwordHash
+- authProvider
+- googleId
 - role
 - company
 - emailVerifiedAt
@@ -1513,6 +1529,9 @@ Current security features:
 
 - Passwords hashed with bcrypt.
 - JWT authentication.
+- Google sign-in through OAuth/OpenID Connect.
+- Google OAuth callback state validation through a signed short-lived state
+  token and HTTP-only state cookie.
 - Protected dashboard routes.
 - Role-based permissions.
 - Owner/admin/member roles.
@@ -1528,6 +1547,36 @@ Current security features:
 - Audit logs for write actions.
 - Email verification flow.
 - Password reset flow with hashed reset token.
+
+Google sign-in behavior:
+
+- Login and signup pages show "Continue with Google".
+- The frontend redirects users to /api/auth/google on the API.
+- The API sends users to Google with openid, email, and profile scopes.
+- Google redirects back to /api/auth/google/callback on the API.
+- The API verifies the Google response, creates or finds the AutoAudit user,
+  signs the normal AutoAudit JWT, and redirects the browser to /oauth/google
+  on the frontend.
+- The /oauth/google React route saves the AutoAudit JWT, loads /api/profile/me,
+  and redirects to /dashboard or the original return path.
+- Existing password users can be linked to Google by matching email.
+- New Google users get a company workspace automatically. Business Google
+  accounts use the hosted domain when available; personal Gmail accounts get
+  a personal workspace name.
+
+OAuth redirect rules:
+
+- Local Google callback:
+  http://127.0.0.1:5000/api/auth/google/callback
+
+- Production Google callback:
+  https://autoaudit-io.onrender.com/api/auth/google/callback
+
+- Production frontend app URL:
+  https://auto-audit-io.vercel.app
+
+- The Google Cloud OAuth client should include both local and production
+  callback URLs if both environments are used.
 
 Current trust features:
 
@@ -1641,6 +1690,91 @@ Recommended billing next steps:
 - Store stripeSubscriptionId.
 - Add Stripe Customer Portal.
 - Add billing history/invoice links.
+
+
+============================================================
+16A. GOOGLE OAUTH AND DEPLOYMENT ENVIRONMENT SETUP
+============================================================
+
+Google OAuth client setup:
+
+- Google Cloud Console must use an OAuth client of type "Web application".
+- Authorized redirect URIs should include:
+  - http://127.0.0.1:5000/api/auth/google/callback
+  - https://autoaudit-io.onrender.com/api/auth/google/callback
+- The GOOGLE_CLIENT_ID configured on Render/local must match the exact Google
+  OAuth client where those redirect URIs are saved.
+
+Local root .env:
+
+- NODE_ENV=development
+- PORT=5000
+- MONGODB_URI=<local or Atlas MongoDB URI>
+- JWT_SECRET=<long local secret>
+- JWT_EXPIRES_IN=7d
+- OPENAI_API_KEY=<OpenAI API key>
+- OPENAI_MODEL=gpt-5.4-mini
+- CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173
+- GOOGLE_CLIENT_ID=<Google OAuth client ID>
+- GOOGLE_CLIENT_SECRET=<Google OAuth client secret>
+- GOOGLE_OAUTH_REDIRECT_URL=http://127.0.0.1:5000/api/auth/google/callback
+- VITE_API_URL=http://127.0.0.1:5000
+- VITE_SITE_URL=http://localhost:5173
+- APP_URL=http://localhost:5173
+
+Local development notes:
+
+- Run the API with npm run dev:api.
+- Run the frontend with npm run dev.
+- Use http://localhost:5173/login for local browser testing.
+- The API callback may stay on 127.0.0.1:5000 while APP_URL points to
+  localhost:5173. This matches the current local setup.
+
+Render backend environment:
+
+- NODE_ENV=production
+- MONGODB_URI=<production MongoDB URI>
+- JWT_SECRET=<strong production secret>
+- JWT_EXPIRES_IN=7d
+- OPENAI_API_KEY=<OpenAI API key>
+- OPENAI_MODEL=gpt-5.4-mini
+- CORS_ORIGIN=https://auto-audit-io.vercel.app
+- APP_URL=https://auto-audit-io.vercel.app
+- GOOGLE_CLIENT_ID=<Google OAuth client ID>
+- GOOGLE_CLIENT_SECRET=<Google OAuth client secret>
+- GOOGLE_OAUTH_REDIRECT_URL=https://autoaudit-io.onrender.com/api/auth/google/callback
+
+Vercel frontend environment:
+
+- VITE_API_URL=https://autoaudit-io.onrender.com
+- VITE_SITE_URL=https://auto-audit-io.vercel.app
+- VITE_SENTRY_DSN=<frontend Sentry DSN, if enabled>
+- VITE_SENTRY_ENVIRONMENT=production
+- VITE_SENTRY_TRACES_SAMPLE_RATE=0.1
+
+Important deployment details:
+
+- Do not put GOOGLE_CLIENT_SECRET in Vercel frontend variables.
+- VITE_API_URL should not end with a slash.
+- src/api/client.ts also trims one trailing slash to avoid //api URLs.
+- vercel.json rewrites all frontend routes to /index.html so React Router can
+  handle /oauth/google, /dashboard, and other deep links.
+- The canonical production frontend is:
+  https://auto-audit-io.vercel.app
+- Vercel preview URLs may exist, but Render APP_URL and CORS_ORIGIN should point
+  to the canonical production frontend unless intentionally testing previews.
+
+Common OAuth troubleshooting:
+
+- Error 400 redirect_uri_mismatch means Google Cloud Console does not have the
+  exact callback URL being sent by the API.
+- 127.0.0.1 refused to connect after Google sign-in usually means APP_URL points
+  to a local frontend that is not running or to the wrong local host alias.
+- Vercel 404 on /oauth/google means the Vercel rewrite config is missing from
+  the deployed commit or the Vercel project root is misconfigured.
+- A spinner on "Finishing Google sign-in" means the frontend callback loaded but
+  could not finish profile loading or navigation; check browser console and API
+  profile requests.
 
 
 ============================================================

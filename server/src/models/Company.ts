@@ -93,4 +93,8 @@ const companySchema = new mongoose.Schema(
 companySchema.index({ domain: 1 });
 companySchema.index({ createdBy: 1 });
 
+export type CompanyDocument = mongoose.InferSchemaType<typeof companySchema> & {
+  _id: mongoose.Types.ObjectId;
+};
+
 export const Company = mongoose.model("Company", companySchema);

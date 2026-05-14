@@ -1,5 +1,8 @@
 export class AppError extends Error {
-  constructor(message, statusCode = 500, details = undefined) {
+  statusCode: number;
+  details?: unknown;
+
+  constructor(message: string, statusCode = 500, details: unknown = undefined) {
     super(message);
     this.name = "AppError";
     this.statusCode = statusCode;
@@ -7,4 +10,3 @@ export class AppError extends Error {
     Error.captureStackTrace(this, this.constructor);
   }
 }
-

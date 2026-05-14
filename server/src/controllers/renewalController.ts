@@ -5,7 +5,7 @@ import { buildPagination, parsePagination } from "../utils/query.js";
 
 export const listRenewals = asyncHandler(async (req, res) => {
   const { page, limit, skip } = parsePagination(req.query);
-  const filter = { company: req.companyId };
+  const filter: Record<string, unknown> = { company: req.companyId };
   const status = cleanString(req.query.status, { field: "Status", max: 40 });
   const riskLevel = cleanString(req.query.riskLevel, { field: "Risk level", max: 40 });
   if (status && status !== "All") filter.status = status;

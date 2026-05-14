@@ -1,8 +1,9 @@
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
-import jwt from "jsonwebtoken";
+import jwt, { type JwtPayload, type SignOptions } from "jsonwebtoken";
+import type { Request } from "express";
 import { Company } from "../models/Company.js";
-import { User } from "../models/User.js";
+import { User, type IUserDocument } from "../models/User.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -16,6 +17,36 @@ const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo";
 const OAUTH_STATE_COOKIE = "autoaudit_oauth_state";
+
+type Plan = "free" | "starter" | "standard" | "custom";
+
+type OAuthStatePayload = JwtPayload & {
+  returnTo: string;
+  plan: Plan;
+};
+
+type GoogleTokenResponse = {
+  id_token: string;
+};
+
+type GoogleTokenInfo = {
+  sub: string;
+  aud: string;
+  email: string;
+  email_verified?: string | boolean;
+  name?: string;
+  picture?: string;
+  hd?: string;
+};
+
+type GoogleProfile = {
+  sub: string;
+  email: string;
+  email_verified: boolean;
+  name: string;
+  picture?: string;
+  hd?: string;
+};
 
 export const signup = asyncHandler(async (req, res) => {
   const name = cleanString(req.body.name, { required: true, field: "Name", max: 120 });
@@ -42,7 +73,7 @@ export const signup = asyncHandler(async (req, res) => {
     name: companyName,
     domain: companyDomain,
     plan,
-  });
+  } as any);
 
   const passwordHash = await bcrypt.hash(password, 12);
   const verification = createToken(VERIFICATION_TOKEN_MINUTES);
@@ -54,7 +85,7 @@ export const signup = asyncHandler(async (req, res) => {
     role: "owner",
     emailVerificationTokenHash: verification.hash,
     emailVerificationExpiresAt: verification.expiresAt,
-  });
+  } as any);
 
   company.createdBy = user._id;
   await company.save();
@@ -212,7 +243,7 @@ export const handleGoogleOAuthCallback = asyncHandler(async (req, res) => {
   res.redirect(callbackUrl.toString());
 });
 
-function serializeUser(user) {
+function serializeUser(user: IUserDocument) {
   return {
     id: user._id,
     name: user.name,
@@ -223,7 +254,7 @@ function serializeUser(user) {
   };
 }
 
-async function findOrCreateGoogleUser(profile, plan) {
+async function findOrCreateGoogleUser(profile: GoogleProfile, plan: Plan) {
   let user = await User.findOne({
     $or: [{ googleId: profile.sub }, { email: profile.email }],
   }).populate("company");
@@ -266,7 +297,7 @@ async function findOrCreateGoogleUser(profile, plan) {
     name: companyDomain ? `${companyDomain} Workspace` : `${profile.name}'s Workspace`,
     domain: companyDomain,
     plan,
-  });
+  } as any);
 
   user = await User.create({
     name: profile.name,
@@ -294,26 +325,28 @@ function ensureGoogleOAuthConfigured() {
   }
 }
 
-function createOAuthState(payload) {
+function createOAuthState(payload: { returnTo: string; plan: Plan }) {
   return jwt.sign(payload, env.jwtSecret, {
     expiresIn: "10m",
     audience: "google-oauth",
     issuer: "autoaudit-api",
-  });
+  } as SignOptions);
 }
 
-function verifyOAuthState(state) {
+function verifyOAuthState(state: string): OAuthStatePayload {
   try {
-    return jwt.verify(state, env.jwtSecret, {
+    const payload = jwt.verify(state, env.jwtSecret, {
       audience: "google-oauth",
       issuer: "autoaudit-api",
-    });
+    }) as OAuthStatePayload;
+
+    return payload;
   } catch {
     throw new AppError("Google sign-in session expired. Please try again.", 400);
   }
 }
 
-async function exchangeGoogleCode(code) {
+async function exchangeGoogleCode(code: string): Promise<GoogleTokenResponse> {
   const response = await fetch(GOOGLE_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -326,7 +359,7 @@ async function exchangeGoogleCode(code) {
     }),
   });
 
-  const data = await response.json();
+  const data = (await response.json()) as GoogleTokenResponse;
 
   if (!response.ok || !data.id_token) {
     throw new AppError("Google sign-in could not be completed", 502);
@@ -335,12 +368,12 @@ async function exchangeGoogleCode(code) {
   return data;
 }
 
-async function verifyGoogleIdToken(idToken) {
+async function verifyGoogleIdToken(idToken: string): Promise<GoogleProfile> {
   const tokenInfoUrl = new URL(GOOGLE_TOKENINFO_URL);
   tokenInfoUrl.searchParams.set("id_token", idToken);
 
   const response = await fetch(tokenInfoUrl);
-  const profile = await response.json();
+  const profile = (await response.json()) as GoogleTokenInfo;
 
   if (!response.ok || profile.aud !== env.googleClientId || !profile.email) {
     throw new AppError("Google sign-in could not be verified", 401);
@@ -356,7 +389,7 @@ async function verifyGoogleIdToken(idToken) {
   };
 }
 
-function cleanOAuthReturnTo(value) {
+function cleanOAuthReturnTo(value: unknown) {
   if (typeof value !== "string" || !value.startsWith("/")) {
     return "/dashboard";
   }
@@ -368,7 +401,7 @@ function cleanOAuthReturnTo(value) {
   return value.slice(0, 300);
 }
 
-function readCookie(req, name) {
+function readCookie(req: Request, name: string) {
   const cookieHeader = req.headers.cookie;
   if (!cookieHeader) return "";
 
@@ -385,19 +418,19 @@ function readCookie(req, name) {
   }
 }
 
-function getEmailDomain(email) {
+function getEmailDomain(email: string) {
   const domain = email.split("@")[1];
   return domain && !["gmail.com", "googlemail.com"].includes(domain) ? domain : "";
 }
 
-function cleanPlan(value) {
-  const allowedPlans = new Set(["free", "starter", "standard", "custom"]);
+function cleanPlan(value: unknown): Plan {
+  const allowedPlans = new Set<Plan>(["free", "starter", "standard", "custom"]);
 
   if (typeof value !== "string") {
     return "free";
   }
 
-  const plan = value.trim().toLowerCase();
+  const plan = value.trim().toLowerCase() as Plan;
   return allowedPlans.has(plan) ? plan : "free";
 }
 

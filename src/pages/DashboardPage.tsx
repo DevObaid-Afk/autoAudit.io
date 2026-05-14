@@ -44,6 +44,8 @@ import {
   Sparkles,
   Sun,
   Trash2,
+  UserPlus,
+  Users,
   X,
   Zap,
   type LucideIcon,
@@ -51,15 +53,15 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { ChangeEvent, ReactNode } from "react";
-import { aiApi, analyticsApi, auditApi, authApi, billingApi, contactApi, profileApi, renewalApi, reportApi, vendorApi } from "../api/services";
+import { aiApi, analyticsApi, auditApi, authApi, billingApi, contactApi, profileApi, renewalApi, reportApi, savingsApi, teamApi, vendorApi } from "../api/services";
 import { getApiErrorMessage, resolveApiAssetUrl } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { PageMeta } from "../components/PageMeta";
 import { PublicFooter } from "../components/PublicFooter";
 import { useTheme } from "../theme/ThemeContext";
-import type { AiEmailGoal, ApiCompany, ApiContactRequest, ApiRenewal, ApiReport, ApiUser, ApiVendor, AuditSummary, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta } from "../types/api";
+import type { AiEmailGoal, ApiCompany, ApiContactRequest, ApiRenewal, ApiReport, ApiSavingsEntry, ApiTeamInvite, ApiTeamMember, ApiUser, ApiVendor, AuditSummary, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta, SavingsSummary, SavingsType, TeamRole } from "../types/api";
 
-type PageId = "overview" | "vendors" | "waste" | "renewals" | "reports" | "email" | "billing" | "settings";
+type PageId = "overview" | "vendors" | "waste" | "renewals" | "reports" | "savings" | "email" | "team" | "billing" | "settings";
 type RiskLevel = "critical" | "high" | "medium" | "low";
 type VendorStatus = "Healthy" | "Zombie" | "Duplicate" | "Renewal risk" | "Unused seats";
 type VendorQueryState = {
@@ -157,7 +159,9 @@ const navItems: NavItem[] = [
   { id: "waste", label: "Waste Detection", icon: AlertTriangle },
   { id: "renewals", label: "Renewals", icon: CalendarClock },
   { id: "reports", label: "Reports", icon: FileText },
+  { id: "savings", label: "Savings", icon: CircleDollarSign },
   { id: "email", label: "AI Email Generator", icon: Mail },
+  { id: "team", label: "Team", icon: Users },
   { id: "billing", label: "Plan", icon: CreditCard },
   { id: "settings", label: "Settings", icon: Settings },
 ];
@@ -272,6 +276,8 @@ export function DashboardPage() {
   const [apiVendors, setApiVendors] = useState<ApiVendor[]>([]);
   const [apiRenewals, setApiRenewals] = useState<ApiRenewal[]>([]);
   const [apiReports, setApiReports] = useState<ApiReport[]>([]);
+  const [savingsEntries, setSavingsEntries] = useState<ApiSavingsEntry[]>([]);
+  const [savingsSummary, setSavingsSummary] = useState<SavingsSummary | null>(null);
   const [vendorPagination, setVendorPagination] = useState<PaginationMeta | null>(null);
   const [vendorCategoryOptions, setVendorCategoryOptions] = useState<string[]>(["All"]);
   const [auditSummary, setAuditSummary] = useState<AuditSummary | null>(null);
@@ -287,6 +293,7 @@ export function DashboardPage() {
 
   const pageTitle = navItems.find((item) => item.id === activePage)?.label ?? "Overview";
   const isTrialExpired = company ? getTrialState(company).isExpired : false;
+  const canManageTeam = user?.role === "owner" || user?.role === "admin";
 
   const dashboardVendors = useMemo(() => apiVendors.map(mapApiVendorToDashboardVendor), [apiVendors]);
   const renewalRows = useMemo(() => buildRenewalRows({ renewals: apiRenewals, auditSummary }), [apiRenewals, auditSummary]);
@@ -346,13 +353,19 @@ export function DashboardPage() {
     }
   }, [sectionParam]);
 
+  useEffect(() => {
+    if (activePage === "team" && user && !canManageTeam) {
+      handleNav("overview");
+    }
+  }, [activePage, canManageTeam, user]);
+
   async function refreshDashboardData() {
     setDataLoading(true);
     setVendorLoading(true);
     setDataError("");
 
     try {
-      const [vendorsResponse, summaryResponse, renewalsResponse, reportsResponse] = await Promise.all([
+      const [vendorsResponse, summaryResponse, renewalsResponse, reportsResponse, savingsEntriesResponse, savingsSummaryResponse] = await Promise.all([
         vendorApi.list({
           page: vendorQuery.page,
           limit: vendorQuery.limit,
@@ -363,6 +376,8 @@ export function DashboardPage() {
         auditApi.summary(),
         renewalApi.list({ limit: 100 }),
         reportApi.list({ limit: 20 }),
+        savingsApi.list(),
+        savingsApi.summary(),
       ]);
 
       setApiVendors(vendorsResponse.vendors);
@@ -371,6 +386,8 @@ export function DashboardPage() {
       setAuditSummary(summaryResponse);
       setApiRenewals(renewalsResponse.renewals);
       setApiReports(reportsResponse.reports);
+      setSavingsEntries(savingsEntriesResponse);
+      setSavingsSummary(savingsSummaryResponse);
     } catch (error) {
       setDataError(getApiErrorMessage(error));
     } finally {
@@ -583,11 +600,31 @@ export function DashboardPage() {
     }
   };
 
+  const refreshSavingsData = async () => {
+    const [entries, summary] = await Promise.all([savingsApi.list(), savingsApi.summary()]);
+    setSavingsEntries(entries);
+    setSavingsSummary(summary);
+    return { entries, summary };
+  };
+
+  const handleConfirmSaving = async (input: { signal: WasteSignal; savingsType: SavingsType; monthlySavings: number; notes?: string }) => {
+    const entry = await savingsApi.create({
+      vendorId: input.signal.vendorId,
+      vendorName: input.signal.vendor,
+      savingsType: input.savingsType,
+      monthlySavings: input.monthlySavings,
+      notes: input.notes,
+    });
+    setSavingsEntries((current) => [entry, ...current]);
+    await refreshSavingsData();
+    showToast("Saving confirmed.");
+  };
+
   return (
     <div className="min-h-screen bg-canvas text-ink">
       <PageMeta title="Dashboard - AutoAudit.ai" description="Signed-in AutoAudit.ai SaaS waste control dashboard." canonicalPath="/dashboard" noindex />
       <div className={`${isSidebarCollapsed ? "lg:grid-cols-[84px_minmax(0,1fr)]" : "lg:grid-cols-[244px_minmax(0,1fr)]"} lg:grid transition-[grid-template-columns] duration-300`}>
-        <Sidebar activePage={activePage} isCollapsed={isSidebarCollapsed} isOpen={isMobileNavOpen} onClose={() => setMobileNavOpen(false)} onNavigate={handleNav} onToggleCollapse={() => setSidebarCollapsed((current) => !current)} />
+        <Sidebar activePage={activePage} canManageTeam={canManageTeam} isCollapsed={isSidebarCollapsed} isOpen={isMobileNavOpen} onClose={() => setMobileNavOpen(false)} onNavigate={handleNav} onToggleCollapse={() => setSidebarCollapsed((current) => !current)} />
 
         <div className="min-w-0">
           <Topbar
@@ -620,6 +657,7 @@ export function DashboardPage() {
                   unusedSeats={unusedSeatRows}
                   wasteSignals={dashboardWasteSignals}
                   onExplainWaste={handleExplainWaste}
+                  onConfirmSaving={handleConfirmSaving}
                   onLoadDemoData={handleLoadDemoData}
                   onNavigate={handleNav}
                   onRunDetection={handleSuggestDuplicateTools}
@@ -628,6 +666,7 @@ export function DashboardPage() {
               )}
               {activePage === "renewals" && <RenewalsPage hasVendors={dashboardVendors.length > 0} isLoadingDemo={isLoadingDemo} renewalChartData={dashboardRenewalChart} renewalRows={renewalRows} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} onToast={showToast} />}
               {activePage === "reports" && <ReportsPage hasVendors={dashboardVendors.length > 0} isGenerating={isReportGenerating} isLoadingDemo={isLoadingDemo} reports={apiReports} reportDraft={monthlyReportDraft} trialExpired={isTrialExpired} onGenerateReport={handleGenerateMonthlyReport} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} onToast={showToast} />}
+              {activePage === "savings" && <SavingsPage entries={savingsEntries} summary={savingsSummary} currentUser={user} onDelete={async (entry) => { await savingsApi.remove(entry.id); await refreshSavingsData(); showToast("Savings entry removed."); }} />}
               {activePage === "email" && (
                 <EmailGeneratorPage
                   vendors={dashboardVendors}
@@ -656,6 +695,7 @@ export function DashboardPage() {
                 />
               )}
               {activePage === "billing" && <PlanPage company={company} vendorCount={dashboardVendors.length} onToast={showToast} />}
+              {activePage === "team" && canManageTeam && <TeamPage currentUser={user} onToast={showToast} />}
               {activePage === "settings" && <SettingsPage company={company} companySettings={company?.settings} user={user} onToast={showToast} onUserUpdate={updateUser} />}
               <div className="mt-6 grid gap-4">
                 {user && !user.emailVerifiedAt && <EmailVerificationBanner email={user.email} onResend={handleResendVerification} />}
@@ -676,6 +716,7 @@ export function DashboardPage() {
 
 function Sidebar({
   activePage,
+  canManageTeam,
   isCollapsed,
   isOpen,
   onClose,
@@ -683,12 +724,15 @@ function Sidebar({
   onToggleCollapse,
 }: {
   activePage: PageId;
+  canManageTeam: boolean;
   isCollapsed: boolean;
   isOpen: boolean;
   onClose: () => void;
   onNavigate: (page: PageId) => void;
   onToggleCollapse: () => void;
 }) {
+  const visibleNavItems = canManageTeam ? navItems : navItems.filter((item) => item.id !== "team");
+
   return (
     <>
       <div className={`fixed inset-0 z-40 bg-inverse/35 backdrop-blur-sm transition-opacity lg:hidden ${isOpen ? "opacity-100" : "pointer-events-none opacity-0"}`} onClick={onClose} />
@@ -715,7 +759,7 @@ function Sidebar({
         </div>
 
         <nav className="grid gap-1 px-3" aria-label="Dashboard pages">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = item.id === activePage;
 
@@ -1598,6 +1642,7 @@ function WasteDetectionPage({
   unusedSeats,
   wasteSignals,
   onExplainWaste,
+  onConfirmSaving,
   onLoadDemoData,
   onNavigate,
   onRunDetection,
@@ -1611,12 +1656,14 @@ function WasteDetectionPage({
   unusedSeats: UnusedSeatRow[];
   wasteSignals: WasteSignal[];
   onExplainWaste: (signal: WasteSignal) => Promise<void>;
+  onConfirmSaving: (input: { signal: WasteSignal; savingsType: SavingsType; monthlySavings: number; notes?: string }) => Promise<void>;
   onLoadDemoData: () => Promise<void>;
   onNavigate: (page: PageId) => void;
   onRunDetection: () => Promise<void>;
   onToast: (message: string) => void;
 }) {
   const [actionQueue, setActionQueue] = useState<WasteSignal[]>([]);
+  const [savingSignal, setSavingSignal] = useState<WasteSignal | null>(null);
 
   const queueAction = (signal: WasteSignal) => {
     setActionQueue((current) => {
@@ -1680,6 +1727,7 @@ function WasteDetectionPage({
                 )}
                 <div className="mt-4 flex flex-wrap gap-2">
                   <SecondaryButton onClick={() => onExplainWaste(signal)}>Explain waste</SecondaryButton>
+                  <SecondaryButton onClick={() => setSavingSignal(signal)}>Confirm Saving</SecondaryButton>
                   <PrimaryButton onClick={() => queueAction(signal)}>Create action</PrimaryButton>
                 </div>
               </article>
@@ -1709,6 +1757,8 @@ function WasteDetectionPage({
           </div>
         </Panel>
       </div>
+
+      {savingSignal && <ConfirmSavingModal signal={savingSignal} onClose={() => setSavingSignal(null)} onConfirm={onConfirmSaving} />}
 
       {actionQueue.length > 0 && (
         <Panel title="Action queue" eyebrow={`${actionQueue.length} active action${actionQueue.length === 1 ? "" : "s"}`}>
@@ -2691,6 +2741,359 @@ function readFileAsDataUrl(file: File) {
     reader.onerror = () => reject(new Error("Could not read image file"));
     reader.readAsDataURL(file);
   });
+}
+
+function TeamPage({ currentUser, onToast }: { currentUser: ApiUser | null; onToast: (message: string) => void }) {
+  const [members, setMembers] = useState<ApiTeamMember[]>([]);
+  const [invites, setInvites] = useState<ApiTeamInvite[]>([]);
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<TeamRole>("member");
+  const [isLoading, setLoading] = useState(true);
+  const [isSubmitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const isOwner = currentUser?.role === "owner";
+
+  const loadTeam = async () => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const [nextMembers, nextInvites] = await Promise.all([teamApi.members(), teamApi.invites()]);
+      setMembers(nextMembers);
+      setInvites(nextInvites);
+    } catch (err) {
+      setError(getApiErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTeam();
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const inviteToken = params.get("inviteToken");
+    if (!inviteToken) return;
+    const token = inviteToken;
+
+    async function acceptInvite() {
+      try {
+        await teamApi.acceptInvite(token);
+        onToast("Invite accepted. Workspace access updated.");
+        params.delete("inviteToken");
+        window.history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
+        await loadTeam();
+      } catch (err) {
+        setError(getApiErrorMessage(err));
+      }
+    }
+
+    acceptInvite();
+  }, [onToast]);
+
+  const handleInvite = async () => {
+    setSubmitting(true);
+    setError("");
+
+    try {
+      const invite = await teamApi.invite({ email, role });
+      setInvites((current) => [invite, ...current]);
+      setEmail("");
+      setRole("member");
+      onToast("Invite sent.");
+    } catch (err) {
+      setError(getApiErrorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleRoleChange = async (member: ApiTeamMember, nextRole: TeamRole) => {
+    try {
+      const updated = await teamApi.updateRole(member.id, nextRole);
+      setMembers((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      onToast("Role updated.");
+    } catch (err) {
+      setError(getApiErrorMessage(err));
+    }
+  };
+
+  const handleRemove = async (member: ApiTeamMember) => {
+    try {
+      await teamApi.removeMember(member.id);
+      setMembers((current) => current.filter((item) => item.id !== member.id));
+      onToast("Member removed.");
+    } catch (err) {
+      setError(getApiErrorMessage(err));
+    }
+  };
+
+  const handleCancelInvite = async (invite: ApiTeamInvite) => {
+    try {
+      await teamApi.cancelInvite(invite.id);
+      setInvites((current) => current.filter((item) => item.id !== invite.id));
+      onToast("Invite cancelled.");
+    } catch (err) {
+      setError(getApiErrorMessage(err));
+    }
+  };
+
+  return (
+    <div className="grid gap-4">
+      <PageHeader eyebrow="Team access" title="Manage workspace members" detail="Invite finance, operations, and procurement teammates into this company workspace with role-based access." action={<Users aria-hidden="true" className="text-brand" size={24} />} />
+      {error && <ErrorState message={error} onRetry={loadTeam} />}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(320px,0.45fr)]">
+        <Panel title="Members" eyebrow="Workspace roster">
+          {isLoading ? (
+            <LoadingState label="Loading team" />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="text-xs font-extrabold uppercase text-quiet">
+                  <tr className="border-b border-line">
+                    <th className="px-3 py-3">Name</th>
+                    <th className="px-3 py-3">Email</th>
+                    <th className="px-3 py-3">Role</th>
+                    <th className="px-3 py-3">Joined</th>
+                    <th className="px-3 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {members.map((member) => (
+                    <tr className="border-b border-line/60 last:border-0" key={member.id}>
+                      <td className="px-3 py-3 font-extrabold">{member.name}</td>
+                      <td className="px-3 py-3 text-quiet">{member.email}</td>
+                      <td className="px-3 py-3">
+                        {isOwner && member.role !== "owner" ? (
+                          <select className="rounded-lg border border-line bg-panel-subtle px-3 py-2 text-sm font-bold text-ink outline-none" value={member.role} onChange={(event) => handleRoleChange(member, event.target.value as TeamRole)}>
+                            {teamRoleOptions.map((option) => (
+                              <option key={option} value={option}>{formatTeamRole(option)}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="rounded-full bg-brand-soft px-2.5 py-1 text-xs font-extrabold text-brand-strong">{formatTeamRole(member.role)}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-3 text-quiet">{formatShortDate(member.joinedAt)}</td>
+                      <td className="px-3 py-3 text-right">
+                        {isOwner && member.role !== "owner" && member.id !== (currentUser?.id ?? currentUser?._id) && (
+                          <button className="inline-flex min-h-9 items-center justify-center rounded-lg border border-risk/20 bg-risk-soft px-3 text-xs font-extrabold text-risk transition hover:-translate-y-0.5" type="button" onClick={() => handleRemove(member)}>
+                            Remove
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+
+        <div className="grid gap-4">
+          <Panel title="Invite teammate" eyebrow="New access" action={<UserPlus aria-hidden="true" className="text-brand" size={22} />}>
+            <div className="grid gap-3">
+              <Field label="Email">
+                <input className="input" type="email" value={email} placeholder="teammate@company.com" onChange={(event) => setEmail(event.target.value)} />
+              </Field>
+              <Field label="Role">
+                <select className="input" value={role} onChange={(event) => setRole(event.target.value as TeamRole)}>
+                  {teamRoleOptions.map((option) => (
+                    <option key={option} value={option}>{formatTeamRole(option)}</option>
+                  ))}
+                </select>
+              </Field>
+              <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60" type="button" disabled={isSubmitting || !email.trim()} onClick={handleInvite}>
+                {isSubmitting ? "Sending..." : "Send invite"}
+              </button>
+            </div>
+          </Panel>
+
+          <Panel title="Pending invites" eyebrow="Awaiting acceptance">
+            <div className="grid gap-3">
+              {invites.length === 0 && <p className="text-sm leading-6 text-quiet">No pending invites.</p>}
+              {invites.map((invite) => (
+                <div className="rounded-lg border border-line/55 bg-panel-subtle/72 p-3" key={invite.id}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <strong className="block truncate text-sm font-extrabold">{invite.email}</strong>
+                      <span className="mt-1 block text-xs text-quiet">{formatTeamRole(invite.role)} - expires {formatShortDate(invite.expiresAt)}</span>
+                    </div>
+                    <button className="shrink-0 rounded-lg border border-line px-3 py-1.5 text-xs font-extrabold text-quiet transition hover:border-risk hover:text-risk" type="button" onClick={() => handleCancelInvite(invite)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Panel>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SavingsPage({ entries, summary, currentUser, onDelete }: { entries: ApiSavingsEntry[]; summary: SavingsSummary | null; currentUser: ApiUser | null; onDelete: (entry: ApiSavingsEntry) => Promise<void> }) {
+  const chartData = buildSavingsByMonth(entries);
+  const canDelete = currentUser?.role === "owner" || currentUser?.role === "admin";
+
+  return (
+    <div className="grid gap-4">
+      <PageHeader eyebrow="Confirmed savings" title="Savings ledger" detail="Track accepted savings after cancellations, renegotiations, and seat reductions are confirmed by the team." action={<CircleDollarSign aria-hidden="true" className="text-brand" size={24} />} />
+      <section className="grid gap-3 sm:grid-cols-3">
+        <PlanMetric label="Total Monthly Savings" value={currency(summary?.totalMonthlySavings ?? 0)} />
+        <PlanMetric label="Total Annual Savings" value={currency(summary?.totalAnnualSavings ?? 0)} />
+        <PlanMetric label="Confirmed Actions" value={String(summary?.confirmedActionsCount ?? entries.length)} />
+      </section>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.45fr)]">
+        <Panel title="Confirmed entries" eyebrow={`${entries.length} recorded action${entries.length === 1 ? "" : "s"}`}>
+          {entries.length === 0 ? (
+            <EmptyState title="No confirmed savings yet" detail="Confirm a saving from a waste signal once a cancellation, renegotiation, or seat reduction is real." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="text-xs font-extrabold uppercase text-quiet">
+                  <tr className="border-b border-line">
+                    <th className="px-3 py-3">Vendor</th>
+                    <th className="px-3 py-3">Type</th>
+                    <th className="px-3 py-3">Monthly</th>
+                    <th className="px-3 py-3">Annual</th>
+                    <th className="px-3 py-3">Confirmed by</th>
+                    <th className="px-3 py-3">Date</th>
+                    <th className="px-3 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entries.map((entry) => (
+                    <tr className="border-b border-line/60 last:border-0" key={entry.id}>
+                      <td className="px-3 py-3 font-extrabold">{entry.vendorName}</td>
+                      <td className="px-3 py-3 text-quiet">{formatSavingsType(entry.savingsType)}</td>
+                      <td className="px-3 py-3 font-bold">{currency(entry.monthlySavings)}</td>
+                      <td className="px-3 py-3 font-bold">{currency(entry.annualSavings)}</td>
+                      <td className="px-3 py-3 text-quiet">{entry.confirmedBy?.name ?? entry.confirmedBy?.email ?? "Team member"}</td>
+                      <td className="px-3 py-3 text-quiet">{formatShortDate(entry.confirmedAt)}</td>
+                      <td className="px-3 py-3 text-right">
+                        {canDelete && (
+                          <button className="inline-flex min-h-9 items-center justify-center rounded-lg border border-risk/20 bg-risk-soft px-3 text-xs font-extrabold text-risk transition hover:-translate-y-0.5" type="button" onClick={() => onDelete(entry)}>
+                            Delete
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+        <Panel title="Savings by month" eyebrow="Confirmed impact">
+          <div className="h-[320px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 320 }}>
+              <BarChart data={chartData} margin={{ top: 10, right: 18, left: 0, bottom: 4 }}>
+                <CartesianGrid stroke="#dce4e8" strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: "#66747d", fontSize: 12 }} />
+                <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `$${Number(value) / 1000}k`} tick={{ fill: "#66747d", fontSize: 12 }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="monthlySavings" name="Monthly savings" radius={[8, 8, 0, 0]} fill="#0f9f8f" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmSavingModal({ signal, onClose, onConfirm }: { signal: WasteSignal; onClose: () => void; onConfirm: (input: { signal: WasteSignal; savingsType: SavingsType; monthlySavings: number; notes?: string }) => Promise<void> }) {
+  const [monthlySavings, setMonthlySavings] = useState(Math.max(1, Math.round(signal.impact / 12)));
+  const [savingsType, setSavingsType] = useState<SavingsType>(defaultSavingsTypeForSignal(signal));
+  const [notes, setNotes] = useState("");
+  const [isSaving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleConfirm = async () => {
+    setSaving(true);
+    setError("");
+
+    try {
+      await onConfirm({ signal, savingsType, monthlySavings, notes: notes.trim() || undefined });
+      onClose();
+    } catch (err) {
+      setError(getApiErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ModalFrame title="Confirm saving" eyebrow={signal.vendor} onClose={onClose}>
+      <div className="grid gap-4">
+        {error && <div className="rounded-lg border border-risk/20 bg-risk-soft px-3 py-2 text-sm font-bold text-risk">{error}</div>}
+        <div className="rounded-lg border border-line bg-panel-subtle p-4">
+          <span className="text-xs font-extrabold uppercase text-quiet">Estimated annual impact</span>
+          <strong className="mt-1 block text-2xl font-extrabold">{currency(signal.impact)}</strong>
+        </div>
+        <Field label="Actual monthly savings">
+          <input className="input" min="1" type="number" value={monthlySavings} onChange={(event) => setMonthlySavings(Number(event.target.value || 0))} />
+        </Field>
+        <Field label="Savings type">
+          <select className="input" value={savingsType} onChange={(event) => setSavingsType(event.target.value as SavingsType)}>
+            {savingsTypeOptions.map((option) => (
+              <option key={option} value={option}>{formatSavingsType(option)}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Notes">
+          <textarea className="input min-h-24 resize-y" value={notes} placeholder="Contract cancelled, seats reduced, or renewal renegotiated..." onChange={(event) => setNotes(event.target.value)} />
+        </Field>
+        <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60" type="button" disabled={isSaving || monthlySavings <= 0} onClick={handleConfirm}>
+          {isSaving ? "Confirming..." : "Confirm saving"}
+        </button>
+      </div>
+    </ModalFrame>
+  );
+}
+
+const teamRoleOptions: TeamRole[] = ["viewer", "member", "admin"];
+
+const savingsTypeOptions: SavingsType[] = ["cancelled", "renegotiated", "seat_reduced", "other"];
+
+function formatTeamRole(role: ApiUser["role"] | TeamRole) {
+  return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
+function formatSavingsType(type: SavingsType) {
+  const labels: Record<SavingsType, string> = {
+    cancelled: "Cancelled",
+    renegotiated: "Renegotiated",
+    seat_reduced: "Seat reduced",
+    other: "Other",
+  };
+
+  return labels[type];
+}
+
+function defaultSavingsTypeForSignal(signal: WasteSignal): SavingsType {
+  if (signal.type === "Unused seats") return "seat_reduced";
+  if (signal.type === "Renewal") return "renegotiated";
+  if (signal.type === "Zombie app") return "cancelled";
+  return "other";
+}
+
+function buildSavingsByMonth(entries: ApiSavingsEntry[]) {
+  const monthTotals = new Map<string, number>();
+
+  entries.forEach((entry) => {
+    const date = new Date(entry.confirmedAt);
+    const key = Number.isNaN(date.getTime()) ? "Unknown" : new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit" }).format(date);
+    monthTotals.set(key, (monthTotals.get(key) ?? 0) + Number(entry.monthlySavings ?? 0));
+  });
+
+  return Array.from(monthTotals.entries())
+    .map(([month, monthlySavings]) => ({ month, monthlySavings }))
+    .reverse();
 }
 
 function SettingsPage({
