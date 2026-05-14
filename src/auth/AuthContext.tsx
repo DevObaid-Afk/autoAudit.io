@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { authApi } from "../api/services";
 import { clearStoredToken, getApiErrorMessage, getStoredToken, setStoredToken } from "../api/client";
@@ -63,6 +63,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [token]);
 
+  const refreshSession = useCallback(async () => {
+    const profile = await authApi.me();
+    setUser(profile.user);
+    setCompany(profile.company);
+  }, []);
+
+  const updateUser = useCallback((nextUser: ApiUser) => {
+    setUser(nextUser);
+  }, []);
+
+  const login = useCallback(async (input: { email: string; password: string }) => {
+    setAuthError("");
+    const response = await authApi.login(input);
+    setStoredToken(response.token);
+    setToken(response.token);
+    setUser(response.user);
+    setCompany(response.company);
+  }, []);
+
+  const signup = useCallback(async (input: { name: string; email: string; password: string; companyName: string; companyDomain?: string; plan?: string }) => {
+    setAuthError("");
+    const response = await authApi.signup(input);
+    setStoredToken(response.token);
+    setToken(response.token);
+    setUser(response.user);
+    setCompany(response.company);
+  }, []);
+
+  const completeOAuthLogin = useCallback(async (nextToken: string) => {
+    setAuthError("");
+    setStoredToken(nextToken);
+    setToken(nextToken);
+    const profile = await authApi.me();
+    setUser(profile.user);
+    setCompany(profile.company);
+  }, []);
+
+  const logout = useCallback(() => {
+    clearStoredToken();
+    setToken(null);
+    setUser(null);
+    setCompany(null);
+  }, []);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -71,46 +115,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: Boolean(token && user),
       isBootstrapping,
       authError,
-      async refreshSession() {
-        const profile = await authApi.me();
-        setUser(profile.user);
-        setCompany(profile.company);
-      },
-      updateUser(nextUser) {
-        setUser(nextUser);
-      },
-      async login(input) {
-        setAuthError("");
-        const response = await authApi.login(input);
-        setStoredToken(response.token);
-        setToken(response.token);
-        setUser(response.user);
-        setCompany(response.company);
-      },
-      async signup(input) {
-        setAuthError("");
-        const response = await authApi.signup(input);
-        setStoredToken(response.token);
-        setToken(response.token);
-        setUser(response.user);
-        setCompany(response.company);
-      },
-      async completeOAuthLogin(nextToken) {
-        setAuthError("");
-        setStoredToken(nextToken);
-        setToken(nextToken);
-        const profile = await authApi.me();
-        setUser(profile.user);
-        setCompany(profile.company);
-      },
-      logout() {
-        clearStoredToken();
-        setToken(null);
-        setUser(null);
-        setCompany(null);
-      },
+      refreshSession,
+      updateUser,
+      login,
+      signup,
+      completeOAuthLogin,
+      logout,
     }),
-    [authError, company, isBootstrapping, token, user],
+    [authError, company, completeOAuthLogin, isBootstrapping, login, logout, refreshSession, signup, token, updateUser, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

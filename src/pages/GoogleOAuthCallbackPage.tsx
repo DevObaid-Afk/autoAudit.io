@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { getApiErrorMessage } from "../api/client";
@@ -8,11 +8,17 @@ export function GoogleOAuthCallbackPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [error, setError] = useState("");
+  const hasStarted = useRef(false);
 
   useEffect(() => {
     let isActive = true;
 
     async function finishGoogleSignIn() {
+      if (hasStarted.current) {
+        return;
+      }
+
+      hasStarted.current = true;
       const token = searchParams.get("token");
       const returnTo = cleanReturnTo(searchParams.get("returnTo"));
 
