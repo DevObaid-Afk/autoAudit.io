@@ -1,6 +1,6 @@
 import axios from "axios";
 
-export const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:5000";
+export const API_URL = (import.meta.env.VITE_API_URL ?? "http://127.0.0.1:5000").replace(/\/$/, "");
 const isLocalApi = API_URL.includes("localhost") || API_URL.includes("127.0.0.1");
 const TOKEN_KEY = "autoaudit.authToken";
 
