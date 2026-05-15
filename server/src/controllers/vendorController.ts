@@ -4,6 +4,8 @@ import { classifyVendorWaste } from "../services/wasteDetection.js";
 import { AppError } from "../utils/AppError.js";
 import { cleanDate, cleanNumber, cleanString } from "../middleware/validate.js";
 import { recordAuditLog } from "../utils/auditLogger.js";
+import { recordActivity } from "../utils/activityLogger.js";
+import { completeOnboardingStep } from "../utils/onboarding.js";
 import { buildPagination, parsePagination } from "../utils/query.js";
 import { assertCanCreateVendors } from "../services/planLimits.js";
 
@@ -50,8 +52,55 @@ export const createVendor = asyncHandler(async (req, res) => {
     resourceId: vendor._id,
     metadata: { name: vendor.name, monthlySpend: vendor.monthlySpend },
   });
+  await recordActivity(req, {
+    action: "vendor.created",
+    entityType: "vendor",
+    entityId: vendor._id,
+    entityName: vendor.name,
+    metadata: { monthlySpend: vendor.monthlySpend },
+  });
+  await completeOnboardingStep(req.companyId, "addedFirstVendor");
 
   res.status(201).json({ vendor });
+});
+
+export const importVendors = asyncHandler(async (req, res) => {
+  const rawVendors = Array.isArray(req.body.vendors) ? req.body.vendors : [];
+  if (rawVendors.length === 0) {
+    throw new AppError("At least one vendor is required", 400);
+  }
+
+  await assertCanCreateVendors(req.companyId, rawVendors.length);
+
+  const vendorsToCreate = rawVendors.map((rawVendor) => {
+    const input = sanitizeVendorInput(rawVendor, { partial: false });
+    const classification = classifyVendorWaste(input);
+    return {
+      ...input,
+      ...classification,
+      source: "csv",
+      company: req.companyId,
+    };
+  });
+
+  const vendors = await Vendor.insertMany(vendorsToCreate, { ordered: false });
+
+  await recordAuditLog(req, {
+    action: "vendor.csv_imported",
+    resourceType: "vendor",
+    resourceId: undefined,
+    metadata: { count: vendors.length },
+  });
+  await recordActivity(req, {
+    action: "vendor.csv_imported",
+    entityType: "vendor",
+    entityName: "CSV import",
+    metadata: { count: vendors.length },
+  });
+  await completeOnboardingStep(req.companyId, "addedFirstVendor");
+  await completeOnboardingStep(req.companyId, "importedCsv");
+
+  res.status(201).json({ vendors, count: vendors.length });
 });
 
 export const updateVendor = asyncHandler(async (req, res) => {
@@ -78,6 +127,13 @@ export const updateVendor = asyncHandler(async (req, res) => {
     resourceId: vendor._id,
     metadata: { fields: Object.keys(update) },
   });
+  await recordActivity(req, {
+    action: "vendor.updated",
+    entityType: "vendor",
+    entityId: vendor._id,
+    entityName: vendor.name,
+    metadata: { fields: Object.keys(update) },
+  });
 
   res.json({ vendor });
 });
@@ -95,6 +151,12 @@ export const deleteVendor = asyncHandler(async (req, res) => {
     resourceType: "vendor",
     resourceId: vendor._id,
     metadata: { name: vendor.name },
+  });
+  await recordActivity(req, {
+    action: "vendor.deleted",
+    entityType: "vendor",
+    entityId: vendor._id,
+    entityName: vendor.name,
   });
 
   res.status(204).send();

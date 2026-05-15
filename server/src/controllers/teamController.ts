@@ -2,8 +2,10 @@ import crypto from "node:crypto";
 import { TeamInvite, type InviteRole } from "../models/TeamInvite.js";
 import { User, type UserRole } from "../models/User.js";
 import { AppError } from "../utils/AppError.js";
+import { recordActivity } from "../utils/activityLogger.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { recordAuditLog } from "../utils/auditLogger.js";
+import { completeOnboardingStep } from "../utils/onboarding.js";
 import { cleanString } from "../middleware/validate.js";
 import { sendTeamInviteEmail } from "../services/emailService.js";
 
@@ -58,6 +60,14 @@ export const inviteTeamMember = asyncHandler(async (req, res) => {
     resourceId: invite._id,
     metadata: { email, role },
   });
+  await recordActivity(req, {
+    action: "team.member_invited",
+    entityType: "team",
+    entityId: invite._id,
+    entityName: email,
+    metadata: { role },
+  });
+  await completeOnboardingStep(req.companyId, "invitedTeammate");
 
   res.status(201).json({ invite: serializeInvite(invite) });
 });
@@ -145,6 +155,13 @@ export const updateTeamMemberRole = asyncHandler(async (req, res) => {
     resourceId: member._id,
     metadata: { email: member.email, previousRole, role },
   });
+  await recordActivity(req, {
+    action: "team.role_changed",
+    entityType: "team",
+    entityId: member._id,
+    entityName: member.email,
+    metadata: { previousRole, role },
+  });
 
   res.json({ member: serializeMember(member) });
 });
@@ -171,6 +188,13 @@ export const removeTeamMember = asyncHandler(async (req, res) => {
     resourceType: "user",
     resourceId: member._id,
     metadata: { email: member.email, role: member.role },
+  });
+  await recordActivity(req, {
+    action: "team.member_removed",
+    entityType: "team",
+    entityId: member._id,
+    entityName: member.email,
+    metadata: { role: member.role },
   });
 
   res.status(204).send();

@@ -22,6 +22,7 @@ import {
   Bot,
   CalendarClock,
   Camera,
+  CheckCircle2,
   ChevronRight,
   CircleDollarSign,
   CreditCard,
@@ -53,15 +54,15 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { ChangeEvent, ReactNode } from "react";
-import { aiApi, analyticsApi, auditApi, authApi, billingApi, contactApi, profileApi, renewalApi, reportApi, savingsApi, teamApi, vendorApi } from "../api/services";
+import { activityApi, aiApi, analyticsApi, auditApi, authApi, billingApi, contactApi, onboardingApi, profileApi, renewalApi, reportApi, savingsApi, teamApi, vendorApi } from "../api/services";
 import { getApiErrorMessage, resolveApiAssetUrl } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { PageMeta } from "../components/PageMeta";
 import { PublicFooter } from "../components/PublicFooter";
 import { useTheme } from "../theme/ThemeContext";
-import type { AiEmailGoal, ApiCompany, ApiContactRequest, ApiRenewal, ApiReport, ApiSavingsEntry, ApiTeamInvite, ApiTeamMember, ApiUser, ApiVendor, AuditSummary, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta, SavingsSummary, SavingsType, TeamRole } from "../types/api";
+import type { ActivityEntityType, AiEmailGoal, ApiActivityLog, ApiCompany, ApiContactRequest, ApiOnboardingState, ApiRenewal, ApiReport, ApiSavingsEntry, ApiTeamInvite, ApiTeamMember, ApiUser, ApiVendor, AuditSummary, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta, SavingsSummary, SavingsType, TeamRole } from "../types/api";
 
-type PageId = "overview" | "vendors" | "waste" | "renewals" | "reports" | "savings" | "email" | "team" | "billing" | "settings";
+type PageId = "overview" | "vendors" | "waste" | "renewals" | "reports" | "savings" | "activity" | "email" | "team" | "billing" | "settings";
 type RiskLevel = "critical" | "high" | "medium" | "low";
 type VendorStatus = "Healthy" | "Zombie" | "Duplicate" | "Renewal risk" | "Unused seats";
 type VendorQueryState = {
@@ -160,6 +161,7 @@ const navItems: NavItem[] = [
   { id: "renewals", label: "Renewals", icon: CalendarClock },
   { id: "reports", label: "Reports", icon: FileText },
   { id: "savings", label: "Savings", icon: CircleDollarSign },
+  { id: "activity", label: "Activity", icon: ListChecks },
   { id: "email", label: "AI Email Generator", icon: Mail },
   { id: "team", label: "Team", icon: Users },
   { id: "billing", label: "Plan", icon: CreditCard },
@@ -278,6 +280,10 @@ export function DashboardPage() {
   const [apiReports, setApiReports] = useState<ApiReport[]>([]);
   const [savingsEntries, setSavingsEntries] = useState<ApiSavingsEntry[]>([]);
   const [savingsSummary, setSavingsSummary] = useState<SavingsSummary | null>(null);
+  const [activityEntries, setActivityEntries] = useState<ApiActivityLog[]>([]);
+  const [activityPagination, setActivityPagination] = useState<PaginationMeta | null>(null);
+  const [activityFilter, setActivityFilter] = useState<ActivityEntityType | "all">("all");
+  const [onboarding, setOnboarding] = useState<ApiOnboardingState | null>(null);
   const [vendorPagination, setVendorPagination] = useState<PaginationMeta | null>(null);
   const [vendorCategoryOptions, setVendorCategoryOptions] = useState<string[]>(["All"]);
   const [auditSummary, setAuditSummary] = useState<AuditSummary | null>(null);
@@ -304,13 +310,14 @@ export function DashboardPage() {
   const dashboardRenewalChart = useMemo(() => buildRenewalChart(renewalRows), [renewalRows]);
   const onboardingItems = useMemo<OnboardingItem[]>(() => {
     return [
-      { label: "Load sample data", done: dashboardVendors.length > 0, page: "vendors" },
-      { label: "Import CSV", done: dashboardVendors.length > 0, page: "vendors" },
-      { label: "Review waste", done: dashboardWasteSignals.length > 0, page: "waste" },
-      { label: "Generate report", done: Boolean(monthlyReportDraft || company?.planUsage?.reportsGenerated), page: "reports" },
-      { label: "Create email draft", done: draft !== defaultDraft || Boolean(company?.planUsage?.aiEmailsGenerated), page: "email" },
+      { label: "Add first vendor", done: Boolean(onboarding?.addedFirstVendor), page: "vendors" },
+      { label: "Import CSV", done: Boolean(onboarding?.importedCsv), page: "vendors" },
+      { label: "Review waste", done: Boolean(onboarding?.reviewedWaste), page: "waste" },
+      { label: "Generate report", done: Boolean(onboarding?.generatedReport), page: "reports" },
+      { label: "Create email draft", done: Boolean(onboarding?.createdEmailDraft), page: "email" },
+      { label: "Invite teammate", done: Boolean(onboarding?.invitedTeammate), page: "team" },
     ];
-  }, [company?.planUsage?.aiEmailsGenerated, company?.planUsage?.reportsGenerated, dashboardVendors.length, dashboardWasteSignals.length, draft, monthlyReportDraft]);
+  }, [onboarding]);
 
   const totals = useMemo(() => {
     return {
@@ -365,7 +372,7 @@ export function DashboardPage() {
     setDataError("");
 
     try {
-      const [vendorsResponse, summaryResponse, renewalsResponse, reportsResponse, savingsEntriesResponse, savingsSummaryResponse] = await Promise.all([
+      const [vendorsResponse, summaryResponse, renewalsResponse, reportsResponse, savingsEntriesResponse, savingsSummaryResponse, activityResponse, onboardingResponse] = await Promise.all([
         vendorApi.list({
           page: vendorQuery.page,
           limit: vendorQuery.limit,
@@ -378,6 +385,8 @@ export function DashboardPage() {
         reportApi.list({ limit: 20 }),
         savingsApi.list(),
         savingsApi.summary(),
+        activityApi.list({ limit: 50, entityType: activityFilter }),
+        onboardingApi.get(),
       ]);
 
       setApiVendors(vendorsResponse.vendors);
@@ -388,6 +397,9 @@ export function DashboardPage() {
       setApiReports(reportsResponse.reports);
       setSavingsEntries(savingsEntriesResponse);
       setSavingsSummary(savingsSummaryResponse);
+      setActivityEntries(activityResponse.activity);
+      setActivityPagination(activityResponse.pagination);
+      setOnboarding(onboardingResponse);
     } catch (error) {
       setDataError(getApiErrorMessage(error));
     } finally {
@@ -399,6 +411,10 @@ export function DashboardPage() {
   useEffect(() => {
     refreshDashboardData();
   }, []);
+
+  useEffect(() => {
+    refreshActivityData(activityFilter).catch((error) => setDataError(getApiErrorMessage(error)));
+  }, [activityFilter]);
 
   useEffect(() => {
     let isCurrent = true;
@@ -465,7 +481,7 @@ export function DashboardPage() {
     try {
       const vendor = await vendorApi.create(input);
       setApiVendors((current) => [vendor, ...current]);
-      await refreshDashboardData();
+      await Promise.all([refreshDashboardData(), refreshActivityData(), refreshOnboardingData()]);
       showToast(`${vendor.name} added.`);
     } catch (error) {
       throw new Error(withUpgradePrompt(getApiErrorMessage(error)));
@@ -477,17 +493,18 @@ export function DashboardPage() {
       return { created: 0, failed: inputs.length, errors: ["Trial ended. Choose a plan before importing vendors."] };
     }
 
-    const results = await Promise.allSettled(inputs.map((input) => vendorApi.create(input)));
-    await refreshDashboardData();
+    try {
+      const result = await vendorApi.import(inputs);
+      await Promise.all([refreshDashboardData(), refreshActivityData(), refreshOnboardingData()]);
 
-    return {
-      created: results.filter((result) => result.status === "fulfilled").length,
-      failed: results.filter((result) => result.status === "rejected").length,
-      errors: results
-        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-        .slice(0, 3)
-        .map((result) => getApiErrorMessage(result.reason)),
-    };
+      return {
+        created: result.count,
+        failed: 0,
+        errors: [],
+      };
+    } catch (error) {
+      return { created: 0, failed: inputs.length, errors: [withUpgradePrompt(getApiErrorMessage(error))] };
+    }
   };
 
   const handleLoadDemoData = async () => {
@@ -505,7 +522,7 @@ export function DashboardPage() {
 
     try {
       const results = await Promise.allSettled(demoVendors.map((input) => vendorApi.create(input)));
-      await refreshDashboardData();
+      await Promise.all([refreshDashboardData(), refreshActivityData(), refreshOnboardingData()]);
       const created = results.filter((result) => result.status === "fulfilled").length;
       const firstError = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
       analyticsApi.track("sample_data_loaded", { created });
@@ -553,7 +570,7 @@ export function DashboardPage() {
     try {
       const { report } = await aiApi.monthlyReport({ audience: "CFO" });
       setMonthlyReportDraft(report);
-      await refreshDashboardData();
+      await Promise.all([refreshDashboardData(), refreshActivityData(), refreshOnboardingData()]);
       showToast("AI CFO report generated.");
     } catch (error) {
       showToast(getAiUnavailableMessage(error));
@@ -592,6 +609,7 @@ export function DashboardPage() {
     try {
       const analysis = await aiApi.vendorAnalysis({ vendorId: signal.vendorId, vendorName: signal.vendor, mode: "waste_explanation" });
       setWasteAnalysis(analysis);
+      await refreshOnboardingData();
       showToast(`${signal.vendor} waste explanation generated.`);
     } catch (error) {
       showToast(getAiUnavailableMessage(error));
@@ -607,6 +625,19 @@ export function DashboardPage() {
     return { entries, summary };
   };
 
+  const refreshActivityData = async (entityType: ActivityEntityType | "all" = activityFilter, page = 1) => {
+    const response = await activityApi.list({ limit: 50, page, entityType });
+    setActivityEntries(response.activity);
+    setActivityPagination(response.pagination);
+    return response;
+  };
+
+  const refreshOnboardingData = async () => {
+    const nextOnboarding = await onboardingApi.get();
+    setOnboarding(nextOnboarding);
+    return nextOnboarding;
+  };
+
   const handleConfirmSaving = async (input: { signal: WasteSignal; savingsType: SavingsType; monthlySavings: number; notes?: string }) => {
     const entry = await savingsApi.create({
       vendorId: input.signal.vendorId,
@@ -616,7 +647,7 @@ export function DashboardPage() {
       notes: input.notes,
     });
     setSavingsEntries((current) => [entry, ...current]);
-    await refreshSavingsData();
+    await Promise.all([refreshSavingsData(), refreshActivityData()]);
     showToast("Saving confirmed.");
   };
 
@@ -645,7 +676,7 @@ export function DashboardPage() {
             <div className="min-w-0 animate-[fadeIn_420ms_ease-out]">
               {dataError && <ErrorState message={dataError} onRetry={refreshDashboardData} />}
               {isDataLoading && <LoadingState label="Loading live audit data" />}
-              {activePage === "overview" && <OverviewPage categoryData={dashboardCategorySpend} duplicateTools={duplicateToolRows} renewalRows={renewalRows} totals={totals} unusedSeats={unusedSeatRows} wasteSignals={dashboardWasteSignals} company={company} onNavigate={handleNav} onToast={showToast} />}
+              {activePage === "overview" && <OverviewPage categoryData={dashboardCategorySpend} duplicateTools={duplicateToolRows} renewalRows={renewalRows} totals={totals} unusedSeats={unusedSeatRows} wasteSignals={dashboardWasteSignals} company={company} onboarding={onboarding} onDismissOnboarding={async () => { const next = await onboardingApi.dismiss(); setOnboarding(next); }} onNavigate={handleNav} onToast={showToast} />}
               {activePage === "vendors" && <VendorsPage categoryOptions={vendorCategoryOptions} isLoading={isDataLoading || isVendorLoading} isLoadingDemo={isLoadingDemo} pagination={vendorPagination} query={vendorQuery} vendors={dashboardVendors} onCreateVendor={handleCreateVendor} onDeleteVendor={handleDeleteVendor} onImportVendors={handleImportVendors} onLoadDemoData={handleLoadDemoData} onQueryChange={handleVendorQueryChange} onToast={showToast} />}
               {activePage === "waste" && (
                 <WasteDetectionPage
@@ -667,6 +698,7 @@ export function DashboardPage() {
               {activePage === "renewals" && <RenewalsPage hasVendors={dashboardVendors.length > 0} isLoadingDemo={isLoadingDemo} renewalChartData={dashboardRenewalChart} renewalRows={renewalRows} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} onToast={showToast} />}
               {activePage === "reports" && <ReportsPage hasVendors={dashboardVendors.length > 0} isGenerating={isReportGenerating} isLoadingDemo={isLoadingDemo} reports={apiReports} reportDraft={monthlyReportDraft} trialExpired={isTrialExpired} onGenerateReport={handleGenerateMonthlyReport} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} onToast={showToast} />}
               {activePage === "savings" && <SavingsPage entries={savingsEntries} summary={savingsSummary} currentUser={user} onDelete={async (entry) => { await savingsApi.remove(entry.id); await refreshSavingsData(); showToast("Savings entry removed."); }} />}
+              {activePage === "activity" && <ActivityPage activity={activityEntries} filter={activityFilter} pagination={activityPagination} onFilterChange={setActivityFilter} onPageChange={(page) => refreshActivityData(activityFilter, page)} />}
               {activePage === "email" && (
                 <EmailGeneratorPage
                   vendors={dashboardVendors}
@@ -687,6 +719,7 @@ export function DashboardPage() {
                         ? await aiApi.cancelEmail({ vendorId: apiVendor?._id, vendorName, tone: tone.toLowerCase(), requestedAction: goalConfig.actionLabel })
                         : await aiApi.renegotiateEmail({ vendorId: apiVendor?._id, vendorName, tone: tone.toLowerCase(), negotiationGoal: goalConfig.actionLabel });
                     setDraft(generatedDraft);
+                    await Promise.all([refreshActivityData(), refreshOnboardingData()]);
                     showToast("AI draft refreshed with company context.");
                   }}
                   onLoadDemoData={handleLoadDemoData}
@@ -695,7 +728,7 @@ export function DashboardPage() {
                 />
               )}
               {activePage === "billing" && <PlanPage company={company} vendorCount={dashboardVendors.length} onToast={showToast} />}
-              {activePage === "team" && canManageTeam && <TeamPage currentUser={user} onToast={showToast} />}
+              {activePage === "team" && canManageTeam && <TeamPage currentUser={user} onActivityRefresh={async () => { await Promise.all([refreshActivityData(), refreshOnboardingData()]); }} onToast={showToast} />}
               {activePage === "settings" && <SettingsPage company={company} companySettings={company?.settings} user={user} onToast={showToast} onUserUpdate={updateUser} />}
               <div className="mt-6 grid gap-4">
                 {user && !user.emailVerifiedAt && <EmailVerificationBanner email={user.email} onResend={handleResendVerification} />}
@@ -946,6 +979,8 @@ function OverviewPage({
   totals,
   unusedSeats,
   wasteSignals,
+  onboarding,
+  onDismissOnboarding,
   onNavigate,
   onToast,
 }: {
@@ -956,6 +991,8 @@ function OverviewPage({
   totals: DashboardTotals;
   unusedSeats: UnusedSeatRow[];
   wasteSignals: WasteSignal[];
+  onboarding: ApiOnboardingState | null;
+  onDismissOnboarding: () => Promise<void>;
   onNavigate: (page: PageId) => void;
   onToast: (message: string) => void;
 }) {
@@ -963,6 +1000,7 @@ function OverviewPage({
     <div className="grid min-w-0 gap-5 overflow-hidden">
       <HeroBand totals={totals} wasteSignals={wasteSignals} onNavigate={onNavigate} />
       <SummaryGrid totals={totals} />
+      <OnboardingChecklist onboarding={onboarding} onDismiss={onDismissOnboarding} onNavigate={onNavigate} onToast={onToast} />
 
       <OverviewActionCenter duplicateTools={duplicateTools} renewalRows={renewalRows} unusedSeats={unusedSeats} wasteSignals={wasteSignals} onNavigate={onNavigate} onToast={onToast} />
 
@@ -1018,6 +1056,53 @@ function OverviewPage({
 
       <OverviewSystemStatus company={company} totals={totals} onNavigate={onNavigate} />
     </div>
+  );
+}
+
+function OnboardingChecklist({ onboarding, onDismiss, onNavigate, onToast }: { onboarding: ApiOnboardingState | null; onDismiss: () => Promise<void>; onNavigate: (page: PageId) => void; onToast: (message: string) => void }) {
+  if (!onboarding || onboarding.dismissed) return null;
+
+  const steps: Array<{ key: keyof ApiOnboardingState; label: string; page: PageId }> = [
+    { key: "addedFirstVendor", label: "Add first vendor", page: "vendors" },
+    { key: "importedCsv", label: "Import CSV", page: "vendors" },
+    { key: "reviewedWaste", label: "Review waste signals", page: "waste" },
+    { key: "generatedReport", label: "Generate report", page: "reports" },
+    { key: "createdEmailDraft", label: "Create email draft", page: "email" },
+    { key: "invitedTeammate", label: "Invite teammate", page: "team" },
+  ];
+  const completed = steps.filter((step) => Boolean(onboarding[step.key])).length;
+  const isComplete = completed === steps.length;
+
+  const handleDismiss = async () => {
+    try {
+      await onDismiss();
+      onToast("Onboarding checklist hidden.");
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    }
+  };
+
+  return (
+    <Panel
+      title={isComplete ? "Workspace setup complete" : "Onboarding checklist"}
+      eyebrow={`${completed} of ${steps.length} steps completed`}
+      action={isComplete ? <SecondaryButton onClick={handleDismiss}>Dismiss</SecondaryButton> : undefined}
+    >
+      {isComplete && <p className="mb-4 rounded-lg border border-good/20 bg-good-soft px-4 py-3 text-sm font-extrabold text-good">Congratulations. Your workspace has the core audit workflow set up.</p>}
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {steps.map((step) => {
+          const done = Boolean(onboarding[step.key]);
+          return (
+            <button className="flex min-h-14 items-center gap-3 rounded-lg border border-line bg-panel-subtle px-3 py-2 text-left transition hover:-translate-y-0.5 hover:border-brand/50 hover:bg-panel-muted" key={step.key} type="button" onClick={() => onNavigate(step.page)}>
+              <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${done ? "bg-good-soft text-good" : "bg-panel-muted text-quiet"}`}>
+                {done ? <CheckCircle2 aria-hidden="true" size={18} /> : <span className="size-2 rounded-full bg-current" />}
+              </span>
+              <span className="text-sm font-extrabold">{step.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </Panel>
   );
 }
 
@@ -2743,7 +2828,7 @@ function readFileAsDataUrl(file: File) {
   });
 }
 
-function TeamPage({ currentUser, onToast }: { currentUser: ApiUser | null; onToast: (message: string) => void }) {
+function TeamPage({ currentUser, onActivityRefresh, onToast }: { currentUser: ApiUser | null; onActivityRefresh: () => Promise<void>; onToast: (message: string) => void }) {
   const [members, setMembers] = useState<ApiTeamMember[]>([]);
   const [invites, setInvites] = useState<ApiTeamInvite[]>([]);
   const [email, setEmail] = useState("");
@@ -2802,6 +2887,7 @@ function TeamPage({ currentUser, onToast }: { currentUser: ApiUser | null; onToa
       setInvites((current) => [invite, ...current]);
       setEmail("");
       setRole("member");
+      await onActivityRefresh();
       onToast("Invite sent.");
     } catch (err) {
       setError(getApiErrorMessage(err));
@@ -2814,6 +2900,7 @@ function TeamPage({ currentUser, onToast }: { currentUser: ApiUser | null; onToa
     try {
       const updated = await teamApi.updateRole(member.id, nextRole);
       setMembers((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      await onActivityRefresh();
       onToast("Role updated.");
     } catch (err) {
       setError(getApiErrorMessage(err));
@@ -2824,6 +2911,7 @@ function TeamPage({ currentUser, onToast }: { currentUser: ApiUser | null; onToa
     try {
       await teamApi.removeMember(member.id);
       setMembers((current) => current.filter((item) => item.id !== member.id));
+      await onActivityRefresh();
       onToast("Member removed.");
     } catch (err) {
       setError(getApiErrorMessage(err));
@@ -2931,6 +3019,76 @@ function TeamPage({ currentUser, onToast }: { currentUser: ApiUser | null; onToa
           </Panel>
         </div>
       </div>
+    </div>
+  );
+}
+
+const activityFilters: Array<{ value: ActivityEntityType | "all"; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "vendor", label: "Vendors" },
+  { value: "report", label: "Reports" },
+  { value: "savings", label: "Savings" },
+  { value: "team", label: "Team" },
+];
+
+function ActivityPage({
+  activity,
+  filter,
+  pagination,
+  onFilterChange,
+  onPageChange,
+}: {
+  activity: ApiActivityLog[];
+  filter: ActivityEntityType | "all";
+  pagination: PaginationMeta | null;
+  onFilterChange: (filter: ActivityEntityType | "all") => void;
+  onPageChange: (page: number) => Promise<unknown>;
+}) {
+  return (
+    <div className="grid gap-4">
+      <PageHeader eyebrow="Workspace history" title="Activity feed" detail="Review the human decisions and system actions that changed this workspace." action={<ListChecks aria-hidden="true" className="text-brand" size={24} />} />
+      <Panel title="Chronological feed" eyebrow={`${pagination?.total ?? activity.length} workspace event${(pagination?.total ?? activity.length) === 1 ? "" : "s"}`}>
+        <div className="mb-4 flex flex-wrap gap-2">
+          {activityFilters.map((option) => (
+            <button className={`rounded-lg border px-3 py-2 text-sm font-extrabold transition hover:-translate-y-0.5 ${filter === option.value ? "border-brand bg-brand text-white" : "border-line bg-panel-subtle text-quiet hover:border-brand hover:text-brand"}`} key={option.value} type="button" onClick={() => onFilterChange(option.value)}>
+              {option.label}
+            </button>
+          ))}
+        </div>
+
+        {activity.length === 0 ? (
+          <EmptyState title="No activity yet" detail="Workspace actions will appear here as vendors, reports, savings, and team changes are made." icon={ListChecks} />
+        ) : (
+          <div className="grid gap-3">
+            {activity.map((item) => (
+              <article className="rounded-lg border border-line bg-panel-subtle p-4" key={item._id}>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-brand-soft px-2.5 py-1 text-xs font-extrabold text-brand-strong">{formatActivityEntityType(item.entityType)}</span>
+                      <span className="text-xs font-bold text-quiet">{formatRelativeTimestamp(item.createdAt)}</span>
+                    </div>
+                    <strong className="mt-3 block text-sm font-extrabold">{formatActivityDescription(item)}</strong>
+                    <p className="mt-1 text-sm leading-6 text-quiet">{item.entityName ?? "Workspace"} by {item.userEmail ?? "Team member"}</p>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+
+        {pagination && pagination.totalPages > 1 && (
+          <div className="mt-4 flex items-center justify-between border-t border-line pt-4">
+            <button className="rounded-lg border border-line px-3 py-2 text-sm font-extrabold text-quiet disabled:opacity-50" disabled={!pagination.hasPreviousPage} type="button" onClick={() => onPageChange(pagination.page - 1)}>
+              Previous
+            </button>
+            <span className="text-sm font-bold text-quiet">Page {pagination.page} of {pagination.totalPages}</span>
+            <button className="rounded-lg border border-line px-3 py-2 text-sm font-extrabold text-quiet disabled:opacity-50" disabled={!pagination.hasNextPage} type="button" onClick={() => onPageChange(pagination.page + 1)}>
+              Next
+            </button>
+          </div>
+        )}
+      </Panel>
     </div>
   );
 }
@@ -3073,6 +3231,55 @@ function formatSavingsType(type: SavingsType) {
   };
 
   return labels[type];
+}
+
+function formatActivityEntityType(type: ActivityEntityType) {
+  const labels: Record<ActivityEntityType, string> = {
+    vendor: "Vendor",
+    report: "Report",
+    email_draft: "Email draft",
+    savings: "Savings",
+    team: "Team",
+    settings: "Settings",
+  };
+
+  return labels[type];
+}
+
+function formatActivityDescription(activity: ApiActivityLog) {
+  const descriptions: Record<string, string> = {
+    "vendor.created": "Created vendor",
+    "vendor.updated": "Updated vendor",
+    "vendor.deleted": "Deleted vendor",
+    "vendor.csv_imported": `Completed CSV import${activity.metadata?.count ? ` with ${activity.metadata.count} vendors` : ""}`,
+    "report.generated": "Generated report",
+    "email_draft.generated": "Generated AI email draft",
+    "savings.confirmed": "Confirmed savings",
+    "team.member_invited": "Invited teammate",
+    "team.member_removed": "Removed teammate",
+    "team.role_changed": "Changed team role",
+    "settings.updated": "Updated company settings",
+  };
+
+  return descriptions[activity.action] ?? activity.action.replace(/[._]/g, " ");
+}
+
+function formatRelativeTimestamp(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Recently";
+
+  const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+  if (seconds < 60) return "Just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} day${days === 1 ? "" : "s"} ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} month${months === 1 ? "" : "s"} ago`;
+  const years = Math.floor(months / 12);
+  return `${years} year${years === 1 ? "" : "s"} ago`;
 }
 
 function defaultSavingsTypeForSignal(signal: WasteSignal): SavingsType {

@@ -57,6 +57,7 @@ export type ApiCompany = {
     autoDraftCancellationEmails: boolean;
     allowManagedRenegotiation?: boolean;
   };
+  onboarding?: ApiOnboardingState;
 };
 
 export type AuthResponse = {
@@ -110,6 +111,31 @@ export type ApiSavingsEntry = {
   confirmedAt: string;
   notes?: string;
   companyId: string;
+};
+
+export type ActivityEntityType = "vendor" | "report" | "email_draft" | "savings" | "team" | "settings";
+
+export type ApiActivityLog = {
+  _id: string;
+  companyId: string;
+  userId?: string;
+  userEmail?: string;
+  action: string;
+  entityType: ActivityEntityType;
+  entityId?: string;
+  entityName?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type ApiOnboardingState = {
+  addedFirstVendor: boolean;
+  importedCsv: boolean;
+  reviewedWaste: boolean;
+  generatedReport: boolean;
+  createdEmailDraft: boolean;
+  invitedTeammate: boolean;
+  dismissed?: boolean;
 };
 
 export type SavingsSummary = {

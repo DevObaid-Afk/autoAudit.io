@@ -1,5 +1,6 @@
 import { SavingsEntry, type SavingsType } from "../models/SavingsEntry.js";
 import { AppError } from "../utils/AppError.js";
+import { recordActivity } from "../utils/activityLogger.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { recordAuditLog } from "../utils/auditLogger.js";
 import { cleanNumber, cleanString } from "../middleware/validate.js";
@@ -35,6 +36,17 @@ export const createSavingsEntry = asyncHandler(async (req, res) => {
     resourceId: entry._id,
     metadata: {
       vendorName,
+      savingsType,
+      monthlySavings,
+      annualSavings: monthlySavings * 12,
+    },
+  });
+  await recordActivity(req, {
+    action: "savings.confirmed",
+    entityType: "savings",
+    entityId: entry._id,
+    entityName: vendorName,
+    metadata: {
       savingsType,
       monthlySavings,
       annualSavings: monthlySavings * 12,

@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { ApiContactRequest, ApiRenewal, ApiReport, ApiSavingsEntry, ApiTeamInvite, ApiTeamMember, ApiUser, ApiVendor, AuditSummary, AuthResponse, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta, SavingsSummary, SavingsType, TeamRole } from "../types/api";
+import type { ActivityEntityType, ApiActivityLog, ApiContactRequest, ApiOnboardingState, ApiRenewal, ApiReport, ApiSavingsEntry, ApiTeamInvite, ApiTeamMember, ApiUser, ApiVendor, AuditSummary, AuthResponse, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta, SavingsSummary, SavingsType, TeamRole } from "../types/api";
 
 export const authApi = {
   async signup(input: { name: string; email: string; password: string; companyName: string; companyDomain?: string; plan?: string }) {
@@ -142,6 +142,11 @@ export const vendorApi = {
     return data.vendor;
   },
 
+  async import(vendors: CreateVendorInput[]) {
+    const { data } = await apiClient.post<{ vendors: ApiVendor[]; count: number }>("/api/vendors/import", { vendors });
+    return data;
+  },
+
   async update(id: string, input: Partial<CreateVendorInput>) {
     const { data } = await apiClient.patch<{ vendor: ApiVendor }>(`/api/vendors/${id}`, input);
     return data.vendor;
@@ -149,6 +154,25 @@ export const vendorApi = {
 
   async remove(id: string) {
     await apiClient.delete(`/api/vendors/${id}`);
+  },
+};
+
+export const activityApi = {
+  async list(params: { page?: number; limit?: number; entityType?: ActivityEntityType | "all" } = {}) {
+    const { data } = await apiClient.get<{ activity: ApiActivityLog[]; pagination: PaginationMeta }>("/api/activity", { params });
+    return data;
+  },
+};
+
+export const onboardingApi = {
+  async get() {
+    const { data } = await apiClient.get<{ onboarding: ApiOnboardingState }>("/api/onboarding");
+    return data.onboarding;
+  },
+
+  async dismiss() {
+    const { data } = await apiClient.patch<{ onboarding: ApiOnboardingState }>("/api/onboarding/dismiss");
+    return data.onboarding;
   },
 };
 

@@ -3,6 +3,7 @@ import { User } from "../models/User.js";
 import { cleanNumber } from "../middleware/validate.js";
 import { generateAiImage } from "../services/openaiService.js";
 import { AppError } from "../utils/AppError.js";
+import { recordActivity } from "../utils/activityLogger.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { recordAuditLog } from "../utils/auditLogger.js";
 import fs from "node:fs/promises";
@@ -66,6 +67,13 @@ export const updateCompanySettings = asyncHandler(async (req, res) => {
     resourceType: "company",
     resourceId: company._id,
     metadata: { fields: Object.keys(update) },
+  });
+  await recordActivity(req, {
+    action: "settings.updated",
+    entityType: "settings",
+    entityId: company._id,
+    entityName: company.name,
+    metadata: { fields: Object.keys(update).map((field) => field.replace("settings.", "")) },
   });
 
   res.json({ company });

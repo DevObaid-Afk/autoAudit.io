@@ -3,7 +3,9 @@ import { Report } from "../models/Report.js";
 import { Subscription } from "../models/Subscription.js";
 import { Vendor } from "../models/Vendor.js";
 import { buildAuditSummary } from "../services/wasteDetection.js";
+import { recordActivity } from "../utils/activityLogger.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { completeOnboardingStep } from "../utils/onboarding.js";
 import { buildPagination, parsePagination } from "../utils/query.js";
 
 export const listReports = asyncHandler(async (req, res) => {
@@ -40,6 +42,15 @@ export const generateReport = asyncHandler(async (req, res) => {
     content: buildManualReportContent(summary),
     status: "ready",
   });
+
+  await recordActivity(req, {
+    action: "report.generated",
+    entityType: "report",
+    entityId: report._id,
+    entityName: report.title,
+    metadata: { type: report.type },
+  });
+  await completeOnboardingStep(req.companyId, "generatedReport");
 
   res.status(201).json({ report });
 });

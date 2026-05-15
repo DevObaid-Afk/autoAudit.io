@@ -6,7 +6,9 @@ import { Vendor } from "../models/Vendor.js";
 import { buildAuditSummary } from "../services/wasteDetection.js";
 import { generateAiText } from "../services/openaiService.js";
 import { AppError } from "../utils/AppError.js";
+import { recordActivity } from "../utils/activityLogger.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { completeOnboardingStep } from "../utils/onboarding.js";
 import {
   assertCanAnalyzeVendor,
   assertCanGenerateAiEmail,
@@ -43,7 +45,16 @@ export const generateCancelEmail = asyncHandler(async (req, res) => {
       evidence: buildWasteEvidence(vendor, renewal),
     }),
   });
+  
   await incrementPlanUsage(req.companyId, "aiEmailsGenerated");
+  await recordActivity(req, {
+    action: "email_draft.generated",
+    entityType: "email_draft",
+    entityId: vendor?._id,
+    entityName: vendor?.name ?? vendorName,
+    metadata: { kind: "cancel", tone, requestedAction },
+  });
+  await completeOnboardingStep(req.companyId, "createdEmailDraft");
 
   res.json({
     draft,
@@ -84,6 +95,14 @@ export const generateRenegotiateEmail = asyncHandler(async (req, res) => {
     }),
   });
   await incrementPlanUsage(req.companyId, "aiEmailsGenerated");
+  await recordActivity(req, {
+    action: "email_draft.generated",
+    entityType: "email_draft",
+    entityId: vendor?._id,
+    entityName: vendor?.name ?? vendorName,
+    metadata: { kind: "renegotiate", tone, negotiationGoal },
+  });
+  await completeOnboardingStep(req.companyId, "createdEmailDraft");
 
   res.json({
     draft,
@@ -148,6 +167,14 @@ export const generateMonthlyReport = asyncHandler(async (req, res) => {
     status: "ready",
   });
   await incrementPlanUsage(req.companyId, "reportsGenerated");
+  await recordActivity(req, {
+    action: "report.generated",
+    entityType: "report",
+    entityId: report._id,
+    entityName: report.title,
+    metadata: { type: report.type, audience },
+  });
+  await completeOnboardingStep(req.companyId, "generatedReport");
 
   res.status(201).json({
     report: reportText,
@@ -197,6 +224,9 @@ export const analyzeVendor = asyncHandler(async (req, res) => {
     ),
   });
   await incrementPlanUsage(req.companyId, "vendorAnalysesGenerated");
+  if (analysisMode === "waste_explanation") {
+    await completeOnboardingStep(req.companyId, "reviewedWaste");
+  }
 
   res.json({
     analysis,

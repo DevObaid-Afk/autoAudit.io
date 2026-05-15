@@ -82,6 +82,36 @@ const companySchema = new mongoose.Schema(
         default: false,
       },
     },
+    onboarding: {
+      addedFirstVendor: {
+        type: Boolean,
+        default: false,
+      },
+      importedCsv: {
+        type: Boolean,
+        default: false,
+      },
+      reviewedWaste: {
+        type: Boolean,
+        default: false,
+      },
+      generatedReport: {
+        type: Boolean,
+        default: false,
+      },
+      createdEmailDraft: {
+        type: Boolean,
+        default: false,
+      },
+      invitedTeammate: {
+        type: Boolean,
+        default: false,
+      },
+      dismissed: {
+        type: Boolean,
+        default: false,
+      },
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
