@@ -3,6 +3,7 @@ import { Report } from "../models/Report.js";
 import { Subscription } from "../models/Subscription.js";
 import { Vendor } from "../models/Vendor.js";
 import { buildAuditSummary } from "../services/wasteDetection.js";
+import { AppError } from "../utils/AppError.js";
 import { recordActivity } from "../utils/activityLogger.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { completeOnboardingStep } from "../utils/onboarding.js";
@@ -53,6 +54,24 @@ export const generateReport = asyncHandler(async (req, res) => {
   await completeOnboardingStep(req.companyId, "generatedReport");
 
   res.status(201).json({ report });
+});
+
+export const deleteReport = asyncHandler(async (req, res) => {
+  const report = await Report.findOneAndDelete({ _id: req.params.id, company: req.companyId });
+
+  if (!report) {
+    throw new AppError("Report not found", 404);
+  }
+
+  await recordActivity(req, {
+    action: "report.deleted",
+    entityType: "report",
+    entityId: report._id,
+    entityName: report.title,
+    metadata: { type: report.type },
+  });
+
+  res.status(204).send();
 });
 
 function buildManualReportContent(summary) {

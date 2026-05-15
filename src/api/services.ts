@@ -155,6 +155,23 @@ export const vendorApi = {
   async remove(id: string) {
     await apiClient.delete(`/api/vendors/${id}`);
   },
+
+  async bulkRemove(vendorIds: string[]) {
+    const { data } = await apiClient.delete<{ deletedCount: number }>("/api/vendors/bulk", { data: { vendorIds } });
+    return data;
+  },
+};
+
+export const workspaceApi = {
+  async export() {
+    const { data } = await apiClient.post<Record<string, unknown>>("/api/workspace/export");
+    return data;
+  },
+
+  async remove(companyName: string) {
+    const { data } = await apiClient.delete<{ deleted: boolean; counts: Record<string, number> }>("/api/workspace", { data: { companyName } });
+    return data;
+  },
 };
 
 export const activityApi = {
@@ -238,6 +255,10 @@ export const reportApi = {
   async list(params: { page?: number; limit?: number } = {}) {
     const { data } = await apiClient.get<{ reports: ApiReport[]; pagination: PaginationMeta }>("/api/reports", { params });
     return data;
+  },
+
+  async remove(id: string) {
+    await apiClient.delete(`/api/reports/${id}`);
   },
 };
 

@@ -17,6 +17,7 @@ import { savingsRoutes } from "./savingsRoutes.js";
 import { subscriptionRoutes } from "./subscriptionRoutes.js";
 import { teamRoutes } from "./teamRoutes.js";
 import { vendorRoutes } from "./vendorRoutes.js";
+import { workspaceRoutes } from "./workspaceRoutes.js";
 
 export const apiRouter = Router();
 
@@ -28,6 +29,7 @@ apiRouter.use("/onboarding", requireAuth, onboardingRoutes);
 apiRouter.use("/profile", requireAuth, profileRoutes);
 apiRouter.use("/billing", requireAuth, billingRoutes);
 apiRouter.use("/vendors", requireAuth, vendorRoutes);
+apiRouter.use("/workspace", requireAuth, workspaceRoutes);
 apiRouter.use("/subscriptions", requireAuth, subscriptionRoutes);
 apiRouter.use("/team", requireAuth, teamRoutes);
 apiRouter.use("/audit", requireAuth, auditRoutes);

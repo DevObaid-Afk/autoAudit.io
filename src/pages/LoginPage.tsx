@@ -82,9 +82,20 @@ export function GoogleAuthButton({ plan = "free", returnTo = "/dashboard" }: { p
       className="inline-flex min-h-11 items-center justify-center gap-3 rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:text-brand"
       href={href}
     >
-      <span className="grid size-5 place-items-center rounded-full bg-white text-sm font-extrabold text-[#4285f4]">G</span>
+      <GoogleLogo />
       Continue with Google
     </a>
+  );
+}
+
+function GoogleLogo() {
+  return (
+    <svg className="size-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#4285F4" d="M22.6 12.2c0-.7-.1-1.3-.2-1.9H12v3.7h6c-.3 1.3-1 2.4-2.1 3.1v2.6h3.4c2-1.8 3.3-4.5 3.3-7.5Z" />
+      <path fill="#34A853" d="M12 23c3 0 5.5-1 7.3-3.3l-3.4-2.6c-.9.6-2.2 1-3.9 1-3 0-5.5-2-6.4-4.8H2.1V16c1.8 4.1 5.6 7 9.9 7Z" />
+      <path fill="#FBBC05" d="M5.6 13.3a6.6 6.6 0 0 1 0-4.2V6.4H2.1a11 11 0 0 0 0 9.8l3.5-2.9Z" />
+      <path fill="#EA4335" d="M12 5.3c1.6 0 3.1.6 4.2 1.7l3.1-3.1A10.6 10.6 0 0 0 12 1 11 11 0 0 0 2.1 6.4l3.5 2.7C6.5 7.3 9 5.3 12 5.3Z" />
+    </svg>
   );
 }
 

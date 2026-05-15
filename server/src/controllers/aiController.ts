@@ -29,23 +29,36 @@ Return clear markdown without code fences.`;
 export const generateCancelEmail = asyncHandler(async (req, res) => {
   await assertCanGenerateAiEmail(req.companyId);
 
-  const { vendorId, vendorName, tone = "direct", requestedAction = "cancel renewal" } = req.body;
-  const vendor = await resolveVendor({ companyId: req.companyId, vendorId, vendorName, required: true });
+  const {
+    vendorId,
+    vendorName,
+    tone = "direct",
+    requestedAction = "cancel renewal",
+  } = req.body;
+  const vendor = await resolveVendor({
+    companyId: req.companyId,
+    vendorId,
+    vendorName,
+    required: true,
+  });
   const renewal = await findRenewalForVendor(req.companyId, vendor?._id);
 
   const draft = await generateAiText({
     instructions: EMAIL_INSTRUCTIONS,
     maxOutputTokens: 750,
-    input: buildPromptPayload("Generate a cancellation email for this SaaS vendor.", {
-      tone,
-      requestedAction,
-      workspace: await getWorkspaceContext(req),
-      vendor: vendorSnapshot(vendor),
-      renewal: renewalSnapshot(renewal),
-      evidence: buildWasteEvidence(vendor, renewal),
-    }),
+    input: buildPromptPayload(
+      "Generate a cancellation email for this SaaS vendor.",
+      {
+        tone,
+        requestedAction,
+        workspace: await getWorkspaceContext(req),
+        vendor: vendorSnapshot(vendor),
+        renewal: renewalSnapshot(renewal),
+        evidence: buildWasteEvidence(vendor, renewal),
+      },
+    ),
   });
-  
+
   await incrementPlanUsage(req.companyId, "aiEmailsGenerated");
   await recordActivity(req, {
     action: "email_draft.generated",
@@ -70,29 +83,49 @@ export const generateCancelEmail = asyncHandler(async (req, res) => {
 export const generateRenegotiateEmail = asyncHandler(async (req, res) => {
   await assertCanGenerateAiEmail(req.companyId);
 
-  const { vendorId, vendorName, renewalId, tone = "direct", negotiationGoal = "reduce renewal cost" } = req.body;
-  const renewal = renewalId ? await Renewal.findOne({ _id: renewalId, company: req.companyId }).populate("vendor") : null;
+  const {
+    vendorId,
+    vendorName,
+    renewalId,
+    tone = "direct",
+    negotiationGoal = "reduce renewal cost",
+  } = req.body;
+  const renewal = renewalId
+    ? await Renewal.findOne({
+        _id: renewalId,
+        company: req.companyId,
+      }).populate("vendor")
+    : null;
   const vendor =
     renewal?.vendor ??
-    (await resolveVendor({ companyId: req.companyId, vendorId, vendorName, required: true }));
-  const vendorRenewal = renewal ?? (await findRenewalForVendor(req.companyId, vendor?._id));
+    (await resolveVendor({
+      companyId: req.companyId,
+      vendorId,
+      vendorName,
+      required: true,
+    }));
+  const vendorRenewal =
+    renewal ?? (await findRenewalForVendor(req.companyId, vendor?._id));
 
   const draft = await generateAiText({
     instructions: EMAIL_INSTRUCTIONS,
     maxOutputTokens: 850,
-    input: buildPromptPayload("Generate a renegotiation email before renewal.", {
-      tone,
-      negotiationGoal,
-      workspace: await getWorkspaceContext(req),
-      vendor: vendorSnapshot(vendor),
-      renewal: renewalSnapshot(vendorRenewal),
-      evidence: buildWasteEvidence(vendor, vendorRenewal),
-      guidance: [
-        "Ask for better pricing, right-sized seats, or a lower-commitment plan.",
-        "Mention renewal timing only if provided.",
-        "Do not claim benchmark data unless it is present in the payload.",
-      ],
-    }),
+    input: buildPromptPayload(
+      "Generate a renegotiation email before renewal.",
+      {
+        tone,
+        negotiationGoal,
+        workspace: await getWorkspaceContext(req),
+        vendor: vendorSnapshot(vendor),
+        renewal: renewalSnapshot(vendorRenewal),
+        evidence: buildWasteEvidence(vendor, vendorRenewal),
+        guidance: [
+          "Ask for better pricing, right-sized seats, or a lower-commitment plan.",
+          "Mention renewal timing only if provided.",
+          "Do not claim benchmark data unless it is present in the payload.",
+        ],
+      },
+    ),
   });
   await incrementPlanUsage(req.companyId, "aiEmailsGenerated");
   await recordActivity(req, {
@@ -122,36 +155,44 @@ export const generateMonthlyReport = asyncHandler(async (req, res) => {
   const { periodStart, periodEnd, audience = "CFO" } = req.body;
   const [company, vendors, subscriptions, renewals] = await Promise.all([
     Company.findById(req.companyId),
-    Vendor.find({ company: req.companyId }).sort({ monthlySpend: -1, name: 1 }).limit(80),
+    Vendor.find({ company: req.companyId })
+      .sort({ monthlySpend: -1, name: 1 })
+      .limit(80),
     Subscription.find({ company: req.companyId }).populate("vendor").limit(80),
-    Renewal.find({ company: req.companyId }).populate("vendor subscription").sort({ renewalDate: 1 }).limit(40),
+    Renewal.find({ company: req.companyId })
+      .populate("vendor subscription")
+      .sort({ renewalDate: 1 })
+      .limit(40),
   ]);
 
   const summary = buildAuditSummary({ vendors, subscriptions, renewals });
   const reportText = await generateAiText({
     instructions: ANALYSIS_INSTRUCTIONS,
     maxOutputTokens: 1400,
-    input: buildPromptPayload("Generate a monthly SaaS waste report for the CFO.", {
-      audience,
-      periodStart,
-      periodEnd,
-      workspace: {
-        companyName: company?.name,
-        companyDomain: company?.domain,
-        requestedBy: req.user?.name,
+    input: buildPromptPayload(
+      "Generate a monthly SaaS waste report for the CFO.",
+      {
+        audience,
+        periodStart,
+        periodEnd,
+        workspace: {
+          companyName: company?.name,
+          companyDomain: company?.domain,
+          requestedBy: req.user?.name,
+        },
+        auditSummary: summary,
+        topVendors: vendors.slice(0, 20).map(vendorSnapshot),
+        upcomingRenewals: renewals.slice(0, 15).map(renewalSnapshot),
+        reportFormat: [
+          "Executive summary",
+          "Savings found",
+          "Top waste drivers",
+          "Duplicate tools",
+          "Renewals needing action",
+          "Recommended next steps",
+        ],
       },
-      auditSummary: summary,
-      topVendors: vendors.slice(0, 20).map(vendorSnapshot),
-      upcomingRenewals: renewals.slice(0, 15).map(renewalSnapshot),
-      reportFormat: [
-        "Executive summary",
-        "Savings found",
-        "Top waste drivers",
-        "Duplicate tools",
-        "Renewals needing action",
-        "Recommended next steps",
-      ],
-    }),
+    ),
   });
 
   const report = await Report.create({
@@ -190,18 +231,35 @@ export const analyzeVendor = asyncHandler(async (req, res) => {
   await assertCanAnalyzeVendor(req.companyId);
 
   const { vendorId, vendorName, mode } = req.body;
-  const vendor = vendorId || vendorName ? await resolveVendor({ companyId: req.companyId, vendorId, vendorName, required: false }) : null;
+  const vendor =
+    vendorId || vendorName
+      ? await resolveVendor({
+          companyId: req.companyId,
+          vendorId,
+          vendorName,
+          required: false,
+        })
+      : null;
   const [vendors, subscriptions, renewals] = await Promise.all([
-    Vendor.find({ company: req.companyId }).sort({ monthlySpend: -1, name: 1 }).limit(80),
+    Vendor.find({ company: req.companyId })
+      .sort({ monthlySpend: -1, name: 1 })
+      .limit(80),
     Subscription.find({ company: req.companyId }).populate("vendor").limit(80),
-    Renewal.find({ company: req.companyId }).populate("vendor subscription").sort({ renewalDate: 1 }).limit(40),
+    Renewal.find({ company: req.companyId })
+      .populate("vendor subscription")
+      .sort({ renewalDate: 1 })
+      .limit(40),
   ]);
 
   const summary = buildAuditSummary({ vendors, subscriptions, renewals });
-  const analysisMode = mode ?? (vendor ? "waste_explanation" : "duplicate_tools");
+  const analysisMode =
+    mode ?? (vendor ? "waste_explanation" : "duplicate_tools");
 
   if (analysisMode === "waste_explanation" && !vendor) {
-    throw new AppError("vendorId or vendorName is required for waste explanation", 400);
+    throw new AppError(
+      "vendorId or vendorName is required for waste explanation",
+      400,
+    );
   }
 
   const analysis = await generateAiText({
@@ -215,7 +273,12 @@ export const analyzeVendor = asyncHandler(async (req, res) => {
         mode: analysisMode,
         workspace: await getWorkspaceContext(req),
         selectedVendor: vendor ? vendorSnapshot(vendor) : undefined,
-        selectedVendorEvidence: vendor ? buildWasteEvidence(vendor, await findRenewalForVendor(req.companyId, vendor._id)) : undefined,
+        selectedVendorEvidence: vendor
+          ? buildWasteEvidence(
+              vendor,
+              await findRenewalForVendor(req.companyId, vendor._id),
+            )
+          : undefined,
         auditSummary: summary,
         vendorsByCategory: groupVendorsByCategory(vendors),
         wasteSignals: summary.wasteSignals,
@@ -261,7 +324,9 @@ async function resolveVendor({ companyId, vendorId, vendorName, required }) {
 async function findRenewalForVendor(companyId, vendorId) {
   if (!vendorId) return null;
 
-  return Renewal.findOne({ company: companyId, vendor: vendorId }).sort({ renewalDate: 1 });
+  return Renewal.findOne({ company: companyId, vendor: vendorId }).sort({
+    renewalDate: 1,
+  });
 }
 
 async function getWorkspaceContext(req) {
@@ -295,7 +360,10 @@ function vendorSnapshot(vendor) {
     annualSpend: Number(vendor.monthlySpend ?? 0) * 12,
     seatsPurchased: vendor.seatsPurchased,
     activeSeats: vendor.activeSeats,
-    unusedSeats: Math.max(Number(vendor.seatsPurchased ?? 0) - Number(vendor.activeSeats ?? 0), 0),
+    unusedSeats: Math.max(
+      Number(vendor.seatsPurchased ?? 0) - Number(vendor.activeSeats ?? 0),
+      0,
+    ),
     lastUsedAt: vendor.lastUsedAt,
     daysSinceLastUse: vendor.lastUsedAt ? daysSince(vendor.lastUsedAt) : null,
     renewalDate: vendor.renewalDate,
@@ -325,7 +393,10 @@ function buildWasteEvidence(vendor, renewal) {
   if (!vendor) return [];
 
   const evidence = [];
-  const unusedSeats = Math.max(Number(vendor.seatsPurchased ?? 0) - Number(vendor.activeSeats ?? 0), 0);
+  const unusedSeats = Math.max(
+    Number(vendor.seatsPurchased ?? 0) - Number(vendor.activeSeats ?? 0),
+    0,
+  );
 
   if (vendor.status !== "active") {
     evidence.push(`Vendor status is ${vendor.status}.`);
@@ -336,21 +407,31 @@ function buildWasteEvidence(vendor, renewal) {
   }
 
   if (unusedSeats > 0) {
-    evidence.push(`${unusedSeats} of ${vendor.seatsPurchased} purchased seats appear unused.`);
+    evidence.push(
+      `${unusedSeats} of ${vendor.seatsPurchased} purchased seats appear unused.`,
+    );
   }
 
   if (vendor.lastUsedAt) {
-    evidence.push(`Last detected usage was ${daysSince(vendor.lastUsedAt)} days ago.`);
+    evidence.push(
+      `Last detected usage was ${daysSince(vendor.lastUsedAt)} days ago.`,
+    );
   }
 
   if (vendor.monthlySpend) {
-    evidence.push(`Monthly spend is $${Number(vendor.monthlySpend).toLocaleString("en-US")}.`);
+    evidence.push(
+      `Monthly spend is $${Number(vendor.monthlySpend).toLocaleString("en-US")}.`,
+    );
   }
 
   if (renewal?.renewalDate) {
-    evidence.push(`Renewal date is ${new Date(renewal.renewalDate).toISOString().slice(0, 10)}.`);
+    evidence.push(
+      `Renewal date is ${new Date(renewal.renewalDate).toISOString().slice(0, 10)}.`,
+    );
   } else if (vendor.renewalDate) {
-    evidence.push(`Vendor renewal date is ${new Date(vendor.renewalDate).toISOString().slice(0, 10)}.`);
+    evidence.push(
+      `Vendor renewal date is ${new Date(vendor.renewalDate).toISOString().slice(0, 10)}.`,
+    );
   }
 
   return evidence;
@@ -372,7 +453,9 @@ function groupVendorsByCategory(vendors) {
 }
 
 function daysSince(date) {
-  return Math.floor((Date.now() - new Date(date).getTime()) / (24 * 60 * 60 * 1000));
+  return Math.floor(
+    (Date.now() - new Date(date).getTime()) / (24 * 60 * 60 * 1000),
+  );
 }
 
 function escapeRegex(value) {

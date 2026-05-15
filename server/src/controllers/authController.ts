@@ -207,7 +207,6 @@ export const startGoogleOAuth = asyncHandler(async (req, res) => {
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("scope", "openid email profile");
   authUrl.searchParams.set("state", state);
-  authUrl.searchParams.set("prompt", "select_account");
 
   res.cookie(OAUTH_STATE_COOKIE, state, {
     httpOnly: true,
@@ -236,9 +235,17 @@ export const handleGoogleOAuthCallback = asyncHandler(async (req, res) => {
   const { user, company } = await findOrCreateGoogleUser(googleProfile, statePayload.plan);
   const token = signAuthToken(user);
   const callbackUrl = new URL("/oauth/google", env.appUrl);
+  const session = encodeOAuthSession({
+    user: serializeUser(user),
+    company,
+  });
+  const callbackParams = new URLSearchParams({
+    token,
+    session,
+    returnTo: statePayload.returnTo,
+  });
 
-  callbackUrl.searchParams.set("token", token);
-  callbackUrl.searchParams.set("returnTo", statePayload.returnTo);
+  callbackUrl.hash = callbackParams.toString();
   res.clearCookie(OAUTH_STATE_COOKIE);
   res.redirect(callbackUrl.toString());
 });
@@ -344,6 +351,10 @@ function verifyOAuthState(state: string): OAuthStatePayload {
   } catch {
     throw new AppError("Google sign-in session expired. Please try again.", 400);
   }
+}
+
+function encodeOAuthSession(session: unknown) {
+  return Buffer.from(JSON.stringify(session)).toString("base64url");
 }
 
 async function exchangeGoogleCode(code: string): Promise<GoogleTokenResponse> {

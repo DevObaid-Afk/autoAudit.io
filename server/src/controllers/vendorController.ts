@@ -1,4 +1,5 @@
 import { Vendor } from "../models/Vendor.js";
+import mongoose from "mongoose";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { classifyVendorWaste } from "../services/wasteDetection.js";
 import { AppError } from "../utils/AppError.js";
@@ -162,6 +163,26 @@ export const deleteVendor = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
+export const bulkDeleteVendors = asyncHandler(async (req, res) => {
+  const vendorIds = cleanVendorIds(req.body.vendorIds);
+  const result = await Vendor.deleteMany({ _id: { $in: vendorIds }, company: req.companyId });
+
+  await recordAuditLog(req, {
+    action: "vendor.bulk_deleted",
+    resourceType: "vendor",
+    resourceId: undefined,
+    metadata: { count: result.deletedCount, vendorIds },
+  });
+  await recordActivity(req, {
+    action: "vendor.bulk_deleted",
+    entityType: "vendor",
+    entityName: "Bulk delete",
+    metadata: { count: result.deletedCount },
+  });
+
+  res.json({ deletedCount: result.deletedCount });
+});
+
 function sanitizeVendorInput(body, { partial }) {
   const input = {
     name: cleanString(body.name, { required: !partial, field: "Vendor name", max: 140 }),
@@ -189,4 +210,21 @@ function sanitizeVendorInput(body, { partial }) {
 
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function cleanVendorIds(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new AppError("Choose at least one vendor to delete", 400);
+  }
+
+  const ids = value.map((item) => String(item));
+  if (ids.length > 500) {
+    throw new AppError("Bulk delete supports up to 500 vendors at a time", 400);
+  }
+
+  if (ids.some((id) => !mongoose.Types.ObjectId.isValid(id))) {
+    throw new AppError("One or more vendor IDs are invalid", 400);
+  }
+
+  return Array.from(new Set(ids));
 }

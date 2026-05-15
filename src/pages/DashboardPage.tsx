@@ -16,6 +16,7 @@ import {
   YAxis,
 } from "recharts";
 import {
+  AlertOctagon,
   AlertTriangle,
   BadgeDollarSign,
   Bell,
@@ -54,7 +55,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { ChangeEvent, ReactNode } from "react";
-import { activityApi, aiApi, analyticsApi, auditApi, authApi, billingApi, contactApi, onboardingApi, profileApi, renewalApi, reportApi, savingsApi, teamApi, vendorApi } from "../api/services";
+import { activityApi, aiApi, analyticsApi, auditApi, authApi, billingApi, contactApi, onboardingApi, profileApi, renewalApi, reportApi, savingsApi, teamApi, vendorApi, workspaceApi } from "../api/services";
 import { getApiErrorMessage, resolveApiAssetUrl } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { PageMeta } from "../components/PageMeta";
@@ -651,6 +652,11 @@ export function DashboardPage() {
     showToast("Saving confirmed.");
   };
 
+  const handleWorkspaceDeleted = () => {
+    logout();
+    navigate("/", { replace: true });
+  };
+
   return (
     <div className="min-h-screen bg-canvas text-ink">
       <PageMeta title="Dashboard - AutoAudit.ai" description="Signed-in AutoAudit.ai SaaS waste control dashboard." canonicalPath="/dashboard" noindex />
@@ -729,7 +735,7 @@ export function DashboardPage() {
               )}
               {activePage === "billing" && <PlanPage company={company} vendorCount={dashboardVendors.length} onToast={showToast} />}
               {activePage === "team" && canManageTeam && <TeamPage currentUser={user} onActivityRefresh={async () => { await Promise.all([refreshActivityData(), refreshOnboardingData()]); }} onToast={showToast} />}
-              {activePage === "settings" && <SettingsPage company={company} companySettings={company?.settings} user={user} onToast={showToast} onUserUpdate={updateUser} />}
+              {activePage === "settings" && <SettingsPage company={company} companySettings={company?.settings} user={user} vendors={apiVendors} onToast={showToast} onUserUpdate={updateUser} onWorkspaceDeleted={handleWorkspaceDeleted} />}
               <div className="mt-6 grid gap-4">
                 {user && !user.emailVerifiedAt && <EmailVerificationBanner email={user.email} onResend={handleResendVerification} />}
                 {company && <TrialStatusBanner company={company} isLoadingDemo={isLoadingDemo} vendorCount={dashboardVendors.length} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} />}
@@ -3307,18 +3313,23 @@ function SettingsPage({
   company,
   companySettings,
   user,
+  vendors,
   onToast,
   onUserUpdate,
+  onWorkspaceDeleted,
 }: {
   company: ApiCompany | null;
   companySettings: ApiCompany["settings"];
   user: ApiUser | null;
+  vendors: ApiVendor[];
   onToast: (message: string) => void;
   onUserUpdate: (user: ApiUser) => void;
+  onWorkspaceDeleted: () => void;
 }) {
   const [settings, setSettings] = useState(() => {
     return mapCompanySettings(companySettings);
   });
+  const [activeSettingsTab, setActiveSettingsTab] = useState<"workspace" | "data">("workspace");
   const [isSaving, setSaving] = useState(false);
   const [contactRequests, setContactRequests] = useState<ApiContactRequest[]>([]);
   const [isLoadingRequests, setLoadingRequests] = useState(false);
@@ -3379,6 +3390,27 @@ function SettingsPage({
   return (
     <div className="grid gap-4">
       {user && company && <ProfileAvatarPanel company={company} user={user} onToast={onToast} onUserUpdate={onUserUpdate} />}
+
+      <div className="flex flex-wrap gap-2 rounded-lg border border-line bg-panel p-2">
+        {[
+          { id: "workspace", label: "Workspace Settings" },
+          { id: "data", label: "Data & Privacy" },
+        ].map((tab) => (
+          <button
+            className={`min-h-10 rounded-lg px-4 text-sm font-extrabold transition ${activeSettingsTab === tab.id ? "bg-brand text-white" : "text-quiet hover:bg-panel-muted hover:text-ink"}`}
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveSettingsTab(tab.id as "workspace" | "data")}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeSettingsTab === "data" && company && <DataPrivacyPanel company={company} currentUser={user} initialVendors={vendors} onToast={onToast} onWorkspaceDeleted={onWorkspaceDeleted} />}
+
+      {activeSettingsTab === "workspace" && (
+        <>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
         <Panel title="Integrations" eyebrow="Data sources">
@@ -3474,6 +3506,181 @@ function SettingsPage({
             ))}
           </div>
         )}
+      </Panel>
+        </>
+      )}
+    </div>
+  );
+}
+
+function DataPrivacyPanel({
+  company,
+  currentUser,
+  initialVendors,
+  onToast,
+  onWorkspaceDeleted,
+}: {
+  company: ApiCompany;
+  currentUser: ApiUser | null;
+  initialVendors: ApiVendor[];
+  onToast: (message: string) => void;
+  onWorkspaceDeleted: () => void;
+}) {
+  const [vendors, setVendors] = useState<ApiVendor[]>(initialVendors);
+  const [selectedVendorIds, setSelectedVendorIds] = useState<string[]>([]);
+  const [companyNameConfirmation, setCompanyNameConfirmation] = useState("");
+  const [isExporting, setExporting] = useState(false);
+  const [isBulkDeleting, setBulkDeleting] = useState(false);
+  const [isDeletingWorkspace, setDeletingWorkspace] = useState(false);
+  const isOwner = currentUser?.role === "owner";
+  const canBulkDelete = currentUser?.role === "owner" || currentUser?.role === "admin";
+  const selectedCount = selectedVendorIds.length;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    vendorApi
+      .list({ limit: 100 })
+      .then((response) => {
+        if (isMounted) setVendors(response.vendors);
+      })
+      .catch(() => {
+        if (isMounted) setVendors(initialVendors);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [initialVendors]);
+
+  const toggleVendor = (vendorId: string) => {
+    setSelectedVendorIds((current) => (current.includes(vendorId) ? current.filter((id) => id !== vendorId) : [...current, vendorId]));
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+
+    try {
+      const exportData = await workspaceApi.export();
+      const date = new Date().toISOString().slice(0, 10);
+      downloadTextFile(`autoaudit-export-${date}.json`, JSON.stringify(exportData, null, 2), onToast);
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedCount === 0) return;
+    const confirmed = window.confirm(`Delete ${selectedCount} selected vendor${selectedCount === 1 ? "" : "s"}? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setBulkDeleting(true);
+
+    try {
+      const result = await vendorApi.bulkRemove(selectedVendorIds);
+      setVendors((current) => current.filter((vendor) => !selectedVendorIds.includes(vendor._id)));
+      setSelectedVendorIds([]);
+      onToast(`${result.deletedCount} vendor${result.deletedCount === 1 ? "" : "s"} deleted.`);
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const handleDeleteWorkspace = async () => {
+    if (companyNameConfirmation !== company.name) return;
+    const confirmed = window.confirm(`Delete "${company.name}" and all workspace data permanently? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setDeletingWorkspace(true);
+
+    try {
+      await workspaceApi.remove(companyNameConfirmation);
+      onWorkspaceDeleted();
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+      setDeletingWorkspace(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-4">
+      <PageHeader
+        eyebrow="Data controls"
+        title="Data & Privacy"
+        detail="Export workspace records, clean up vendors in bulk, or permanently delete this workspace."
+        action={<Download aria-hidden="true" className="text-brand" size={24} />}
+      />
+
+      <Panel title="Export workspace data" eyebrow={isOwner ? "Owner only" : "Requires owner role"}>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="max-w-2xl text-sm leading-6 text-quiet">
+            Download a JSON export containing company settings, vendors, reports, savings entries, and activity logs.
+          </p>
+          <PrimaryButton onClick={handleExport}>
+            {isExporting ? "Exporting..." : "Export Workspace Data"}
+          </PrimaryButton>
+        </div>
+      </Panel>
+
+      <Panel title="Bulk delete vendors" eyebrow={canBulkDelete ? `${selectedCount} selected` : "Requires admin or owner"}>
+        <div className="rounded-lg border border-warning/20 bg-warning-soft px-4 py-3 text-sm font-bold text-warning">
+          Vendor bulk deletion is irreversible. Select only records you are certain should be removed.
+        </div>
+        {vendors.length === 0 ? (
+          <EmptyState title="No vendors to delete" detail="Vendor records will appear here after you add or import them." />
+        ) : (
+          <div className="mt-4 max-h-[360px] overflow-auto rounded-lg border border-line">
+            {vendors.map((vendor) => (
+              <label className="flex cursor-pointer items-center gap-3 border-b border-line/60 bg-panel-subtle px-4 py-3 last:border-b-0 hover:bg-panel-muted" key={vendor._id}>
+                <input
+                  className="size-4 accent-brand"
+                  type="checkbox"
+                  checked={selectedVendorIds.includes(vendor._id)}
+                  disabled={!canBulkDelete}
+                  onChange={() => toggleVendor(vendor._id)}
+                />
+                <span className="min-w-0 flex-1">
+                  <strong className="block truncate text-sm font-extrabold">{vendor.name}</strong>
+                  <span className="mt-1 block text-xs font-bold text-quiet">{vendor.category || "Uncategorized"} - {currency(Number(vendor.monthlySpend ?? 0))}/mo</span>
+                </span>
+                <span className="rounded-full bg-panel-muted px-2.5 py-1 text-xs font-extrabold uppercase text-quiet">{vendor.status}</span>
+              </label>
+            ))}
+          </div>
+        )}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <button className="rounded-lg border border-line px-3 py-2 text-sm font-extrabold text-quiet transition hover:border-brand hover:text-brand" type="button" disabled={!canBulkDelete} onClick={() => setSelectedVendorIds(vendors.map((vendor) => vendor._id))}>
+            Select all visible
+          </button>
+          <button className="min-h-10 rounded-lg bg-risk px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50" type="button" disabled={!canBulkDelete || selectedCount === 0 || isBulkDeleting} onClick={handleBulkDelete}>
+            {isBulkDeleting ? "Deleting..." : `Delete ${selectedCount || ""} vendor${selectedCount === 1 ? "" : "s"}`}
+          </button>
+        </div>
+      </Panel>
+
+      <Panel title="Delete workspace" eyebrow="Danger zone">
+        <div className="grid gap-4 rounded-lg border border-risk/30 bg-risk-soft p-4 text-risk">
+          <div className="flex gap-3">
+            <AlertOctagon aria-hidden="true" className="mt-0.5 shrink-0" size={22} />
+            <div>
+              <strong className="block text-sm font-extrabold">This permanently deletes the workspace and all associated data.</strong>
+              <p className="mt-2 text-sm leading-6">
+                Vendors, reports, savings entries, team invites, activity logs, users, subscriptions, renewals, and audit logs for this company will be removed.
+              </p>
+            </div>
+          </div>
+          <Field label={`Type "${company.name}" to confirm`}>
+            <input className="input border-risk/30 bg-white text-risk placeholder:text-risk/50" value={companyNameConfirmation} disabled={!isOwner} onChange={(event) => setCompanyNameConfirmation(event.target.value)} />
+          </Field>
+          <button className="min-h-11 rounded-lg bg-risk px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50" type="button" disabled={!isOwner || companyNameConfirmation !== company.name || isDeletingWorkspace} onClick={handleDeleteWorkspace}>
+            {isDeletingWorkspace ? "Deleting workspace..." : "Delete Workspace Permanently"}
+          </button>
+          {!isOwner && <p className="text-sm font-bold">Only the workspace owner can delete or export the workspace.</p>}
+        </div>
       </Panel>
     </div>
   );

@@ -15,7 +15,7 @@ type AuthContextValue = {
   updateUser: (user: ApiUser) => void;
   login: (input: { email: string; password: string }) => Promise<void>;
   signup: (input: { name: string; email: string; password: string; companyName: string; companyDomain?: string; plan?: string }) => Promise<void>;
-  completeOAuthLogin: (token: string) => Promise<void>;
+  completeOAuthLogin: (token: string, session?: { user: ApiUser; company: ApiCompany }) => Promise<void>;
   logout: () => void;
 };
 
@@ -91,10 +91,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCompany(response.company);
   }, []);
 
-  const completeOAuthLogin = useCallback(async (nextToken: string) => {
+  const completeOAuthLogin = useCallback(async (nextToken: string, session?: { user: ApiUser; company: ApiCompany }) => {
     setAuthError("");
     setStoredToken(nextToken);
     setToken(nextToken);
+    if (session) {
+      setUser(session.user);
+      setCompany(session.company);
+      setBootstrapping(false);
+      return;
+    }
+
     const profile = await authApi.me();
     setUser(profile.user);
     setCompany(profile.company);
