@@ -1,5 +1,5 @@
 AutoAudit.ai Updated SaaS Documentation
-Last updated: 2026-05-14
+Last updated: 2026-05-17
 
 ============================================================
 1. PRODUCT SUMMARY
@@ -17,12 +17,15 @@ The product helps a company:
 - Generate CFO-ready reports from vendor evidence.
 - Draft vendor cancellation, renegotiation, and seat-reduction emails with AI.
 - Keep all vendor actions human-reviewed.
+- Create persistent action items from waste findings.
+- Send weekly renewal digest emails to workspace owners.
 - Export reports and renewal calendars.
 - Prepare for paid subscription activation through Stripe Checkout.
 
 The current product is an MVP/early-access SaaS with a real frontend, protected
 dashboard, Express API, MongoDB data models, JWT authentication, role-based
-permissions, audit logs, OpenAI-assisted workflows, and Stripe-ready billing.
+permissions, audit logs, activity logs, OpenAI-assisted workflows, Resend-backed
+email workflows, and Stripe-ready billing.
 
 The core trust promise is:
 
@@ -141,11 +144,21 @@ Authentication and security:
 
 - JWT
 - bcryptjs password hashing
+- Password strength enforcement on signup and password reset
+- Temporary account lockout after repeated failed password login attempts
+- Session invalidation after password reset/password change
 - Google OAuth / OpenID Connect sign-in
 - Helmet security headers
 - CORS allow-listing
 - express-rate-limit
 - Role-based authorization
+
+Email and scheduling:
+
+- Resend API for transactional emails
+- node-cron for scheduled weekly renewal digest jobs
+- Email delivery logs for diagnostics
+- SPF, DKIM, and DMARC setup documented for production deliverability
 
 AI:
 
@@ -209,6 +222,9 @@ Root-level important files:
 - docs/DEPLOYMENT.md
   Deployment notes.
 
+- docs/EMAIL_DELIVERABILITY.md
+  SPF, DKIM, DMARC, Resend domain verification, and email testing guide.
+
 Frontend folders:
 
 - src/api
@@ -251,7 +267,11 @@ Backend folders:
   Express route modules.
 
 - server/src/services
-  AI service, email service, plan limits, waste detection.
+  AI service, email service, renewal digest service, plan limits, waste
+  detection.
+
+- server/src/jobs
+  Scheduled backend jobs such as the weekly renewal digest cron.
 
 - server/src/utils
   Shared utility functions.
@@ -464,6 +484,12 @@ Backend behavior:
 - Sends a verification email when email service is configured.
 - Returns a JWT token.
 
+Security UX:
+
+- Shows live password strength.
+- Requires at least 4 of 5 password rules before submit is enabled.
+- Rules include length, uppercase, lowercase, number, and special character.
+
 2. Login page
 
 File:
@@ -480,6 +506,15 @@ Backend behavior:
 - Validates credentials.
 - Compares password against bcrypt hash.
 - Returns JWT token, user, and company data.
+- Tracks failed password attempts for email/password accounts.
+- Locks the account for 15 minutes after 5 failed password attempts.
+- Returns remaining attempts after incorrect password entries.
+
+Security UX:
+
+- Shows remaining attempts before lockout.
+- During lockout, hides the password field and shows the time remaining.
+- Shows a session-expired banner when a password reset invalidates an old JWT.
 
 3. Forgot password page
 
@@ -501,6 +536,9 @@ File:
 Purpose:
 
 - Lets users set a new password using a valid reset token.
+- Shows the same live password strength meter as signup.
+- Requires at least "Strong" password strength before reset is enabled.
+- Invalidates older JWT sessions after the password is changed.
 
 5. Verify email page
 
@@ -528,7 +566,10 @@ Dashboard sections:
 - Waste Detection
 - Renewals
 - Reports
+- Savings
+- Activity
 - AI Email Generator
+- Team
 - Plan
 - Settings
 
@@ -615,7 +656,8 @@ Purpose:
 
 - Shows highest-impact waste signals.
 - Supports AI explanation of duplicate tools and vendor waste.
-- Lets users add signals to an action queue.
+- Lets users create persistent action items from waste signals.
+- Lets users update action status and mark actions done.
 - Shows unused seat table.
 - Shows duplicate tools panel.
 
@@ -648,6 +690,7 @@ Examples of evidence:
 Trust role:
 
 - Users can verify recommendations instead of blindly trusting AI or hidden logic.
+- Action items remain after refresh and can support follow-up work.
 
 4. Renewals
 
@@ -778,6 +821,43 @@ Trust role:
 
 - Gives admins more control over workspace behavior.
 
+9. Team
+
+Function/component:
+
+- TeamPage
+
+Purpose:
+
+- Lists workspace members.
+- Invites new members as viewer, member, or admin.
+- Lets owners change roles and remove non-owner members.
+- Supports invite acceptance through emailed invite links.
+
+10. Activity
+
+Function/component:
+
+- ActivityPage
+
+Purpose:
+
+- Shows recent workspace activity.
+- Filters activity by entity type.
+- Includes vendor, report, savings, team, settings, and action item events.
+
+11. Savings
+
+Function/component:
+
+- SavingsPage
+
+Purpose:
+
+- Shows confirmed savings entries.
+- Summarizes monthly and annual savings.
+- Lets users delete savings entries when role permits.
+
 
 ============================================================
 9. FRONTEND API SERVICE FUNCTIONS
@@ -799,6 +879,7 @@ Functions:
 - resetPassword(input)
 - verifyEmail(input)
 - requestEmailVerification(input)
+- unlock(input)
 - me()
 
 Purpose:
@@ -829,12 +910,28 @@ Functions:
 - create(input)
 - update(id, input)
 - remove(id)
+- bulkRemove(vendorIds)
 
 Purpose:
 
 - Handles vendor inventory CRUD operations.
+- Supports bulk deletion for selected vendors.
 
-4. auditApi
+4. actionItemApi
+
+Functions:
+
+- list(params)
+- create(input)
+- updateStatus(id, status)
+- remove(id)
+
+Purpose:
+
+- Handles persistent action items created from waste signals.
+- Supports status updates such as open, in progress, and done.
+
+5. auditApi
 
 Functions:
 
@@ -844,7 +941,7 @@ Purpose:
 
 - Fetches audit summary data used by dashboard metrics and waste detection.
 
-5. renewalApi
+6. renewalApi
 
 Functions:
 
@@ -854,7 +951,7 @@ Purpose:
 
 - Fetches renewal rows and renewal exposure data.
 
-6. aiApi
+7. aiApi
 
 Functions:
 
@@ -867,7 +964,7 @@ Purpose:
 
 - Calls AI-powered backend routes for emails, reports, and waste explanations.
 
-7. contactApi
+8. contactApi
 
 Functions:
 
@@ -881,7 +978,7 @@ Purpose:
 - Handles contact requests, manual upgrade requests, and admin contact request
   management.
 
-8. reportApi
+9. reportApi
 
 Functions:
 
@@ -891,7 +988,7 @@ Purpose:
 
 - Fetches saved reports.
 
-9. billingApi
+10. billingApi
 
 Functions:
 
@@ -901,7 +998,7 @@ Purpose:
 
 - Starts Stripe Checkout for Starter or Standard plans.
 
-10. analyticsApi
+11. analyticsApi
 
 Functions:
 
@@ -910,6 +1007,16 @@ Functions:
 Purpose:
 
 - Sends analytics events without blocking core product flows.
+
+12. activityApi
+
+Functions:
+
+- list(params)
+
+Purpose:
+
+- Fetches workspace activity feed entries.
 
 
 ============================================================
@@ -923,8 +1030,13 @@ Base API router:
 Mounted routes:
 
 - /api/auth
+- /api/admin
 - /api/analytics
+- /api/action-items
+- /api/activity
 - /api/contact
+- /api/notifications
+- /api/onboarding
 - /api/profile
 - /api/billing
 - /api/vendors
@@ -934,6 +1046,9 @@ Mounted routes:
 - /api/renewals
 - /api/reports
 - /api/ai
+- /api/team
+- /api/workspace
+- /api/savings
 
 Public API routes:
 
@@ -951,15 +1066,25 @@ Public API routes:
 Protected API routes:
 
 - GET /api/profile/me
+- POST /api/auth/unlock
 - GET /api/profile/avatar-access
 - POST /api/profile/avatar-upload
 - POST /api/profile/avatar-generate
 - POST /api/profile/avatar-save
 - DELETE /api/profile/avatar
 - PATCH /api/profile/company-settings
+- GET /api/admin/email-logs
+- GET /api/action-items
+- POST /api/action-items
+- PATCH /api/action-items/:id
+- DELETE /api/action-items/:id
+- GET /api/activity
+- POST /api/notifications/test-digest
 - POST /api/billing/checkout
 - GET /api/vendors
 - POST /api/vendors
+- POST /api/vendors/import
+- DELETE /api/vendors/bulk
 - PATCH /api/vendors/:id
 - DELETE /api/vendors/:id
 - GET /api/subscriptions
@@ -986,6 +1111,12 @@ Role-protected routes:
 
 - Owner only:
   - Delete vendor
+  - View internal email logs
+  - Trigger test renewal digest
+  - Export/delete workspace data
+
+- Admin only:
+  - Unlock a temporarily locked account through /api/auth/unlock
 
 
 ============================================================
@@ -1006,6 +1137,7 @@ Functions:
 - forgotPassword
 - resetPassword
 - login
+- unlockUser
 - startGoogleOAuth
 - handleGoogleOAuthCallback
 
@@ -1022,6 +1154,11 @@ Responsibilities:
 - Create verification/reset tokens.
 - Send verification/reset emails.
 - Sign JWT auth tokens.
+- Track failed password attempts.
+- Lock email/password accounts after repeated failed login attempts.
+- Reset lockout state after successful login or password reset.
+- Set passwordChangedAt after password reset so older JWTs are rejected.
+- Unlock accounts through the admin-only unlock endpoint.
 - Serialize user data safely.
 
 2. Profile controller
@@ -1210,7 +1347,43 @@ Responsibilities:
 - Send contact notifications when email service is configured.
 - Let admins review and update request statuses.
 
-11. Audit log controller
+11. Action item controller
+
+File:
+
+- server/src/controllers/actionItemController.js
+
+Functions:
+
+- listActionItems
+- createActionItem
+- updateActionItem
+- deleteActionItem
+
+Responsibilities:
+
+- Store action items created from waste signals.
+- Scope action items to the current company.
+- Track vendor name, signal type, impact, priority, and status.
+- Let users mark actions open, in progress, or done.
+- Record activity entries for action item changes.
+
+12. Admin controller
+
+File:
+
+- server/src/controllers/adminController.js
+
+Functions:
+
+- listEmailLogs
+
+Responsibilities:
+
+- Return the last 100 masked email log entries.
+- Provide owner-only email delivery diagnostics.
+
+13. Audit log controller
 
 File:
 
@@ -1319,13 +1492,41 @@ Functions:
 - sendContactNotification
 - sendVerificationEmail
 - sendPasswordResetEmail
+- sendTeamInviteEmail
+- sendRenewalDigestEmail
 
 Responsibilities:
 
 - Send emails when Resend configuration is present.
-- Support contact notifications, account verification, and password reset.
+- Support contact notifications, account verification, password reset, team
+  invites, and weekly renewal digests.
+- Normalize outgoing From as AutoAudit.ai <noreply@verified-domain>.
+- Add Reply-To as support@verified-domain.
+- Add X-Mailer: AutoAudit.ai headers.
+- Log send attempts to EmailLog with masked recipient addresses.
+- Capture failed send attempts in Sentry with masked recipient context.
 
-4. Plan limits service
+4. Renewal digest service
+
+File:
+
+- server/src/services/renewalDigestService.js
+
+Functions:
+
+- sendWeeklyRenewalDigests
+- sendCompanyRenewalDigest
+
+Responsibilities:
+
+- Find companies with weekly renewal digest enabled.
+- Find vendors renewing in the next 30 days.
+- Group vendors into 0-7, 8-14, and 15-30 day windows.
+- Skip empty digests.
+- Send digest emails to workspace owners.
+- Record an activity entry when a digest is sent.
+
+5. Plan limits service
 
 File:
 
@@ -1404,6 +1605,9 @@ Fields include:
 - avatarSource
 - avatarUpdatedAt
 - avatarGenerationUsage
+- failedLoginAttempts
+- lockoutUntil
+- passwordChangedAt
 - emailVerificationTokenHash
 - emailVerificationExpiresAt
 - passwordResetTokenHash
@@ -1414,6 +1618,7 @@ Roles:
 - owner
 - admin
 - member
+- viewer
 
 3. Vendor
 
@@ -1520,6 +1725,72 @@ Purpose:
 
 - Stores product analytics events.
 
+10. ActivityLog
+
+File:
+
+- server/src/models/ActivityLog.js
+
+Purpose:
+
+- Stores workspace activity feed events.
+- Supports entity types such as vendor, report, email_draft, savings, team,
+  settings, and action_item.
+
+11. SavingsEntry
+
+File:
+
+- server/src/models/SavingsEntry.js
+
+Purpose:
+
+- Stores confirmed savings created from reviewed waste findings.
+
+12. ActionItem
+
+File:
+
+- server/src/models/ActionItem.js
+
+Fields include:
+
+- companyId
+- vendorId
+- vendorName
+- title
+- detail
+- signalType
+- impact
+- priority
+- status
+- createdBy
+- completedAt
+
+Purpose:
+
+- Stores persistent action items created from waste findings.
+
+13. EmailLog
+
+File:
+
+- server/src/models/EmailLog.js
+
+Fields include:
+
+- type
+- recipientMasked
+- status
+- errorMessage
+- companyId
+- createdAt
+
+Purpose:
+
+- Stores masked email send diagnostics without retaining full recipient
+  addresses.
+
 
 ============================================================
 14. SECURITY, TRUST, AND CONTROL FEATURES
@@ -1528,7 +1799,12 @@ Purpose:
 Current security features:
 
 - Passwords hashed with bcrypt.
+- Frontend password strength enforcement for signup and password reset.
+- Account lockout after 5 failed email/password login attempts.
+- 15-minute temporary lockout with remaining time shown in the login UI.
+- Admin-only account unlock endpoint for future internal support use.
 - JWT authentication.
+- JWT session invalidation after password reset through passwordChangedAt.
 - Google sign-in through OAuth/OpenID Connect.
 - Google OAuth callback state validation through a signed short-lived state
   token and HTTP-only state cookie.
@@ -1547,6 +1823,10 @@ Current security features:
 - Audit logs for write actions.
 - Email verification flow.
 - Password reset flow with hashed reset token.
+- Masked email delivery logs.
+- Owner-only internal email log diagnostics endpoint.
+- Email deliverability setup guide for SPF, DKIM, DMARC, and Resend domain
+  verification.
 
 Google sign-in behavior:
 
@@ -1587,7 +1867,12 @@ Current trust features:
 - Founder/About Developer page.
 - Visible AI guardrail messaging.
 - Human-reviewed action model.
+- Persistent action items from waste findings.
+- Confirmed savings ledger.
+- Workspace activity feed.
 - "Why flagged" evidence in dashboard waste signals.
+- Weekly renewal digest emails for opted-in companies.
+- Email deliverability and diagnostics documentation.
 - Report exports.
 - Stripe-hosted checkout path.
 - Manual payment fallback.
@@ -1808,7 +2093,7 @@ Possible reporting improvements:
 - Board/investor summary template.
 - Per-finding evidence table in exported report.
 - Export all vendor rows as CSV.
-- Export action queue as CSV.
+- Export saved action items as CSV.
 
 
 ============================================================
@@ -1852,13 +2137,10 @@ Product limitations:
 - Most vendor evidence is still manual or CSV-based.
 - No live Google/Microsoft/Okta usage ingestion yet.
 - No automated spend ingestion from accounting/card systems yet.
-- No team invite UI yet.
-- No full team management screen yet.
 - No owner transfer UI yet.
-- No role-change UI yet.
-- No savings capture ledger yet.
-- No workflow status per finding yet.
 - No approval workflow for finance/procurement.
+- Action item workflow is intentionally lightweight and does not yet support
+  assignees, due dates, comments, or approvals.
 
 Billing limitations:
 
@@ -1898,19 +2180,18 @@ AI limitations:
 
 Highest-priority user trust improvements:
 
-1. Add team management
+1. Expand action item workflow
 
-- Invite teammates.
-- Change roles.
-- Remove users.
-- Transfer ownership.
-- Show who has access to vendor data.
+- Assign actions to teammates.
+- Add due dates.
+- Add comments.
+- Add approval states.
+- Export action items.
 
-2. Add savings capture ledger
+2. Expand savings capture ledger
 
 - Mark finding as reviewed.
 - Mark finding as accepted or rejected.
-- Mark action as completed.
 - Record expected savings.
 - Record captured savings.
 - Show total realized savings over time.
@@ -1942,12 +2223,13 @@ Highest-priority user trust improvements:
 
 - Increases trust for finance/ops users.
 
-7. Add workspace activity feed
+7. Expand workspace activity feed
 
 - Show vendor created/updated/deleted.
 - Show reports generated.
 - Show AI drafts generated.
 - Show billing events.
+- Show email diagnostics and action item updates.
 
 8. Add report sharing controls
 
@@ -2049,8 +2331,8 @@ Phase 1: Trust and conversion
 
 - Finish Stripe webhook activation.
 - Add Customer Portal.
-- Add team invite and role management.
-- Add savings capture ledger.
+- Expand team role management with owner transfer.
+- Expand savings and action item workflow with assignments and due dates.
 - Improve exported reports with evidence tables.
 
 Phase 2: Evidence quality
@@ -2066,14 +2348,14 @@ Phase 3: Finance workflow
 - Add Stripe/Ramp/Brex spend import.
 - Add approval workflow.
 - Add vendor owner review queue.
-- Add monthly digest emails.
+- Add monthly executive digest emails.
 
 Phase 4: Enterprise trust
 
 - Add MFA.
 - Add SSO/SAML.
 - Add audit log export.
-- Add security documentation.
+- Expand security documentation into a formal security whitepaper.
 - Add DPA.
 - Add SOC 2 readiness work.
 
@@ -2238,6 +2520,15 @@ Email variables:
 - RESEND_API_KEY
 - EMAIL_FROM
 
+Email deliverability:
+
+- EMAIL_FROM must use a domain verified in Resend for production delivery.
+- Production sender format should be:
+  AutoAudit.ai <noreply@yourdomain.com>
+- The email service derives Reply-To as support@yourdomain.com.
+- DNS setup is documented in docs/EMAIL_DELIVERABILITY.md.
+- Required DNS records include SPF, DKIM, and DMARC.
+
 Sentry variables:
 
 - SENTRY_DSN
@@ -2272,13 +2563,17 @@ The most important recent improvements are:
 
 1. "Why flagged" dashboard evidence for waste findings.
 2. TXT, CSV, and print-to-PDF report exports.
-3. Stripe Checkout-ready billing flow for Starter and Standard.
+3. Persistent action items and confirmed savings workflow.
+4. Weekly renewal digest emails and owner-only test digest endpoint.
+5. Password strength enforcement, account lockout, and session invalidation.
+6. Email deliverability documentation and masked email send logs.
+7. Stripe Checkout-ready billing flow for Starter and Standard.
 
 The next most important improvements are:
 
 1. Stripe webhook completion.
-2. Team invites and role management.
-3. Savings capture ledger.
+2. Action item assignments, due dates, and approval states.
+3. Owner transfer and deeper team governance.
 4. First usage/spend integration.
 5. Stronger security controls such as MFA and SSO.
 

@@ -73,6 +73,7 @@ export async function sendCompanyRenewalDigest(companyId: mongoose.Types.ObjectI
     upcoming: buckets.upcoming.map(toEmailVendor),
     later: buckets.later.map(toEmailVendor),
     totalExposure,
+    companyId: company._id,
   });
 
   if (!("sent" in emailResult)) {

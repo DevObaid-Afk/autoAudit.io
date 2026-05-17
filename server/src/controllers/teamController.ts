@@ -52,6 +52,7 @@ export const inviteTeamMember = asyncHandler(async (req, res) => {
     companyName: "AutoAudit.ai workspace",
     inviterName: req.user?.name ?? "A workspace admin",
     token,
+    companyId: req.companyId,
   });
 
   await recordAuditLog(req, {

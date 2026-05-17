@@ -1,16 +1,20 @@
 import { env } from "../config/env.js";
+import { captureException } from "../config/sentry.js";
+import { EmailLog, type EmailLogType } from "../models/EmailLog.js";
 
 type EmailIdentityToken = {
   email: string;
   name?: string;
   token: string;
+  companyId?: unknown;
 };
 
 type EmailPayload = {
+  type: EmailLogType;
   to: string[];
   subject: string;
   text: string;
-  replyTo?: string;
+  companyId?: unknown;
 };
 
 type RenewalDigestEmail = {
@@ -21,6 +25,7 @@ type RenewalDigestEmail = {
   upcoming: RenewalDigestVendor[];
   later: RenewalDigestVendor[];
   totalExposure: number;
+  companyId?: unknown;
 };
 
 type RenewalDigestVendor = {
@@ -36,6 +41,7 @@ type TeamInviteEmail = {
   companyName: string;
   inviterName: string;
   token: string;
+  companyId?: unknown;
 };
 
 export async function sendContactNotification(request: Record<string, any>) {
@@ -55,19 +61,21 @@ export async function sendContactNotification(request: Record<string, any>) {
   ].join("\n");
 
   return sendEmail({
+    type: "contact",
     to: [env.contactToEmail],
-    replyTo: request.email,
     subject,
     text,
   });
 }
 
-export async function sendVerificationEmail({ email, name, token }: EmailIdentityToken) {
+export async function sendVerificationEmail({ email, name, token, companyId }: EmailIdentityToken) {
   const verifyUrl = `${env.appUrl}/verify-email?token=${encodeURIComponent(token)}`;
   const firstName = name?.split(" ")[0] || "there";
 
   return sendEmail({
+    type: "verification",
     to: [email],
+    companyId,
     subject: "Verify your AutoAudit.ai email",
     text: [
       `Hi ${firstName},`,
@@ -83,12 +91,14 @@ export async function sendVerificationEmail({ email, name, token }: EmailIdentit
   });
 }
 
-export async function sendPasswordResetEmail({ email, name, token }: EmailIdentityToken) {
+export async function sendPasswordResetEmail({ email, name, token, companyId }: EmailIdentityToken) {
   const resetUrl = `${env.appUrl}/reset-password?token=${encodeURIComponent(token)}`;
   const firstName = name?.split(" ")[0] || "there";
 
   return sendEmail({
+    type: "reset",
     to: [email],
+    companyId,
     subject: "Reset your AutoAudit.ai password",
     text: [
       `Hi ${firstName},`,
@@ -104,11 +114,13 @@ export async function sendPasswordResetEmail({ email, name, token }: EmailIdenti
   });
 }
 
-export async function sendTeamInviteEmail({ email, role, companyName, inviterName, token }: TeamInviteEmail) {
+export async function sendTeamInviteEmail({ email, role, companyName, inviterName, token, companyId }: TeamInviteEmail) {
   const inviteUrl = `${env.appUrl}/dashboard/team?inviteToken=${encodeURIComponent(token)}`;
 
   return sendEmail({
+    type: "invite",
     to: [email],
+    companyId,
     subject: `You're invited to AutoAudit.ai`,
     text: [
       `Hi there,`,
@@ -126,9 +138,11 @@ export async function sendTeamInviteEmail({ email, role, companyName, inviterNam
   });
 }
 
-export async function sendRenewalDigestEmail({ to, companyName, dashboardUrl, urgent, upcoming, later, totalExposure }: RenewalDigestEmail) {
+export async function sendRenewalDigestEmail({ to, companyName, dashboardUrl, urgent, upcoming, later, totalExposure, companyId }: RenewalDigestEmail) {
   return sendEmail({
+    type: "digest",
     to: [to],
+    companyId,
     subject: "AutoAudit.ai — Your weekly renewal digest",
     text: [
       `Weekly renewal digest for ${companyName}`,
@@ -152,31 +166,49 @@ export async function sendRenewalDigestEmail({ to, companyName, dashboardUrl, ur
   });
 }
 
-async function sendEmail({ to, subject, text, replyTo }: EmailPayload) {
+async function sendEmail({ type, to, subject, text, companyId }: EmailPayload) {
+  const recipientMasked = maskEmail(to[0]);
+
   if (!env.resendApiKey) {
-    return { skipped: true, reason: "RESEND_API_KEY is not configured" };
+    const reason = "RESEND_API_KEY is not configured";
+    await recordEmailLog({ type, recipientMasked, status: "failed", errorMessage: reason, companyId });
+    return { skipped: true, reason };
   }
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.resendApiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: env.emailFrom,
-      to,
-      reply_to: replyTo,
-      subject,
-      text,
-    }),
-  });
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.resendApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: buildFromAddress(),
+        to,
+        reply_to: buildReplyToAddress(),
+        subject,
+        text,
+        headers: {
+          "X-Mailer": "AutoAudit.ai",
+        },
+      }),
+    });
 
-  if (!response.ok) {
-    return { skipped: true, reason: `Email provider returned ${response.status}` };
+    if (!response.ok) {
+      const reason = `Email provider returned ${response.status}`;
+      captureEmailFailure(new Error(reason), { type, recipientMasked });
+      await recordEmailLog({ type, recipientMasked, status: "failed", errorMessage: reason, companyId });
+      return { skipped: true, reason };
+    }
+
+    await recordEmailLog({ type, recipientMasked, status: "sent", errorMessage: null, companyId });
+    return { sent: true };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "Email provider request failed";
+    captureEmailFailure(error, { type, recipientMasked });
+    await recordEmailLog({ type, recipientMasked, status: "failed", errorMessage: reason, companyId });
+    return { skipped: true, reason };
   }
-
-  return { sent: true };
 }
 
 function formatDigestSection(vendors: RenewalDigestVendor[]) {
@@ -207,4 +239,68 @@ function formatDate(value: Date) {
     year: "numeric",
     timeZone: "UTC",
   }).format(value);
+}
+
+function parseEmailAddress(value: string) {
+  const match = value.match(/<([^>]+)>/);
+  return (match?.[1] ?? value).trim();
+}
+
+function getEmailDomain() {
+  const address = parseEmailAddress(env.emailFrom);
+  return address.split("@")[1] || "resend.dev";
+}
+
+function buildFromAddress() {
+  const domain = getEmailDomain();
+  return `AutoAudit.ai <noreply@${domain}>`;
+}
+
+function buildReplyToAddress() {
+  return `support@${getEmailDomain()}`;
+}
+
+function maskEmail(email = "") {
+  const [local = "", domain = ""] = email.split("@");
+  return `${local.slice(0, 3)}***@${domain}`;
+}
+
+function captureEmailFailure(error: unknown, { type, recipientMasked }: { type: EmailLogType; recipientMasked: string }) {
+  captureException(error, {
+    emailType: type,
+    recipientMasked,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+async function recordEmailLog({
+  type,
+  recipientMasked,
+  status,
+  errorMessage,
+  companyId,
+}: {
+  type: EmailLogType;
+  recipientMasked: string;
+  status: "sent" | "failed";
+  errorMessage: string | null;
+  companyId?: unknown;
+}) {
+  try {
+    await EmailLog.create({
+      type,
+      recipientMasked,
+      status,
+      errorMessage,
+      companyId: (companyId || undefined) as any,
+    });
+  } catch (error) {
+    captureException(error, {
+      emailType: type,
+      recipientMasked,
+      status,
+      timestamp: new Date().toISOString(),
+      reason: "email_log_write_failed",
+    });
+  }
 }

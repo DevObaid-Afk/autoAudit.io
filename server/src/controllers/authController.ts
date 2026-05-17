@@ -94,7 +94,7 @@ export const signup = asyncHandler(async (req, res) => {
   await company.save();
 
   const token = signAuthToken(user);
-  await sendVerificationEmail({ email: user.email, name: user.name, token: verification.token });
+  await sendVerificationEmail({ email: user.email, name: user.name, token: verification.token, companyId: company._id });
 
   res.status(201).json({
     token,
@@ -112,7 +112,7 @@ export const requestEmailVerification = asyncHandler(async (req, res) => {
     user.emailVerificationTokenHash = verification.hash;
     user.emailVerificationExpiresAt = verification.expiresAt;
     await user.save();
-    await sendVerificationEmail({ email: user.email, name: user.name, token: verification.token });
+    await sendVerificationEmail({ email: user.email, name: user.name, token: verification.token, companyId: user.company });
   }
 
   res.json({ message: "If this email needs verification, a link has been sent." });
@@ -147,7 +147,7 @@ export const forgotPassword = asyncHandler(async (req, res) => {
     user.passwordResetTokenHash = reset.hash;
     user.passwordResetExpiresAt = reset.expiresAt;
     await user.save();
-    await sendPasswordResetEmail({ email: user.email, name: user.name, token: reset.token });
+    await sendPasswordResetEmail({ email: user.email, name: user.name, token: reset.token, companyId: user.company });
   }
 
   res.json({ message: "If an account exists for that email, a password reset link has been sent." });

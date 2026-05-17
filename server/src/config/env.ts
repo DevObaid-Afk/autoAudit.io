@@ -15,6 +15,7 @@ type Env = {
   resendApiKey?: string;
   emailFrom: string;
   contactToEmail: string;
+  contactAdminEmails: string[];
   sentryDsn?: string;
   sentryEnvironment: string;
   sentryTracesSampleRate: number;
@@ -44,8 +45,9 @@ export const env: Env = {
   openaiImageModel: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1.5",
   appUrl: normalizeUrl(process.env.APP_URL ?? process.env.FRONTEND_URL ?? "http://127.0.0.1:5173"),
   resendApiKey: process.env.RESEND_API_KEY,
-  emailFrom: process.env.EMAIL_FROM || "AutoAudit.ai <onboarding@resend.dev>",
+  emailFrom: process.env.EMAIL_FROM || "AutoAudit.ai <noreply@yourdomain.com>",
   contactToEmail: process.env.CONTACT_TO_EMAIL || "exehassan62@gmail.com",
+  contactAdminEmails: parseCsv(process.env.CONTACT_ADMIN_EMAILS ?? ""),
   sentryDsn: process.env.SENTRY_DSN,
   sentryEnvironment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? "development",
   sentryTracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0.1),
@@ -82,6 +84,13 @@ function parseCorsOrigins(value: string) {
 
 function normalizeUrl(value: string) {
   return String(value).replace(/\/$/, "");
+}
+
+function parseCsv(value: string) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 export function validateEnv() {
