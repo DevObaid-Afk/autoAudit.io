@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import jwt, { type JwtPayload, type SignOptions } from "jsonwebtoken";
 import type { Request } from "express";
 import { Company } from "../models/Company.js";
+import { ActivityLog } from "../models/ActivityLog.js";
 import { User, type IUserDocument } from "../models/User.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
@@ -13,6 +14,8 @@ import { sendPasswordResetEmail, sendVerificationEmail } from "../services/email
 
 const VERIFICATION_TOKEN_MINUTES = 24 * 60;
 const PASSWORD_RESET_TOKEN_MINUTES = 30;
+const MAX_FAILED_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_MINUTES = 15;
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo";
@@ -168,6 +171,9 @@ export const resetPassword = asyncHandler(async (req, res) => {
   }
 
   user.passwordHash = await bcrypt.hash(password, 12);
+  user.passwordChangedAt = new Date();
+  user.failedLoginAttempts = 0;
+  user.lockoutUntil = null;
   user.passwordResetTokenHash = undefined;
   user.passwordResetExpiresAt = undefined;
   await user.save();
@@ -181,9 +187,26 @@ export const login = asyncHandler(async (req, res) => {
 
   const user = await User.findOne({ email: email.toLowerCase() }).select("+passwordHash").populate("company");
 
-  if (!user || !(await user.comparePassword(password))) {
+  if (!user) {
     throw new AppError("Invalid email or password", 401);
   }
+
+  if (isUserLocked(user)) {
+    const minutesRemaining = getLockoutMinutesRemaining(user.lockoutUntil);
+    throw new AppError(`Account temporarily locked. Try again after ${minutesRemaining} minute${minutesRemaining === 1 ? "" : "s"}.`, 423, {
+      lockoutUntil: user.lockoutUntil,
+      minutesRemaining,
+    });
+  }
+
+  if (!(await user.comparePassword(password))) {
+    await handleFailedPasswordLogin(user);
+    throw new AppError(buildIncorrectPasswordMessage(user.failedLoginAttempts ?? 0), 401, { remainingAttempts: remainingLoginAttempts(user.failedLoginAttempts ?? 0) });
+  }
+
+  user.failedLoginAttempts = 0;
+  user.lockoutUntil = null;
+  await user.save();
 
   const token = signAuthToken(user);
 
@@ -192,6 +215,21 @@ export const login = asyncHandler(async (req, res) => {
     user: serializeUser(user),
     company: user.company,
   });
+});
+
+export const unlockUser = asyncHandler(async (req, res) => {
+  const userId = cleanString(req.body.userId, { required: true, field: "User ID", max: 80 });
+  const user = await User.findByIdAndUpdate(
+    userId,
+    { $set: { failedLoginAttempts: 0, lockoutUntil: null } },
+    { new: true, runValidators: true },
+  ).select("-passwordHash");
+
+  if (!user) {
+    throw new AppError("User not found", 404);
+  }
+
+  res.json({ user: serializeUser(user) });
 });
 
 export const startGoogleOAuth = asyncHandler(async (req, res) => {
@@ -259,6 +297,59 @@ function serializeUser(user: IUserDocument) {
     company: user.company?._id ?? user.company,
     emailVerifiedAt: user.emailVerifiedAt,
   };
+}
+
+function isUserLocked(user: IUserDocument) {
+  return Boolean(user.lockoutUntil && user.lockoutUntil.getTime() > Date.now());
+}
+
+async function handleFailedPasswordLogin(user: IUserDocument) {
+  if (isUserLocked(user)) {
+    return;
+  }
+
+  const failedLoginAttempts = Number(user.failedLoginAttempts ?? 0) + 1;
+
+  if (failedLoginAttempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
+    user.failedLoginAttempts = 0;
+    user.lockoutUntil = new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000);
+    await user.save();
+    await ActivityLog.create({
+      companyId: user.company?._id ?? user.company,
+      userId: user._id,
+      userEmail: user.email,
+      action: "account_locked",
+      entityType: "settings",
+      entityId: user.company?._id ?? user.company,
+      entityName: user.email,
+      metadata: {
+        reason: "failed_login_attempts",
+        lockoutMinutes: LOCKOUT_MINUTES,
+        lockedUntil: user.lockoutUntil,
+      },
+    });
+    throw new AppError(`Account temporarily locked. Try again after ${LOCKOUT_MINUTES} minutes.`, 423, {
+      lockoutUntil: user.lockoutUntil,
+      minutesRemaining: LOCKOUT_MINUTES,
+    });
+  }
+
+  user.failedLoginAttempts = failedLoginAttempts;
+  await user.save();
+}
+
+function remainingLoginAttempts(failedLoginAttempts: number) {
+  return Math.max(0, MAX_FAILED_LOGIN_ATTEMPTS - failedLoginAttempts);
+}
+
+function buildIncorrectPasswordMessage(failedLoginAttempts: number) {
+  const remaining = remainingLoginAttempts(failedLoginAttempts);
+  return `Incorrect password. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining before lockout.`;
+}
+
+function getLockoutMinutesRemaining(lockoutUntil?: Date | null) {
+  if (!lockoutUntil) return LOCKOUT_MINUTES;
+  return Math.max(1, Math.ceil((lockoutUntil.getTime() - Date.now()) / 60000));
 }
 
 async function findOrCreateGoogleUser(profile: GoogleProfile, plan: Plan) {

@@ -24,8 +24,12 @@ apiClient.interceptors.request.use((config) => {
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
+    const message = error.response?.data?.error?.message;
     if (error.response?.status === 401) {
       clearStoredToken();
+      if (message === "Session expired. Please log in again." && window.location.pathname !== "/login") {
+        window.location.assign("/login?reason=session_expired");
+      }
     }
 
     return Promise.reject(error);

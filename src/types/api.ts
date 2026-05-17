@@ -113,7 +113,7 @@ export type ApiSavingsEntry = {
   companyId: string;
 };
 
-export type ActivityEntityType = "vendor" | "report" | "email_draft" | "savings" | "team" | "settings";
+export type ActivityEntityType = "vendor" | "report" | "email_draft" | "savings" | "team" | "settings" | "action_item";
 
 export type ApiActivityLog = {
   _id: string;
@@ -143,6 +143,32 @@ export type SavingsSummary = {
   totalAnnualSavings: number;
   confirmedActionsCount: number;
   breakdown: Record<SavingsType, { monthlySavings: number; annualSavings: number; count: number }>;
+};
+
+export type ActionItemStatus = "open" | "in_progress" | "done";
+export type ActionItemPriority = "low" | "medium" | "high";
+
+export type ApiActionItem = {
+  id: string;
+  companyId: string;
+  vendorId?: string;
+  vendorName: string;
+  title: string;
+  detail?: string;
+  signalType?: string;
+  impact: number;
+  priority: ActionItemPriority;
+  status: ActionItemStatus;
+  createdBy?: {
+    _id?: string;
+    id?: string;
+    name?: string;
+    email?: string;
+    role?: ApiUser["role"];
+  };
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type PaginationMeta = {
@@ -245,6 +271,7 @@ export type AuditSummary = {
 };
 
 export type AiEmailGoal = "cancel" | "renegotiate" | "reduce_seats";
+export type ReportType = "cfo_summary" | "board_summary" | "owner_action_list" | "full_audit";
 
 export type AiTextMetadata = {
   mode?: string;
@@ -271,6 +298,7 @@ export type ApiReport = {
   _id: string;
   title: string;
   type: "monthly_waste" | "renewal_risk" | "unused_seats" | "custom";
+  reportType?: ReportType;
   summary?: Partial<AuditSummary>;
   findings?: Array<Record<string, unknown>>;
   content?: string;

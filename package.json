@@ -24,6 +24,7 @@
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "latest",
     "mongoose": "^9.6.1",
+    "node-cron": "^4.2.1",
     "react": "latest",
     "react-dom": "latest",
     "react-router-dom": "^7.15.0",

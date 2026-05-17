@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-export type ActivityEntityType = "vendor" | "report" | "email_draft" | "savings" | "team" | "settings";
+export type ActivityEntityType = "vendor" | "report" | "email_draft" | "savings" | "team" | "settings" | "action_item";
 
 const activityLogSchema = new mongoose.Schema(
   {
@@ -28,7 +28,7 @@ const activityLogSchema = new mongoose.Schema(
     },
     entityType: {
       type: String,
-      enum: ["vendor", "report", "email_draft", "savings", "team", "settings"],
+      enum: ["vendor", "report", "email_draft", "savings", "team", "settings", "action_item"],
       required: true,
     },
     entityId: {

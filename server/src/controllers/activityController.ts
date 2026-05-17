@@ -3,7 +3,7 @@ import { cleanString } from "../middleware/validate.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { buildPagination, parsePagination } from "../utils/query.js";
 
-const allowedEntityTypes = new Set(["vendor", "report", "email_draft", "savings", "team", "settings"]);
+const allowedEntityTypes = new Set(["vendor", "report", "email_draft", "savings", "team", "settings", "action_item"]);
 
 export const listActivity = asyncHandler(async (req, res) => {
   const { page, limit, skip } = parsePagination({ ...req.query, limit: req.query.limit ?? 50 });

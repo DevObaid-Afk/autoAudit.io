@@ -26,6 +26,8 @@ Use only the provided vendor, renewal, subscription, and audit data.
 Be specific, CFO-friendly, and action oriented. If data is missing, say what is missing.
 Return clear markdown without code fences.`;
 
+type ReportType = "cfo_summary" | "board_summary" | "owner_action_list" | "full_audit";
+
 export const generateCancelEmail = asyncHandler(async (req, res) => {
   await assertCanGenerateAiEmail(req.companyId);
 
@@ -153,6 +155,8 @@ export const generateMonthlyReport = asyncHandler(async (req, res) => {
   await assertCanGenerateReport(req.companyId);
 
   const { periodStart, periodEnd, audience = "CFO" } = req.body;
+  const reportType = cleanReportType(req.body.reportType);
+  const reportConfig = getReportTypeConfig(reportType);
   const [company, vendors, subscriptions, renewals] = await Promise.all([
     Company.findById(req.companyId),
     Vendor.find({ company: req.companyId })
@@ -168,11 +172,12 @@ export const generateMonthlyReport = asyncHandler(async (req, res) => {
   const summary = buildAuditSummary({ vendors, subscriptions, renewals });
   const reportText = await generateAiText({
     instructions: ANALYSIS_INSTRUCTIONS,
-    maxOutputTokens: 1400,
+    maxOutputTokens: reportType === "full_audit" ? 1800 : 1400,
     input: buildPromptPayload(
-      "Generate a monthly SaaS waste report for the CFO.",
+      reportConfig.task,
       {
         audience,
+        reportType,
         periodStart,
         periodEnd,
         workspace: {
@@ -183,23 +188,17 @@ export const generateMonthlyReport = asyncHandler(async (req, res) => {
         auditSummary: summary,
         topVendors: vendors.slice(0, 20).map(vendorSnapshot),
         upcomingRenewals: renewals.slice(0, 15).map(renewalSnapshot),
-        reportFormat: [
-          "Executive summary",
-          "Savings found",
-          "Top waste drivers",
-          "Duplicate tools",
-          "Renewals needing action",
-          "Recommended next steps",
-        ],
+        reportFormat: reportConfig.sections,
       },
     ),
   });
 
-  const report = await Report.create({
+  const report: any = await Report.create({
     company: req.companyId,
     requestedBy: req.user._id,
     title: `${new Date().toLocaleString("en-US", { month: "long", year: "numeric" })} AI SaaS Waste Report`,
     type: "monthly_waste",
+    reportType,
     periodStart,
     periodEnd,
     summary,
@@ -213,7 +212,7 @@ export const generateMonthlyReport = asyncHandler(async (req, res) => {
     entityType: "report",
     entityId: report._id,
     entityName: report.title,
-    metadata: { type: report.type, audience },
+    metadata: { type: report.type, reportType, audience },
   });
   await completeOnboardingStep(req.companyId, "generatedReport");
 
@@ -226,6 +225,34 @@ export const generateMonthlyReport = asyncHandler(async (req, res) => {
     },
   });
 });
+
+function cleanReportType(value: unknown): ReportType {
+  const allowed = new Set<ReportType>(["cfo_summary", "board_summary", "owner_action_list", "full_audit"]);
+  return typeof value === "string" && allowed.has(value as ReportType) ? (value as ReportType) : "cfo_summary";
+}
+
+function getReportTypeConfig(reportType: ReportType) {
+  const configs = {
+    cfo_summary: {
+      task: "Generate a CFO summary SaaS waste report focused on savings opportunity, ROI, and recommended actions.",
+      sections: ["Executive summary", "Savings opportunity", "ROI view", "Recommended actions", "Risks and owners"],
+    },
+    board_summary: {
+      task: "Generate a board-level SaaS spend summary focused on high-level spend overview and risk areas.",
+      sections: ["Board summary", "Spend overview", "Risk areas", "Material savings opportunities", "Next-quarter focus"],
+    },
+    owner_action_list: {
+      task: "Generate an owner action list grouped by owner with per-vendor cleanup actions.",
+      sections: ["Owner action list", "Actions by owner", "Vendor", "Recommended action", "Evidence", "Target outcome"],
+    },
+    full_audit: {
+      task: "Generate a complete SaaS audit with vendor breakdowns and evidence for every major finding.",
+      sections: ["Full audit summary", "Vendor breakdown", "Waste evidence", "Duplicate tools", "Renewal risk", "Savings plan"],
+    },
+  };
+
+  return configs[reportType] ?? configs.cfo_summary;
+}
 
 export const analyzeVendor = asyncHandler(async (req, res) => {
   await assertCanAnalyzeVendor(req.companyId);

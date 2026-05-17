@@ -2,6 +2,7 @@ import { connectDatabase } from "./src/config/db.js";
 import { env, validateEnv } from "./src/config/env.js";
 import { initSentry } from "./src/config/sentry.js";
 import { createApp } from "./src/app.js";
+import { startWeeklyRenewalDigestJob } from "./src/jobs/weeklyRenewalDigestJob.js";
 
 validateEnv();
 initSentry();
@@ -10,6 +11,7 @@ const app = createApp();
 
 try {
   await connectDatabase();
+  startWeeklyRenewalDigestJob();
 
   app.listen(env.port, () => {
     console.log(`AutoAudit API listening on port ${env.port}`);

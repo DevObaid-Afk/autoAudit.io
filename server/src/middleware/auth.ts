@@ -25,8 +25,11 @@ export const requireAuth = asyncHandler(async (req, _res, next) => {
     throw new AppError("Authenticated user no longer exists", 401);
   }
 
+  if (user.passwordChangedAt && payload.iat && payload.iat * 1000 < user.passwordChangedAt.getTime()) {
+    throw new AppError("Session expired. Please log in again.", 401);
+  }
+
   req.user = user;
   req.companyId = user.company;
   next();
 });
-

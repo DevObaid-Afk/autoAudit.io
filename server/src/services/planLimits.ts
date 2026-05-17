@@ -52,6 +52,7 @@ export async function assertCanCreateVendors(companyId, amount = 1) {
 export async function assertCanGenerateReport(companyId) {
   const company = await getCompanyOrThrow(companyId);
   assertTrialActive(company);
+  if (isTrialing(company)) return company;
 
   const limits = getPlanLimits(company.plan);
   if (limits.reports === null) return company;
@@ -67,6 +68,7 @@ export async function assertCanGenerateReport(companyId) {
 export async function assertCanGenerateAiEmail(companyId) {
   const company = await getCompanyOrThrow(companyId);
   assertTrialActive(company);
+  if (isTrialing(company)) return company;
 
   const limits = getPlanLimits(company.plan);
   if (limits.aiEmails === null) return company;
@@ -82,6 +84,7 @@ export async function assertCanGenerateAiEmail(companyId) {
 export async function assertCanAnalyzeVendor(companyId) {
   const company = await getCompanyOrThrow(companyId);
   assertTrialActive(company);
+  if (isTrialing(company)) return company;
 
   const limits = getPlanLimits(company.plan);
   if (limits.vendorAnalyses === null) return company;
@@ -109,6 +112,10 @@ function assertTrialActive(company) {
   if (trialEndsAt && trialEndsAt.getTime() < Date.now()) {
     throw new AppError("Your trial has ended. Choose a plan to continue using AutoAudit.ai.", 403);
   }
+}
+
+function isTrialing(company) {
+  return company.subscriptionStatus !== "active";
 }
 
 async function getCompanyOrThrow(companyId) {

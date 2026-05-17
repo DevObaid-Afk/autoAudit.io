@@ -1,4 +1,5 @@
 import { ActivityLog } from "../models/ActivityLog.js";
+import { ActionItem } from "../models/ActionItem.js";
 import { AuditLog } from "../models/AuditLog.js";
 import { Company } from "../models/Company.js";
 import { Renewal } from "../models/Renewal.js";
@@ -13,11 +14,12 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { cleanString } from "../middleware/validate.js";
 
 export const exportWorkspace = asyncHandler(async (req, res) => {
-  const [company, vendors, reports, savingsEntries, activityLogs] = await Promise.all([
+  const [company, vendors, reports, savingsEntries, actionItems, activityLogs] = await Promise.all([
     Company.findById(req.companyId).lean(),
     Vendor.find({ company: req.companyId }).sort({ name: 1 }).lean(),
     Report.find({ company: req.companyId }).sort({ createdAt: -1 }).lean(),
     SavingsEntry.find({ companyId: req.companyId }).sort({ confirmedAt: -1 }).lean(),
+    ActionItem.find({ companyId: req.companyId }).sort({ createdAt: -1 }).lean(),
     ActivityLog.find({ companyId: req.companyId }).sort({ createdAt: -1 }).lean(),
   ]);
 
@@ -41,6 +43,7 @@ export const exportWorkspace = asyncHandler(async (req, res) => {
     vendors,
     reports,
     savingsEntries,
+    actionItems,
     activityLogs,
   });
 });
@@ -66,6 +69,7 @@ export const deleteWorkspace = asyncHandler(async (req, res) => {
     Renewal.deleteMany(companyFilter),
     Report.deleteMany(companyFilter),
     SavingsEntry.deleteMany(companyIdFilter),
+    ActionItem.deleteMany(companyIdFilter),
     TeamInvite.deleteMany(companyIdFilter),
     ActivityLog.deleteMany(companyIdFilter),
     AuditLog.deleteMany(companyFilter),
@@ -82,10 +86,11 @@ export const deleteWorkspace = asyncHandler(async (req, res) => {
       renewals: results[2].deletedCount,
       reports: results[3].deletedCount,
       savingsEntries: results[4].deletedCount,
-      teamInvites: results[5].deletedCount,
-      activityLogs: results[6].deletedCount,
-      auditLogs: results[7].deletedCount,
-      users: results[8].deletedCount,
+      actionItems: results[5].deletedCount,
+      teamInvites: results[6].deletedCount,
+      activityLogs: results[7].deletedCount,
+      auditLogs: results[8].deletedCount,
+      users: results[9].deletedCount,
     },
   });
 });

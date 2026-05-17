@@ -55,13 +55,13 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { ChangeEvent, ReactNode } from "react";
-import { activityApi, aiApi, analyticsApi, auditApi, authApi, billingApi, contactApi, onboardingApi, profileApi, renewalApi, reportApi, savingsApi, teamApi, vendorApi, workspaceApi } from "../api/services";
+import { actionItemApi, activityApi, aiApi, analyticsApi, auditApi, authApi, billingApi, contactApi, onboardingApi, profileApi, renewalApi, reportApi, savingsApi, teamApi, vendorApi, workspaceApi } from "../api/services";
 import { getApiErrorMessage, resolveApiAssetUrl } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { PageMeta } from "../components/PageMeta";
 import { PublicFooter } from "../components/PublicFooter";
 import { useTheme } from "../theme/ThemeContext";
-import type { ActivityEntityType, AiEmailGoal, ApiActivityLog, ApiCompany, ApiContactRequest, ApiOnboardingState, ApiRenewal, ApiReport, ApiSavingsEntry, ApiTeamInvite, ApiTeamMember, ApiUser, ApiVendor, AuditSummary, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta, SavingsSummary, SavingsType, TeamRole } from "../types/api";
+import type { ActionItemStatus, ActivityEntityType, AiEmailGoal, ApiActionItem, ApiActivityLog, ApiCompany, ApiContactRequest, ApiOnboardingState, ApiRenewal, ApiReport, ApiSavingsEntry, ApiTeamInvite, ApiTeamMember, ApiUser, ApiVendor, AuditSummary, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta, ReportType, SavingsSummary, SavingsType, TeamRole } from "../types/api";
 
 type PageId = "overview" | "vendors" | "waste" | "renewals" | "reports" | "savings" | "activity" | "email" | "team" | "billing" | "settings";
 type RiskLevel = "critical" | "high" | "medium" | "low";
@@ -206,6 +206,7 @@ type ReportCard = {
   name: string;
   owner: string;
   status: string;
+  reportType?: ReportType;
   savings: number;
   date: string;
   content?: string;
@@ -245,6 +246,13 @@ const emailGoalOptions: Array<{ value: AiEmailGoal; label: string; actionLabel: 
   { value: "reduce_seats", label: "Reduce seat count", actionLabel: "right-size seat count" },
 ];
 
+const reportTypeOptions: Array<{ value: ReportType; label: string; detail: string }> = [
+  { value: "cfo_summary", label: "CFO Summary", detail: "Savings opportunity, ROI, and recommended actions." },
+  { value: "board_summary", label: "Board Summary", detail: "High-level spend overview and risk areas." },
+  { value: "owner_action_list", label: "Owner Action List", detail: "Per-vendor actions grouped by owner." },
+  { value: "full_audit", label: "Full Audit", detail: "Complete vendor breakdown with evidence." },
+];
+
 const vendorStatusFilters = ["All", "Healthy", "Zombie", "Duplicate", "Renewal risk", "Unused seats"];
 const defaultVendorQuery: VendorQueryState = {
   page: 1,
@@ -273,6 +281,7 @@ export function DashboardPage() {
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [draft, setDraft] = useState(defaultDraft);
   const [emailTone, setEmailTone] = useState("Direct");
+  const [emailVendorName, setEmailVendorName] = useState("");
   const [vendorSearch, setVendorSearch] = useState("");
   const [vendorQuery, setVendorQuery] = useState<VendorQueryState>(defaultVendorQuery);
   const [toast, setToast] = useState("");
@@ -281,6 +290,7 @@ export function DashboardPage() {
   const [apiReports, setApiReports] = useState<ApiReport[]>([]);
   const [savingsEntries, setSavingsEntries] = useState<ApiSavingsEntry[]>([]);
   const [savingsSummary, setSavingsSummary] = useState<SavingsSummary | null>(null);
+  const [actionItems, setActionItems] = useState<ApiActionItem[]>([]);
   const [activityEntries, setActivityEntries] = useState<ApiActivityLog[]>([]);
   const [activityPagination, setActivityPagination] = useState<PaginationMeta | null>(null);
   const [activityFilter, setActivityFilter] = useState<ActivityEntityType | "all">("all");
@@ -373,7 +383,7 @@ export function DashboardPage() {
     setDataError("");
 
     try {
-      const [vendorsResponse, summaryResponse, renewalsResponse, reportsResponse, savingsEntriesResponse, savingsSummaryResponse, activityResponse, onboardingResponse] = await Promise.all([
+      const [vendorsResponse, summaryResponse, renewalsResponse, reportsResponse, savingsEntriesResponse, savingsSummaryResponse, actionItemsResponse, activityResponse, onboardingResponse] = await Promise.all([
         vendorApi.list({
           page: vendorQuery.page,
           limit: vendorQuery.limit,
@@ -386,6 +396,7 @@ export function DashboardPage() {
         reportApi.list({ limit: 20 }),
         savingsApi.list(),
         savingsApi.summary(),
+        actionItemApi.list({ status: "all" }),
         activityApi.list({ limit: 50, entityType: activityFilter }),
         onboardingApi.get(),
       ]);
@@ -398,6 +409,7 @@ export function DashboardPage() {
       setApiReports(reportsResponse.reports);
       setSavingsEntries(savingsEntriesResponse);
       setSavingsSummary(savingsSummaryResponse);
+      setActionItems(actionItemsResponse);
       setActivityEntries(activityResponse.activity);
       setActivityPagination(activityResponse.pagination);
       setOnboarding(onboardingResponse);
@@ -560,7 +572,7 @@ export function DashboardPage() {
     }
   };
 
-  const handleGenerateMonthlyReport = async () => {
+  const handleGenerateMonthlyReport = async (reportType: ReportType = "cfo_summary") => {
     if (isTrialExpired) {
       showToast("Trial ended. Choose a plan before generating reports.");
       return;
@@ -569,7 +581,7 @@ export function DashboardPage() {
     setReportGenerating(true);
 
     try {
-      const { report } = await aiApi.monthlyReport({ audience: "CFO" });
+      const { report } = await aiApi.monthlyReport({ audience: reportAudienceForType(reportType), reportType });
       setMonthlyReportDraft(report);
       await Promise.all([refreshDashboardData(), refreshActivityData(), refreshOnboardingData()]);
       showToast("AI CFO report generated.");
@@ -626,6 +638,12 @@ export function DashboardPage() {
     return { entries, summary };
   };
 
+  const refreshActionItems = async () => {
+    const actions = await actionItemApi.list({ status: "all" });
+    setActionItems(actions);
+    return actions;
+  };
+
   const refreshActivityData = async (entityType: ActivityEntityType | "all" = activityFilter, page = 1) => {
     const response = await activityApi.list({ limit: 50, page, entityType });
     setActivityEntries(response.activity);
@@ -650,6 +668,35 @@ export function DashboardPage() {
     setSavingsEntries((current) => [entry, ...current]);
     await Promise.all([refreshSavingsData(), refreshActivityData()]);
     showToast("Saving confirmed.");
+  };
+
+  const handleCreateActionItem = async (signal: WasteSignal) => {
+    const action = await actionItemApi.create({
+      vendorId: signal.vendorId,
+      vendorName: signal.vendor,
+      title: signal.title,
+      detail: signal.detail,
+      signalType: signal.type,
+      impact: signal.impact,
+      priority: signal.impact >= 10000 ? "high" : signal.impact >= 3000 ? "medium" : "low",
+    });
+    setActionItems((current) => [action, ...current]);
+    await refreshActivityData();
+    showToast("Action item created.");
+  };
+
+  const handleUpdateActionItemStatus = async (actionId: string, status: ActionItemStatus) => {
+    const updated = await actionItemApi.updateStatus(actionId, status);
+    setActionItems((current) => current.map((action) => (action.id === actionId ? updated : action)));
+    await refreshActivityData();
+    showToast("Action item updated.");
+  };
+
+  const handleDeleteActionItem = async (actionId: string) => {
+    await actionItemApi.remove(actionId);
+    setActionItems((current) => current.filter((action) => action.id !== actionId));
+    await refreshActivityData();
+    showToast("Action item removed.");
   };
 
   const handleWorkspaceDeleted = () => {
@@ -683,7 +730,7 @@ export function DashboardPage() {
               {dataError && <ErrorState message={dataError} onRetry={refreshDashboardData} />}
               {isDataLoading && <LoadingState label="Loading live audit data" />}
               {activePage === "overview" && <OverviewPage categoryData={dashboardCategorySpend} duplicateTools={duplicateToolRows} renewalRows={renewalRows} totals={totals} unusedSeats={unusedSeatRows} wasteSignals={dashboardWasteSignals} company={company} onboarding={onboarding} onDismissOnboarding={async () => { const next = await onboardingApi.dismiss(); setOnboarding(next); }} onNavigate={handleNav} onToast={showToast} />}
-              {activePage === "vendors" && <VendorsPage categoryOptions={vendorCategoryOptions} isLoading={isDataLoading || isVendorLoading} isLoadingDemo={isLoadingDemo} pagination={vendorPagination} query={vendorQuery} vendors={dashboardVendors} onCreateVendor={handleCreateVendor} onDeleteVendor={handleDeleteVendor} onImportVendors={handleImportVendors} onLoadDemoData={handleLoadDemoData} onQueryChange={handleVendorQueryChange} onToast={showToast} />}
+              {activePage === "vendors" && <VendorsPage activityEntries={activityEntries} apiVendors={apiVendors} categoryOptions={vendorCategoryOptions} isLoading={isDataLoading || isVendorLoading} isLoadingDemo={isLoadingDemo} pagination={vendorPagination} query={vendorQuery} savingsEntries={savingsEntries} vendors={dashboardVendors} wasteSignals={dashboardWasteSignals} onCreateVendor={handleCreateVendor} onDeleteVendor={handleDeleteVendor} onEmailShortcut={(vendorName) => { setEmailVendorName(vendorName); handleNav("email"); }} onImportVendors={handleImportVendors} onLoadDemoData={handleLoadDemoData} onQueryChange={handleVendorQueryChange} onToast={showToast} onUpdateVendor={async (id, input) => { const vendor = await vendorApi.update(id, input); setApiVendors((current) => current.map((item) => item._id === id ? vendor : item)); await refreshDashboardData(); showToast(`${vendor.name} updated.`); }} />}
               {activePage === "waste" && (
                 <WasteDetectionPage
                   aiAnalysis={wasteAnalysis}
@@ -691,9 +738,13 @@ export function DashboardPage() {
                   hasVendors={dashboardVendors.length > 0}
                   isLoadingDemo={isLoadingDemo}
                   isAnalyzing={isWasteAnalyzing}
+                  actionItems={actionItems}
                   unusedSeats={unusedSeatRows}
                   wasteSignals={dashboardWasteSignals}
                   onExplainWaste={handleExplainWaste}
+                  onCreateActionItem={handleCreateActionItem}
+                  onUpdateActionItemStatus={handleUpdateActionItemStatus}
+                  onDeleteActionItem={handleDeleteActionItem}
                   onConfirmSaving={handleConfirmSaving}
                   onLoadDemoData={handleLoadDemoData}
                   onNavigate={handleNav}
@@ -708,6 +759,7 @@ export function DashboardPage() {
               {activePage === "email" && (
                 <EmailGeneratorPage
                   vendors={dashboardVendors}
+                  initialVendorName={emailVendorName}
                   draft={draft}
                   emailTone={emailTone}
                   isLoadingDemo={isLoadingDemo}
@@ -1277,7 +1329,7 @@ function DisclosureRow({
 }
 
 function OverviewSystemStatus({ company, totals, onNavigate }: { company: ApiCompany | null; totals: DashboardTotals; onNavigate: (page: PageId) => void }) {
-  const limits = getPlanLimitSet(company?.plan ?? "free");
+  const limits = getPlanLimitSet(company);
   const usage = getPlanUsage(company, totals.vendorCount);
 
   return (
@@ -1305,31 +1357,43 @@ function OverviewSystemStatus({ company, totals, onNavigate }: { company: ApiCom
 }
 
 function VendorsPage({
+  activityEntries,
+  apiVendors,
   categoryOptions,
   isLoading,
   isLoadingDemo,
   pagination,
   query,
+  savingsEntries,
   vendors,
+  wasteSignals,
   onCreateVendor,
   onDeleteVendor,
+  onEmailShortcut,
   onImportVendors,
   onLoadDemoData,
   onQueryChange,
   onToast,
+  onUpdateVendor,
 }: {
+  activityEntries: ApiActivityLog[];
+  apiVendors: ApiVendor[];
   categoryOptions: string[];
   isLoading: boolean;
   isLoadingDemo: boolean;
   pagination: PaginationMeta | null;
   query: VendorQueryState;
+  savingsEntries: ApiSavingsEntry[];
   vendors: Vendor[];
+  wasteSignals: WasteSignal[];
   onCreateVendor: (input: CreateVendorInput) => Promise<void>;
   onDeleteVendor: (vendor: Vendor) => Promise<void>;
+  onEmailShortcut: (vendorName: string) => void;
   onImportVendors: (inputs: CreateVendorInput[]) => Promise<{ created: number; failed: number; errors: string[] }>;
   onLoadDemoData: () => Promise<void>;
   onQueryChange: (update: Partial<VendorQueryState>) => void;
   onToast: (message: string) => void;
+  onUpdateVendor: (id: string, input: Partial<CreateVendorInput>) => Promise<void>;
 }) {
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Vendor | null>(null);
@@ -1584,25 +1648,17 @@ function VendorsPage({
         }
       >
         {selectedVendor && (
-          <Panel title={`${selectedVendor.name} profile`} eyebrow="Vendor detail" action={<PanelAction label="Close" onClick={() => setSelectedVendor(null)} />}>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <PlanMetric label="Owner" value={selectedVendor.owner} />
-              <PlanMetric label="Monthly spend" value={currency(selectedVendor.spend)} />
-              <PlanMetric label="Seats active" value={`${selectedVendor.activeSeats} / ${selectedVendor.seats}`} />
-              <PlanMetric label="Est. savings" value={currency(selectedVendor.savings)} />
-            </div>
-            <div className="mt-4 rounded-lg border border-line bg-panel-subtle p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <strong className="block text-sm font-extrabold">Recommended next step</strong>
-                  <p className="mt-1 text-sm leading-6 text-quiet">
-                    Review {selectedVendor.name} before {selectedVendor.renewal}. Current status: {selectedVendor.status}.
-                  </p>
-                </div>
-                <RiskPill risk={selectedVendor.risk} label={selectedVendor.status} />
-              </div>
-            </div>
-          </Panel>
+          <VendorDetailPanel
+            activityEntries={activityEntries}
+            apiVendor={apiVendors.find((vendor) => vendor._id === selectedVendor.id)}
+            savingsEntries={savingsEntries}
+            vendor={selectedVendor}
+            wasteSignals={wasteSignals}
+            onClose={() => setSelectedVendor(null)}
+            onEmailShortcut={onEmailShortcut}
+            onToast={onToast}
+            onUpdateVendor={onUpdateVendor}
+          />
         )}
         {pendingDelete && (
           <div className="mb-4 rounded-lg border border-risk/20 bg-risk-soft p-4 text-risk">
@@ -1724,15 +1780,164 @@ function VendorsPage({
   );
 }
 
+function VendorDetailPanel({
+  activityEntries,
+  apiVendor,
+  savingsEntries,
+  vendor,
+  wasteSignals,
+  onClose,
+  onEmailShortcut,
+  onToast,
+  onUpdateVendor,
+}: {
+  activityEntries: ApiActivityLog[];
+  apiVendor?: ApiVendor;
+  savingsEntries: ApiSavingsEntry[];
+  vendor: Vendor;
+  wasteSignals: WasteSignal[];
+  onClose: () => void;
+  onEmailShortcut: (vendorName: string) => void;
+  onToast: (message: string) => void;
+  onUpdateVendor: (id: string, input: Partial<CreateVendorInput>) => Promise<void>;
+}) {
+  const [form, setForm] = useState(() => vendorFormFromApi(apiVendor, vendor));
+  const [isSaving, setSaving] = useState(false);
+  const relatedSignals = wasteSignals.filter((signal) => signal.vendorId === vendor.id || signal.vendor === vendor.name);
+  const relatedSavings = savingsEntries.filter((entry) => entry.vendorId === vendor.id || entry.vendorName === vendor.name);
+  const relatedActivity = activityEntries.filter((entry) => entry.entityId === vendor.id || entry.entityName === vendor.name || entry.metadata?.vendorName === vendor.name);
+
+  useEffect(() => {
+    setForm(vendorFormFromApi(apiVendor, vendor));
+  }, [apiVendor?._id, apiVendor?.updatedAt, vendor.id]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await onUpdateVendor(vendor.id, {
+        name: form.name,
+        category: form.category,
+        ownerName: form.ownerName,
+        ownerEmail: form.ownerEmail,
+        monthlySpend: Number(form.monthlySpend || 0),
+        seatsPurchased: Number(form.seatsPurchased || 0),
+        activeSeats: Number(form.activeSeats || 0),
+        lastUsedAt: form.lastUsedAt || undefined,
+        renewalDate: form.renewalDate || undefined,
+        notes: form.notes,
+      });
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Panel title={`${vendor.name} profile`} eyebrow="Vendor detail" action={<PanelAction label="Close" onClick={onClose} />}>
+      <div className="grid gap-4">
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
+          <EditableField label="Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
+          <EditableField label="Category" value={form.category} onChange={(value) => setForm({ ...form, category: value })} />
+          <EditableField label="Owner" value={form.ownerName} onChange={(value) => setForm({ ...form, ownerName: value })} />
+          <EditableField label="Owner email" value={form.ownerEmail} onChange={(value) => setForm({ ...form, ownerEmail: value })} />
+          <EditableField label="Monthly spend" type="number" value={form.monthlySpend} onChange={(value) => setForm({ ...form, monthlySpend: value })} />
+          <EditableField label="Seats purchased" type="number" value={form.seatsPurchased} onChange={(value) => setForm({ ...form, seatsPurchased: value })} />
+          <EditableField label="Active seats" type="number" value={form.activeSeats} onChange={(value) => setForm({ ...form, activeSeats: value })} />
+          <EditableField label="Last used" type="date" value={form.lastUsedAt} onChange={(value) => setForm({ ...form, lastUsedAt: value })} />
+          <EditableField label="Renewal date" type="date" value={form.renewalDate} onChange={(value) => setForm({ ...form, renewalDate: value })} />
+          <ReadOnlyField label="Status" value={vendor.status} />
+          <ReadOnlyField label="Risk score" value={String(apiVendor?.riskScore ?? vendor.risk)} />
+          <ReadOnlyField label="Source" value={apiVendor?.source ?? "manual"} />
+        </div>
+        <Field label="Notes">
+          <textarea className="input min-h-24 resize-y" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
+        </Field>
+        <div className="flex flex-wrap gap-2">
+          <PrimaryButton onClick={save}>{isSaving ? "Saving..." : "Save vendor"}</PrimaryButton>
+          <SecondaryButton onClick={() => onEmailShortcut(form.name || vendor.name)}>
+            <Mail aria-hidden="true" size={16} />
+            Generate Email
+          </SecondaryButton>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-3">
+          <Panel title="Waste signals" eyebrow={`${relatedSignals.length} linked`}>
+            <div className="grid gap-3">
+              {relatedSignals.length === 0 ? <EmptyState title="No linked waste signals" detail="Signals for this vendor will appear after waste detection runs." /> : relatedSignals.map((signal) => <EvidenceCard key={signal.title} signal={signal} />)}
+            </div>
+          </Panel>
+          <Panel title="Confirmed savings" eyebrow={`${relatedSavings.length} entries`}>
+            <div className="grid gap-2">
+              {relatedSavings.length === 0 ? <EmptyState title="No savings yet" detail="Confirmed savings for this vendor will appear here." /> : relatedSavings.map((entry) => (
+                <div className="rounded-lg border border-line bg-panel-subtle p-3" key={entry.id}>
+                  <strong className="block text-sm font-extrabold">{currency(entry.monthlySavings)}/mo</strong>
+                  <span className="text-xs font-bold text-quiet">{formatSavingsType(entry.savingsType)} - {formatShortDate(entry.confirmedAt)}</span>
+                </div>
+              ))}
+            </div>
+          </Panel>
+          <Panel title="Activity" eyebrow={`${relatedActivity.length} events`}>
+            <div className="grid gap-2">
+              {relatedActivity.length === 0 ? <EmptyState title="No activity yet" detail="Vendor-specific activity appears after edits or actions." /> : relatedActivity.slice(0, 6).map((entry) => (
+                <div className="rounded-lg border border-line bg-panel-subtle p-3" key={entry._id}>
+                  <strong className="block text-sm font-extrabold">{formatActivityDescription(entry)}</strong>
+                  <span className="text-xs font-bold text-quiet">{entry.userEmail ?? "Team member"} - {formatRelativeTimestamp(entry.createdAt)}</span>
+                </div>
+              ))}
+            </div>
+          </Panel>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function EditableField({ label, type = "text", value, onChange }: { label: string; type?: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <Field label={label}>
+      <input className="input" type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+    </Field>
+  );
+}
+
+function ReadOnlyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-line bg-panel-subtle px-3 py-2">
+      <span className="text-xs font-bold uppercase text-quiet">{label}</span>
+      <strong className="mt-1 block text-sm font-extrabold">{value}</strong>
+    </div>
+  );
+}
+
+function vendorFormFromApi(apiVendor: ApiVendor | undefined, vendor: Vendor) {
+  return {
+    name: apiVendor?.name ?? vendor.name,
+    category: apiVendor?.category ?? vendor.category,
+    ownerName: apiVendor?.ownerName ?? vendor.owner,
+    ownerEmail: apiVendor?.ownerEmail ?? "",
+    monthlySpend: String(apiVendor?.monthlySpend ?? vendor.spend),
+    seatsPurchased: String(apiVendor?.seatsPurchased ?? vendor.seats),
+    activeSeats: String(apiVendor?.activeSeats ?? vendor.activeSeats),
+    lastUsedAt: apiVendor?.lastUsedAt ? apiVendor.lastUsedAt.slice(0, 10) : "",
+    renewalDate: apiVendor?.renewalDate ? apiVendor.renewalDate.slice(0, 10) : "",
+    notes: apiVendor?.notes ?? "",
+  };
+}
+
 function WasteDetectionPage({
   aiAnalysis,
   duplicateTools,
   hasVendors,
   isLoadingDemo,
   isAnalyzing,
+  actionItems,
   unusedSeats,
   wasteSignals,
   onExplainWaste,
+  onCreateActionItem,
+  onUpdateActionItemStatus,
+  onDeleteActionItem,
   onConfirmSaving,
   onLoadDemoData,
   onNavigate,
@@ -1744,27 +1949,20 @@ function WasteDetectionPage({
   hasVendors: boolean;
   isLoadingDemo: boolean;
   isAnalyzing: boolean;
+  actionItems: ApiActionItem[];
   unusedSeats: UnusedSeatRow[];
   wasteSignals: WasteSignal[];
   onExplainWaste: (signal: WasteSignal) => Promise<void>;
+  onCreateActionItem: (signal: WasteSignal) => Promise<void>;
+  onUpdateActionItemStatus: (actionId: string, status: ActionItemStatus) => Promise<void>;
+  onDeleteActionItem: (actionId: string) => Promise<void>;
   onConfirmSaving: (input: { signal: WasteSignal; savingsType: SavingsType; monthlySavings: number; notes?: string }) => Promise<void>;
   onLoadDemoData: () => Promise<void>;
   onNavigate: (page: PageId) => void;
   onRunDetection: () => Promise<void>;
   onToast: (message: string) => void;
 }) {
-  const [actionQueue, setActionQueue] = useState<WasteSignal[]>([]);
   const [savingSignal, setSavingSignal] = useState<WasteSignal | null>(null);
-
-  const queueAction = (signal: WasteSignal) => {
-    setActionQueue((current) => {
-      if (current.some((item) => item.title === signal.title)) {
-        return current;
-      }
-
-      return [signal, ...current];
-    });
-  };
 
   return (
     <div className="grid gap-4">
@@ -1801,25 +1999,11 @@ function WasteDetectionPage({
                     <strong className="block text-xl font-extrabold">{currency(signal.impact)}</strong>
                   </div>
                 </div>
-                {signal.evidence.length > 0 && (
-                  <div className="mt-4 rounded-lg border border-line bg-panel p-3">
-                    <div className="flex items-center gap-2 text-xs font-extrabold uppercase text-brand-strong">
-                      <ShieldCheck aria-hidden="true" size={15} />
-                      Why flagged
-                    </div>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                      {signal.evidence.map((item) => (
-                        <span className="rounded-lg bg-panel-muted px-3 py-2 text-sm font-bold leading-5 text-quiet" key={item}>
-                          {item}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <EvidenceCard signal={signal} />
                 <div className="mt-4 flex flex-wrap gap-2">
                   <SecondaryButton onClick={() => onExplainWaste(signal)}>Explain waste</SecondaryButton>
                   <SecondaryButton onClick={() => setSavingSignal(signal)}>Confirm Saving</SecondaryButton>
-                  <PrimaryButton onClick={() => queueAction(signal)}>Create action</PrimaryButton>
+                  <PrimaryButton onClick={() => onCreateActionItem(signal)}>Create action</PrimaryButton>
                 </div>
               </article>
             ))}
@@ -1851,17 +2035,31 @@ function WasteDetectionPage({
 
       {savingSignal && <ConfirmSavingModal signal={savingSignal} onClose={() => setSavingSignal(null)} onConfirm={onConfirmSaving} />}
 
-      {actionQueue.length > 0 && (
-        <Panel title="Action queue" eyebrow={`${actionQueue.length} active action${actionQueue.length === 1 ? "" : "s"}`}>
+      {actionItems.length > 0 && (
+        <Panel title="Action queue" eyebrow={`${actionItems.length} saved action${actionItems.length === 1 ? "" : "s"}`}>
           <div className="grid gap-3">
-            {actionQueue.map((action) => (
-              <article className="rounded-lg border border-line bg-panel-subtle p-4" key={action.title}>
+            {actionItems.map((action) => (
+              <article className="rounded-lg border border-line bg-panel-subtle p-4" key={action.id}>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <strong className="block text-sm font-extrabold">{action.vendor}</strong>
-                    <p className="mt-1 text-sm leading-6 text-quiet">{action.detail}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <strong className="block text-sm font-extrabold">{action.vendorName}</strong>
+                      <span className="rounded-full bg-panel-muted px-2.5 py-1 text-xs font-extrabold uppercase text-quiet">{formatActionStatus(action.status)}</span>
+                      <span className="rounded-full bg-brand-soft px-2.5 py-1 text-xs font-extrabold text-brand-strong">{action.priority}</span>
+                    </div>
+                    <p className="mt-1 text-sm font-extrabold">{action.title}</p>
+                    {action.detail && <p className="mt-1 text-sm leading-6 text-quiet">{action.detail}</p>}
                   </div>
                   <span className="rounded-full bg-good-soft px-3 py-1.5 text-sm font-extrabold text-good">{currency(action.impact)}</span>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <SecondaryButton onClick={() => onUpdateActionItemStatus(action.id, action.status === "open" ? "in_progress" : "open")}>
+                    {action.status === "open" ? "Start" : "Reopen"}
+                  </SecondaryButton>
+                  {action.status !== "done" && <PrimaryButton onClick={() => onUpdateActionItemStatus(action.id, "done")}>Mark done</PrimaryButton>}
+                  <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-risk/20 bg-risk-soft px-4 text-sm font-extrabold text-risk transition hover:-translate-y-0.5" type="button" onClick={() => onDeleteActionItem(action.id)}>
+                    Delete
+                  </button>
                 </div>
               </article>
             ))}
@@ -2008,11 +2206,12 @@ function ReportsPage({
   reports: ApiReport[];
   reportDraft: string;
   trialExpired: boolean;
-  onGenerateReport: () => Promise<void>;
+  onGenerateReport: (reportType: ReportType) => Promise<void>;
   onLoadDemoData: () => Promise<void>;
   onNavigate: (page: PageId) => void;
   onToast: (message: string) => void;
 }) {
+  const [selectedReportType, setSelectedReportType] = useState<ReportType>("cfo_summary");
   const reportCards = savedReports.map(mapApiReportToCard);
   const visibleReports: ReportCard[] = reportCards.length > 0 ? reportCards : reports;
   const [selectedReport, setSelectedReport] = useState<ReportCard>(visibleReports[0]);
@@ -2027,8 +2226,21 @@ function ReportsPage({
         eyebrow="Board-ready output"
         title="Reports"
         detail="Generate monthly CFO packets, savings recaps, renewal briefs, and IT cleanup lists from the same audit data."
-        action={<PrimaryButton onClick={onGenerateReport}>{trialExpired ? "Trial ended" : isGenerating ? "Generating..." : "Create AI report"}</PrimaryButton>}
+        action={<PrimaryButton onClick={() => onGenerateReport(selectedReportType)}>{trialExpired ? "Trial ended" : isGenerating ? "Generating..." : "Create AI report"}</PrimaryButton>}
       />
+
+      {hasVendors && (
+        <Panel title="Report type" eyebrow="Output format">
+          <div className="grid gap-2 md:grid-cols-4">
+            {reportTypeOptions.map((option) => (
+              <button className={`rounded-lg border p-4 text-left transition hover:-translate-y-0.5 ${selectedReportType === option.value ? "border-brand bg-brand-soft text-brand-strong" : "border-line bg-panel-subtle text-quiet hover:border-brand/60"}`} key={option.value} type="button" onClick={() => setSelectedReportType(option.value)}>
+                <strong className="block text-sm font-extrabold">{option.label}</strong>
+                <span className="mt-2 block text-xs leading-5">{option.detail}</span>
+              </button>
+            ))}
+          </div>
+        </Panel>
+      )}
 
       {!hasVendors && (
         <EmptyState
@@ -2048,6 +2260,7 @@ function ReportsPage({
               </span>
               <span className="rounded-full bg-panel-muted px-2.5 py-1 text-xs font-extrabold text-quiet">{report.status}</span>
             </div>
+            <span className="mt-4 inline-flex rounded-full bg-brand-soft px-2.5 py-1 text-xs font-extrabold text-brand-strong">{formatReportType(report.reportType)}</span>
             <h3 className="mt-5 text-lg font-extrabold">{report.name}</h3>
             <p className="mt-2 text-sm leading-6 text-quiet">
               {report.owner} packet covering {currency(report.savings)} in identified savings.
@@ -2079,6 +2292,7 @@ function ReportsPage({
             </div>
             <div className="grid gap-3">
               <PlanMetric label="Owner" value={selectedReport.owner} />
+              <PlanMetric label="Type" value={formatReportType(selectedReport.reportType)} />
               <PlanMetric label="Savings" value={currency(selectedReport.savings)} />
               <PlanMetric label="Status" value={selectedReport.status} />
             </div>
@@ -2115,6 +2329,7 @@ function ReportsPage({
 function EmailGeneratorPage({
   draft,
   emailTone,
+  initialVendorName,
   isLoadingDemo,
   vendors,
   onCopyDraft,
@@ -2126,6 +2341,7 @@ function EmailGeneratorPage({
 }: {
   draft: string;
   emailTone: string;
+  initialVendorName: string;
   isLoadingDemo: boolean;
   vendors: Vendor[];
   onCopyDraft: () => void;
@@ -2135,17 +2351,19 @@ function EmailGeneratorPage({
   onNavigate: (page: PageId) => void;
   onToneChange: (tone: string) => void;
 }) {
-  const [selectedVendor, setSelectedVendor] = useState(vendors[0]?.name ?? "Clearbit");
+  const [selectedVendor, setSelectedVendor] = useState(initialVendorName || vendors[0]?.name || "Clearbit");
   const [selectedGoal, setSelectedGoal] = useState<AiEmailGoal>("cancel");
   const [isGenerating, setGenerating] = useState(false);
   const [error, setError] = useState("");
   const selectedVendorRecord = vendors.find((vendor) => vendor.name === selectedVendor);
 
   useEffect(() => {
-    if (!selectedVendor && vendors[0]) {
+    if (initialVendorName) {
+      setSelectedVendor(initialVendorName);
+    } else if (!selectedVendor && vendors[0]) {
       setSelectedVendor(vendors[0].name);
     }
-  }, [selectedVendor, vendors]);
+  }, [initialVendorName, selectedVendor, vendors]);
 
   async function handleGenerate() {
     setGenerating(true);
@@ -2252,7 +2470,7 @@ function EmailGeneratorPage({
 function PlanPage({ company, vendorCount, onToast }: { company: ApiCompany | null; vendorCount: number; onToast: (message: string) => void }) {
   const trial = getTrialState(company);
   const planLabel = formatPlanLabel(company?.plan ?? "free");
-  const limits = getPlanLimitSet(company?.plan ?? "free");
+  const limits = getPlanLimitSet(company);
   const usage = getPlanUsage(company, vendorCount);
   const [requestedPlan, setRequestedPlan] = useState<"starter" | "standard" | "custom" | null>(null);
   const [isRequestingUpgrade, setRequestingUpgrade] = useState(false);
@@ -2400,7 +2618,7 @@ function TrialStatusBanner({
 }) {
   const trial = getTrialState(company);
   const planLabel = formatPlanLabel(company.plan);
-  const limits = getPlanLimitSet(company.plan);
+  const limits = getPlanLimitSet(company);
   const usage = getPlanUsage(company, vendorCount);
 
   return (
@@ -3032,6 +3250,7 @@ function TeamPage({ currentUser, onActivityRefresh, onToast }: { currentUser: Ap
 const activityFilters: Array<{ value: ActivityEntityType | "all"; label: string }> = [
   { value: "all", label: "All" },
   { value: "vendor", label: "Vendors" },
+  { value: "action_item", label: "Actions" },
   { value: "report", label: "Reports" },
   { value: "savings", label: "Savings" },
   { value: "team", label: "Team" },
@@ -3170,6 +3389,82 @@ function SavingsPage({ entries, summary, currentUser, onDelete }: { entries: Api
   );
 }
 
+function EvidenceCard({ signal }: { signal: WasteSignal }) {
+  const rows = buildEvidenceRows(signal);
+  const tone = signal.impact <= 0 ? "good" : signal.impact < 12000 ? "warning" : "risk";
+
+  return (
+    <div className={`mt-4 rounded-lg border p-4 ${tone === "risk" ? "border-risk/20 bg-risk-soft/50" : tone === "warning" ? "border-warning/25 bg-warning-soft/50" : "border-good/20 bg-good-soft/50"}`}>
+      <div className="flex items-center gap-2 text-xs font-extrabold uppercase text-brand-strong">
+        <ShieldCheck aria-hidden="true" size={15} />
+        Why flagged
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {rows.map((row) => {
+          const Icon = row.icon;
+          return (
+            <div className="flex items-center gap-3 rounded-lg border border-line/60 bg-panel px-3 py-2" key={row.label}>
+              <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${metricTone(row.tone ?? tone)}`}>
+                <Icon aria-hidden="true" size={16} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-xs font-bold uppercase text-quiet">{row.label}</span>
+                <strong className="block truncate text-sm font-extrabold">{row.value}</strong>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-3 text-xs font-bold text-quiet">Evidence verified from your vendor data.</p>
+    </div>
+  );
+}
+
+function buildEvidenceRows(signal: WasteSignal): Array<{ icon: LucideIcon; label: string; value: string; tone?: string }> {
+  if (signal.type === "Zombie app") {
+    return [
+      { icon: CalendarClock, label: "Last used", value: evidenceValue(signal.evidence, /last.*?(\d+\s+days? ago|today|yesterday|no usage)/i) ?? "No recent usage", tone: "risk" },
+      { icon: CircleDollarSign, label: "Monthly spend", value: currency(Math.round(signal.impact / 12)), tone: signal.impact > 0 ? "risk" : "good" },
+      { icon: BadgeDollarSign, label: "Annual exposure", value: currency(signal.impact), tone: signal.impact > 0 ? "risk" : "good" },
+    ];
+  }
+
+  if (signal.type === "Unused seats") {
+    const unused = evidenceValue(signal.evidence, /(\d+)\s+unused/i) ?? evidenceValue(signal.evidence, /(\d+)\s+of\s+\d+/i) ?? "Review";
+    const seats = evidenceValue(signal.evidence, /(\d+\s+of\s+\d+[^.]+)/i) ?? "Seat data available";
+    return [
+      { icon: Users, label: "Seats purchased", value: seats },
+      { icon: CheckCircle2, label: "Active seats", value: seats.includes(" of ") ? seats.split(" of ")[0] : "Tracked" },
+      { icon: AlertTriangle, label: "Unused count", value: unused, tone: "warning" },
+      { icon: CircleDollarSign, label: "Cost per seat", value: "Derived from spend" },
+      { icon: BadgeDollarSign, label: "Annual waste", value: currency(signal.impact), tone: signal.impact > 0 ? "warning" : "good" },
+    ];
+  }
+
+  if (signal.type === "Duplicate tool") {
+    return [
+      { icon: Inbox, label: "Category", value: signal.vendor },
+      { icon: ListChecks, label: "Overlapping tools", value: signal.evidence.find((item) => item.includes(",")) ?? "Multiple vendors" },
+      { icon: BadgeDollarSign, label: "Annual overlap cost", value: currency(signal.impact), tone: signal.impact > 0 ? "warning" : "good" },
+    ];
+  }
+
+  return [
+    { icon: CalendarClock, label: "Renewal date", value: evidenceValue(signal.evidence, /renewal date is ([^.]+)/i) ?? "Tracked" },
+    { icon: CalendarClock, label: "Days remaining", value: signal.evidence.find((item) => /days/i.test(item)) ?? "Review window" },
+    { icon: CircleDollarSign, label: "Contract value", value: currency(signal.impact), tone: signal.impact > 0 ? "risk" : "good" },
+    { icon: Users, label: "Owner", value: "Assigned owner" },
+  ];
+}
+
+function evidenceValue(evidence: string[], pattern: RegExp) {
+  for (const item of evidence) {
+    const match = item.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return undefined;
+}
+
 function ConfirmSavingModal({ signal, onClose, onConfirm }: { signal: WasteSignal; onClose: () => void; onConfirm: (input: { signal: WasteSignal; savingsType: SavingsType; monthlySavings: number; notes?: string }) => Promise<void> }) {
   const [monthlySavings, setMonthlySavings] = useState(Math.max(1, Math.round(signal.impact / 12)));
   const [savingsType, setSavingsType] = useState<SavingsType>(defaultSavingsTypeForSignal(signal));
@@ -3239,6 +3534,22 @@ function formatSavingsType(type: SavingsType) {
   return labels[type];
 }
 
+function formatReportType(type: ReportType | undefined) {
+  const option = reportTypeOptions.find((item) => item.value === (type ?? "cfo_summary"));
+  return option?.label ?? "CFO Summary";
+}
+
+function reportAudienceForType(type: ReportType) {
+  const audiences: Record<ReportType, string> = {
+    cfo_summary: "CFO",
+    board_summary: "Board",
+    owner_action_list: "Operations owners",
+    full_audit: "Finance and operations",
+  };
+
+  return audiences[type];
+}
+
 function formatActivityEntityType(type: ActivityEntityType) {
   const labels: Record<ActivityEntityType, string> = {
     vendor: "Vendor",
@@ -3247,6 +3558,7 @@ function formatActivityEntityType(type: ActivityEntityType) {
     savings: "Savings",
     team: "Team",
     settings: "Settings",
+    action_item: "Action item",
   };
 
   return labels[type];
@@ -3261,6 +3573,9 @@ function formatActivityDescription(activity: ApiActivityLog) {
     "report.generated": "Generated report",
     "email_draft.generated": "Generated AI email draft",
     "savings.confirmed": "Confirmed savings",
+    "action_item.created": "Created action item",
+    "action_item.status_changed": "Updated action status",
+    "action_item.deleted": "Deleted action item",
     "team.member_invited": "Invited teammate",
     "team.member_removed": "Removed teammate",
     "team.role_changed": "Changed team role",
@@ -3268,6 +3583,16 @@ function formatActivityDescription(activity: ApiActivityLog) {
   };
 
   return descriptions[activity.action] ?? activity.action.replace(/[._]/g, " ");
+}
+
+function formatActionStatus(status: ActionItemStatus) {
+  const labels: Record<ActionItemStatus, string> = {
+    open: "Open",
+    in_progress: "In progress",
+    done: "Done",
+  };
+
+  return labels[status];
 }
 
 function formatRelativeTimestamp(value: string) {
@@ -4237,6 +4562,7 @@ function mapApiReportToCard(report: ApiReport): ReportCard {
     name: report.title,
     owner: "Workspace",
     status: report.status === "ready" ? "Ready" : report.status,
+    reportType: report.reportType,
     savings: Number(report.summary?.estimatedAnnualSavings ?? 0),
     date: new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit", year: "numeric" }).format(new Date(report.createdAt)),
     content: report.content,
@@ -4452,7 +4778,7 @@ function buildDuplicateToolRows(summary: AuditSummary | null): DuplicateToolRow[
 }
 
 function buildWasteSignals(summary: AuditSummary | null): WasteSignal[] {
-  return (summary?.wasteSignals ?? []).map((signal) => ({
+  const wasteSignals: WasteSignal[] = (summary?.wasteSignals ?? []).map((signal) => ({
     vendorId: signal.vendorId,
     title: signal.recommendation,
     vendor: signal.vendorName ?? signal.category ?? "Multiple vendors",
@@ -4462,6 +4788,28 @@ function buildWasteSignals(summary: AuditSummary | null): WasteSignal[] {
     evidence: signal.evidence ?? [],
     type: signal.type === "zombie_subscription" ? "Zombie app" : signal.type === "unused_seats" ? "Unused seats" : "Duplicate tool",
   }));
+
+  const renewalSignals: WasteSignal[] = (summary?.upcomingRenewals ?? [])
+    .filter((renewal) => renewal.riskLevel === "high" || renewal.riskLevel === "critical")
+    .map((renewal) => {
+      const daysRemaining = daysUntilDate(renewal.renewalDate);
+      return {
+        vendorId: renewal.id,
+        title: `Review renewal risk for ${renewal.vendorName ?? "vendor"}`,
+        vendor: renewal.vendorName ?? "Vendor",
+        impact: Number(renewal.contractValue ?? 0),
+        confidence: renewal.riskLevel === "critical" ? 92 : 78,
+        detail: "Renewal requires owner and finance review before the notice window closes.",
+        evidence: [
+          `Renewal date is ${formatShortDate(renewal.renewalDate)}.`,
+          `${daysRemaining} days remaining.`,
+          `Contract value is ${currency(Number(renewal.contractValue ?? 0))}.`,
+        ],
+        type: "Renewal",
+      };
+    });
+
+  return [...wasteSignals, ...renewalSignals];
 }
 
 function buildRenewalRows({ renewals, auditSummary }: { renewals: ApiRenewal[]; auditSummary: AuditSummary | null }): RenewalRow[] {
@@ -4610,6 +4958,13 @@ function daysUntilShortDate(shortDate: string) {
   return Math.ceil((parsed.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
 }
 
+function daysUntilDate(value?: string) {
+  if (!value) return 91;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 91;
+  return Math.ceil((parsed.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
 function getTrialState(company: ApiCompany | null) {
   const fallbackEnd = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   const trialEnd = new Date(company?.trialEndsAt ?? fallbackEnd);
@@ -4637,8 +4992,20 @@ function formatPlanLabel(plan: ApiCompany["plan"]) {
   return labels[plan] ?? "Free trial";
 }
 
-function getPlanLimitSet(plan: ApiCompany["plan"]) {
-  return planLimitSets[plan] ?? planLimitSets.free;
+function getPlanLimitSet(companyOrPlan: ApiCompany | ApiCompany["plan"] | null) {
+  const plan = typeof companyOrPlan === "string" ? companyOrPlan : companyOrPlan?.plan ?? "free";
+  const limits = planLimitSets[plan] ?? planLimitSets.free;
+
+  if (typeof companyOrPlan !== "string" && companyOrPlan?.subscriptionStatus !== "active") {
+    return {
+      ...limits,
+      reports: null,
+      aiEmails: null,
+      vendorAnalyses: null,
+    };
+  }
+
+  return limits;
 }
 
 function getPlanUsage(company: ApiCompany | null, vendorCount: number) {

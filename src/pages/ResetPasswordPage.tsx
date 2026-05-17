@@ -3,6 +3,8 @@ import { Link, useSearchParams } from "react-router-dom";
 import { authApi } from "../api/services";
 import { getApiErrorMessage } from "../api/client";
 import { PageMeta } from "../components/PageMeta";
+import { PasswordStrengthMeter } from "../components/PasswordStrengthMeter";
+import { usePasswordStrength } from "../hooks/usePasswordStrength";
 import { AuthError, AuthField, AuthLayout, AuthSuccess } from "./LoginPage";
 
 export function ResetPasswordPage() {
@@ -12,6 +14,7 @@ export function ResetPasswordPage() {
   const [isSubmitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const passwordStrength = usePasswordStrength(password);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -39,8 +42,9 @@ export function ResetPasswordPage() {
         {error && <AuthError message={error} />}
         <AuthField label="New password">
           <input className="input" type="password" value={password} autoComplete="new-password" placeholder="At least 8 characters" minLength={8} onChange={(event) => setPassword(event.target.value)} required />
+          <PasswordStrengthMeter password={password} />
         </AuthField>
-        <button className="min-h-11 rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSubmitting || !token}>
+        <button className="min-h-11 rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSubmitting || !token || passwordStrength.score < 4}>
           {isSubmitting ? "Saving..." : "Reset password"}
         </button>
         <Link className="text-center text-sm font-extrabold text-brand hover:text-brand-strong" to="/login">

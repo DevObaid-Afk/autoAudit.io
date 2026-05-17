@@ -13,6 +13,23 @@ type EmailPayload = {
   replyTo?: string;
 };
 
+type RenewalDigestEmail = {
+  to: string;
+  companyName: string;
+  dashboardUrl: string;
+  urgent: RenewalDigestVendor[];
+  upcoming: RenewalDigestVendor[];
+  later: RenewalDigestVendor[];
+  totalExposure: number;
+};
+
+type RenewalDigestVendor = {
+  name: string;
+  renewalDate: Date;
+  ownerName?: string;
+  monthlySpend: number;
+};
+
 type TeamInviteEmail = {
   email: string;
   role: string;
@@ -109,6 +126,32 @@ export async function sendTeamInviteEmail({ email, role, companyName, inviterNam
   });
 }
 
+export async function sendRenewalDigestEmail({ to, companyName, dashboardUrl, urgent, upcoming, later, totalExposure }: RenewalDigestEmail) {
+  return sendEmail({
+    to: [to],
+    subject: "AutoAudit.ai — Your weekly renewal digest",
+    text: [
+      `Weekly renewal digest for ${companyName}`,
+      "",
+      `Total renewal exposure: ${formatCurrency(totalExposure)}`,
+      "",
+      "Renewing in the next 7 days",
+      formatDigestSection(urgent),
+      "",
+      "Renewing in 8-14 days",
+      formatDigestSection(upcoming),
+      "",
+      "Renewing in 15-30 days",
+      formatDigestSection(later),
+      "",
+      "Open your renewals dashboard:",
+      dashboardUrl,
+      "",
+      "AutoAudit.ai",
+    ].join("\n"),
+  });
+}
+
 async function sendEmail({ to, subject, text, replyTo }: EmailPayload) {
   if (!env.resendApiKey) {
     return { skipped: true, reason: "RESEND_API_KEY is not configured" };
@@ -134,4 +177,34 @@ async function sendEmail({ to, subject, text, replyTo }: EmailPayload) {
   }
 
   return { sent: true };
+}
+
+function formatDigestSection(vendors: RenewalDigestVendor[]) {
+  if (vendors.length === 0) {
+    return "No vendors in this window.";
+  }
+
+  return vendors
+    .map((vendor) => {
+      const owner = vendor.ownerName ? ` | Owner: ${vendor.ownerName}` : "";
+      return `- ${vendor.name} | ${formatDate(vendor.renewalDate)} | ${formatCurrency(vendor.monthlySpend)}${owner}`;
+    })
+    .join("\n");
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatDate(value: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(value);
 }

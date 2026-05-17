@@ -1,6 +1,7 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { FormEvent, useState } from "react";
-import { Eye, EyeOff, Moon, ShieldCheck, Sun } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import axios from "axios";
+import { Eye, EyeOff, LockKeyhole, Moon, ShieldCheck, Sun } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { API_URL, getApiErrorMessage } from "../api/client";
 import { PageMeta } from "../components/PageMeta";
@@ -15,18 +16,47 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
+  const [lockoutUntil, setLockoutUntil] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
 
   const redirectTo = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/dashboard";
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const showSessionExpired = searchParams.get("reason") === "session_expired";
+  const lockoutRemainingMs = lockoutUntil ? Math.max(0, new Date(lockoutUntil).getTime() - now) : 0;
+  const isLockedOut = Boolean(lockoutUntil && lockoutRemainingMs > 0);
+  const lockoutMinutes = Math.max(1, Math.ceil(lockoutRemainingMs / 60000));
+
+  useEffect(() => {
+    if (!isLockedOut) return;
+
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isLockedOut]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setSubmitting(true);
     setError("");
+    setRemainingAttempts(null);
 
     try {
       await login({ email, password });
       navigate(redirectTo, { replace: true });
     } catch (err) {
+      if (axios.isAxiosError(err)) {
+        const details = err.response?.data?.error?.details;
+        if (err.response?.status === 423) {
+          setLockoutUntil(details?.lockoutUntil ?? null);
+          setError("");
+          return;
+        }
+
+        if (typeof details?.remainingAttempts === "number") {
+          setRemainingAttempts(details.remainingAttempts);
+        }
+      }
+
       setError(getApiErrorMessage(err));
     } finally {
       setSubmitting(false);
@@ -37,6 +67,7 @@ export function LoginPage() {
     <AuthLayout title="Welcome back" subtitle="Sign in to review SaaS waste, renewals, and vendor actions.">
       <PageMeta title="Sign In - AutoAudit.ai" description="Sign in to your AutoAudit.ai SaaS waste control dashboard." canonicalPath="/login" noindex />
       <form className="grid gap-4" onSubmit={handleSubmit}>
+        {showSessionExpired && <AuthInfo message="Your session expired because your password was changed. Please log in again." />}
         {error && <AuthError message={error} />}
         <GoogleAuthButton returnTo={redirectTo} />
         <AuthDivider />
@@ -44,21 +75,36 @@ export function LoginPage() {
           <input className="input" type="email" value={email} autoComplete="email" placeholder="you@company.com" onChange={(event) => setEmail(event.target.value)} required />
         </AuthField>
         <AuthField label="Password">
-          <div className="relative">
-            <input className="input pr-12" type={showPassword ? "text" : "password"} value={password} autoComplete="current-password" placeholder="Enter your password" onChange={(event) => setPassword(event.target.value)} required />
-            <button
-              className="absolute right-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-quiet transition hover:bg-panel-muted hover:text-ink"
-              type="button"
-              onClick={() => setShowPassword((current) => !current)}
-              aria-label={showPassword ? "Hide password" : "Show password"}
-              title={showPassword ? "Hide password" : "Show password"}
-            >
-              {showPassword ? <EyeOff aria-hidden="true" size={17} /> : <Eye aria-hidden="true" size={17} />}
-            </button>
-          </div>
+          {isLockedOut ? (
+            <div className="rounded-lg border border-risk/20 bg-risk-soft p-4 text-risk">
+              <div className="flex items-start gap-3">
+                <LockKeyhole aria-hidden="true" className="mt-0.5 shrink-0" size={20} />
+                <div>
+                  <strong className="block text-sm font-extrabold">Account temporarily locked</strong>
+                  <p className="mt-1 text-sm font-bold leading-6">Try again in {lockoutMinutes} minute{lockoutMinutes === 1 ? "" : "s"}.</p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="relative">
+                <input className="input pr-12" type={showPassword ? "text" : "password"} value={password} autoComplete="current-password" placeholder="Enter your password" onChange={(event) => setPassword(event.target.value)} required />
+                <button
+                  className="absolute right-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-quiet transition hover:bg-panel-muted hover:text-ink"
+                  type="button"
+                  onClick={() => setShowPassword((current) => !current)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  title={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff aria-hidden="true" size={17} /> : <Eye aria-hidden="true" size={17} />}
+                </button>
+              </div>
+              {remainingAttempts !== null && <p className="text-sm font-bold text-risk">{remainingAttempts} attempt{remainingAttempts === 1 ? "" : "s"} remaining before your account is temporarily locked.</p>}
+            </>
+          )}
         </AuthField>
-        <button className="min-h-11 rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong hover:shadow-[0_16px_32px_rgb(var(--color-brand)/0.28)] disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Signing in..." : "Sign in"}
+        <button className="min-h-11 rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong hover:shadow-[0_16px_32px_rgb(var(--color-brand)/0.28)] disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSubmitting || isLockedOut}>
+          {isLockedOut ? `Locked for ${lockoutMinutes} minute${lockoutMinutes === 1 ? "" : "s"}` : isSubmitting ? "Signing in..." : "Sign in"}
         </button>
         <Link className="text-center text-sm font-extrabold text-brand hover:text-brand-strong" to="/forgot-password">
           Forgot password?
@@ -171,4 +217,8 @@ export function AuthError({ message }: { message: string }) {
 
 export function AuthSuccess({ message }: { message: string }) {
   return <div className="rounded-lg border border-good/20 bg-good-soft px-3 py-2 text-sm font-bold text-good">{message}</div>;
+}
+
+export function AuthInfo({ message }: { message: string }) {
+  return <div className="rounded-lg border border-brand/20 bg-brand-soft px-3 py-2 text-sm font-bold text-brand-strong">{message}</div>;
 }

@@ -24,6 +24,11 @@ const reportSchema = new mongoose.Schema(
       enum: ["monthly_waste", "renewal_risk", "unused_seats", "custom"],
       default: "monthly_waste",
     },
+    reportType: {
+      type: String,
+      enum: ["cfo_summary", "board_summary", "owner_action_list", "full_audit"],
+      default: "cfo_summary",
+    },
     periodStart: {
       type: Date,
     },

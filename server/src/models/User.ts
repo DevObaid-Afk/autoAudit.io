@@ -19,6 +19,9 @@ export interface IUser {
     periodStart?: Date;
     count?: number;
   };
+  failedLoginAttempts?: number;
+  lockoutUntil?: Date | null;
+  passwordChangedAt?: Date | null;
   emailVerificationTokenHash?: string;
   emailVerificationExpiresAt?: Date;
   passwordResetTokenHash?: string;
@@ -99,6 +102,19 @@ const userSchema = new mongoose.Schema<IUser, UserModel, IUserMethods>(
         default: 0,
         min: 0,
       },
+    },
+    failedLoginAttempts: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    lockoutUntil: {
+      type: Date,
+      default: null,
+    },
+    passwordChangedAt: {
+      type: Date,
+      default: null,
     },
     emailVerificationTokenHash: {
       type: String,

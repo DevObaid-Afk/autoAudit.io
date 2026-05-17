@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { ActivityEntityType, ApiActivityLog, ApiContactRequest, ApiOnboardingState, ApiRenewal, ApiReport, ApiSavingsEntry, ApiTeamInvite, ApiTeamMember, ApiUser, ApiVendor, AuditSummary, AuthResponse, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta, SavingsSummary, SavingsType, TeamRole } from "../types/api";
+import type { ActionItemPriority, ActionItemStatus, ActivityEntityType, ApiActionItem, ApiActivityLog, ApiContactRequest, ApiOnboardingState, ApiRenewal, ApiReport, ApiSavingsEntry, ApiTeamInvite, ApiTeamMember, ApiUser, ApiVendor, AuditSummary, AuthResponse, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta, ReportType, SavingsSummary, SavingsType, TeamRole } from "../types/api";
 
 export const authApi = {
   async signup(input: { name: string; email: string; password: string; companyName: string; companyDomain?: string; plan?: string }) {
@@ -20,6 +20,11 @@ export const authApi = {
   async resetPassword(input: { token: string; password: string }) {
     const { data } = await apiClient.post<{ message: string }>("/api/auth/reset-password", input);
     return data;
+  },
+
+  async unlock(input: { userId: string }) {
+    const { data } = await apiClient.post<{ user: ApiUser }>("/api/auth/unlock", input);
+    return data.user;
   },
 
   async verifyEmail(input: { token: string }) {
@@ -131,6 +136,27 @@ export const savingsApi = {
   },
 };
 
+export const actionItemApi = {
+  async list(params: { status?: ActionItemStatus | "all" } = {}) {
+    const { data } = await apiClient.get<{ actions: ApiActionItem[] }>("/api/action-items", { params });
+    return data.actions;
+  },
+
+  async create(input: { vendorId?: string; vendorName: string; title: string; detail?: string; signalType?: string; impact?: number; priority?: ActionItemPriority }) {
+    const { data } = await apiClient.post<{ action: ApiActionItem }>("/api/action-items", input);
+    return data.action;
+  },
+
+  async updateStatus(id: string, status: ActionItemStatus) {
+    const { data } = await apiClient.patch<{ action: ApiActionItem }>(`/api/action-items/${id}`, { status });
+    return data.action;
+  },
+
+  async remove(id: string) {
+    await apiClient.delete(`/api/action-items/${id}`);
+  },
+};
+
 export const vendorApi = {
   async list(params: { page?: number; limit?: number; search?: string; status?: string; category?: string } = {}) {
     const { data } = await apiClient.get<{ vendors: ApiVendor[]; pagination: PaginationMeta }>("/api/vendors", { params });
@@ -218,7 +244,7 @@ export const aiApi = {
     return data.draft;
   },
 
-  async monthlyReport(input: { periodStart?: string; periodEnd?: string; audience?: string } = {}) {
+  async monthlyReport(input: { periodStart?: string; periodEnd?: string; audience?: string; reportType?: ReportType } = {}) {
     const { data } = await apiClient.post<{ report: string; savedReportId?: string; summary: AuditSummary }>("/api/ai/monthly-report", input);
     return data;
   },

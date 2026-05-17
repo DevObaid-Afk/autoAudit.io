@@ -5,6 +5,8 @@ import { analyticsApi } from "../api/services";
 import { useAuth } from "../auth/AuthContext";
 import { getApiErrorMessage } from "../api/client";
 import { PageMeta } from "../components/PageMeta";
+import { PasswordStrengthMeter } from "../components/PasswordStrengthMeter";
+import { usePasswordStrength } from "../hooks/usePasswordStrength";
 import { useTheme } from "../theme/ThemeContext";
 import { AuthDivider, GoogleAuthButton } from "./LoginPage";
 
@@ -25,6 +27,7 @@ export function SignupPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const passwordStrength = usePasswordStrength(form.password);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -124,10 +127,11 @@ export function SignupPage() {
                   {showPassword ? <EyeOff aria-hidden="true" size={17} /> : <Eye aria-hidden="true" size={17} />}
                 </button>
               </div>
+              <PasswordStrengthMeter password={form.password} />
             </label>
             <SignupField label="Company name" value={form.companyName} onChange={(value) => setForm({ ...form, companyName: value })} />
             <SignupField label="Company domain" value={form.companyDomain} onChange={(value) => setForm({ ...form, companyDomain: value })} required={false} />
-            <button className="min-h-11 rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong hover:shadow-[0_16px_32px_rgb(var(--color-brand)/0.28)] disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSubmitting}>
+            <button className="min-h-11 rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong hover:shadow-[0_16px_32px_rgb(var(--color-brand)/0.28)] disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSubmitting || passwordStrength.score < 4}>
               {isSubmitting ? "Creating..." : "Create workspace"}
             </button>
             <p className="text-center text-xs font-bold leading-5 text-quiet">
