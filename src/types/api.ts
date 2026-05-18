@@ -6,6 +6,8 @@ export type ApiUser = {
   role: "owner" | "admin" | "member" | "viewer";
   company: string;
   emailVerifiedAt?: string;
+  storeIpAddresses?: boolean;
+  mfaEnabled?: boolean;
   avatarUrl?: string;
   avatarSource?: "initials" | "upload" | "ai";
   avatarUpdatedAt?: string;
@@ -44,6 +46,7 @@ export type ApiCompany = {
   trialEndsAt?: string;
   subscriptionStatus?: "trialing" | "active" | "expired";
   stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
   planUsage?: {
     reportsGenerated?: number;
     aiEmailsGenerated?: number;
@@ -61,9 +64,25 @@ export type ApiCompany = {
 };
 
 export type AuthResponse = {
-  token: string;
+  token?: string;
+  refreshToken?: string;
+  mfaRequired?: boolean;
+  mfaSessionToken?: string;
+  message?: string;
   user: ApiUser;
   company: ApiCompany;
+};
+
+export type PlanLimitType = "vendors" | "reports" | "aiEmails" | "vendorAnalyses" | "trial";
+
+export type PlanLimitErrorPayload = {
+  error: "plan_limit_reached";
+  limitType: PlanLimitType;
+  currentUsage: number;
+  planLimit: number;
+  upgradeToUnlock: ApiCompany["plan"] | "starter" | "standard" | "custom";
+  message: string;
+  requestId?: string;
 };
 
 export type TeamRole = "viewer" | "member" | "admin";
@@ -92,15 +111,46 @@ export type ApiTeamInvite = {
   };
 };
 
+export type ApiSession = {
+  id: string;
+  device: string;
+  deviceInfo: string;
+  ipAddress: string;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  isCurrent: boolean;
+};
+
 export type SavingsType = "cancelled" | "renegotiated" | "seat_reduced" | "other";
+export type SavingsSignalType = "zombie" | "unused_seats" | "duplicate_tool" | "negotiated_rate";
+export type SavingsStatus = "identified" | "in_progress" | "realized" | "dismissed";
 
 export type ApiSavingsEntry = {
   id: string;
+  actionItemId?: string;
   vendorId?: string;
   vendorName: string;
-  savingsType: SavingsType;
-  monthlySavings: number;
-  annualSavings: number;
+  signalType: SavingsSignalType;
+  estimatedMonthlySavings: number;
+  estimatedAnnualSavings: number;
+  expectedMonthlySavings?: number;
+  expectedAnnualSavings?: number;
+  realizedMonthlySavings?: number;
+  realizedAnnualSavings?: number;
+  currency: string;
+  status: SavingsStatus;
+  evidence?: Array<{ type: string; value: string }>;
+  notes?: string;
+  dismissalReason?: string;
+  realizedAt?: string;
+  createdBy?: {
+    _id?: string;
+    id?: string;
+    name?: string;
+    email?: string;
+    role?: ApiUser["role"];
+  };
   confirmedBy?: {
     _id?: string;
     id?: string;
@@ -108,9 +158,16 @@ export type ApiSavingsEntry = {
     email?: string;
     role?: ApiUser["role"];
   };
-  confirmedAt: string;
-  notes?: string;
+  nextReviewDate?: string;
   companyId: string;
+  createdAt?: string;
+  updatedAt?: string;
+
+  // Backward-compatible aliases.
+  savingsType: SavingsType | SavingsSignalType;
+  monthlySavings: number;
+  annualSavings: number;
+  confirmedAt: string;
 };
 
 export type ActivityEntityType = "vendor" | "report" | "email_draft" | "savings" | "team" | "settings" | "action_item";
@@ -139,14 +196,24 @@ export type ApiOnboardingState = {
 };
 
 export type SavingsSummary = {
+  totalEstimatedAnnualSavings: number;
+  totalExpectedAnnualSavings: number;
+  totalRealizedAnnualSavings: number;
+  savingsRealizationRate: number;
+  AutoAuditROI: number;
+  identifiedCount: number;
+  inProgressCount: number;
+  realizedCount: number;
+  dismissedCount: number;
   totalMonthlySavings: number;
   totalAnnualSavings: number;
   confirmedActionsCount: number;
-  breakdown: Record<SavingsType, { monthlySavings: number; annualSavings: number; count: number }>;
+  breakdown: Record<string, { monthlySavings: number; annualSavings: number; count: number }>;
 };
 
 export type ActionItemStatus = "open" | "in_progress" | "done";
 export type ActionItemPriority = "low" | "medium" | "high";
+export type ActionItemApprovalStatus = "not_required" | "pending" | "approved" | "rejected";
 
 export type ApiActionItem = {
   id: string;
@@ -159,6 +226,40 @@ export type ApiActionItem = {
   impact: number;
   priority: ActionItemPriority;
   status: ActionItemStatus;
+  assignedTo?: {
+    _id?: string;
+    id?: string;
+    name?: string;
+    email?: string;
+    role?: ApiUser["role"];
+    avatarUrl?: string;
+  };
+  dueDate?: string;
+  approvalStatus: ActionItemApprovalStatus;
+  approvedBy?: {
+    _id?: string;
+    id?: string;
+    name?: string;
+    email?: string;
+    role?: ApiUser["role"];
+  };
+  approvedAt?: string;
+  rejectionReason?: string;
+  comments?: Array<{
+    _id?: string;
+    author?: {
+      _id?: string;
+      id?: string;
+      name?: string;
+      email?: string;
+      role?: ApiUser["role"];
+      avatarUrl?: string;
+    };
+    text: string;
+    createdAt: string;
+  }>;
+  estimatedSavings: number;
+  confirmedSavings?: number;
   createdBy?: {
     _id?: string;
     id?: string;
@@ -193,7 +294,7 @@ export type ApiVendor = {
   renewalDate?: string;
   status: "active" | "zombie" | "duplicate" | "renewal_risk" | "unused_seats" | "cancelled";
   riskScore: number;
-  source: "manual" | "csv" | "email" | "sso" | "bank_feed";
+  source: "manual" | "csv" | "email" | "sso" | "bank_feed" | "sample";
   notes?: string;
   createdAt: string;
   updatedAt: string;

@@ -1,6 +1,7 @@
 import { Router } from "express";
-import { createCheckoutSession } from "../controllers/billingController.js";
+import { createBillingPortalSession, createCheckoutSession } from "../controllers/billingController.js";
 
 export const billingRoutes = Router();
 
 billingRoutes.post("/checkout", createCheckoutSession);
+billingRoutes.post("/portal", createBillingPortalSession);

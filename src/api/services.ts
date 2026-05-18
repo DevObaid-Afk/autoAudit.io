@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { ActionItemPriority, ActionItemStatus, ActivityEntityType, ApiActionItem, ApiActivityLog, ApiContactRequest, ApiOnboardingState, ApiRenewal, ApiReport, ApiSavingsEntry, ApiTeamInvite, ApiTeamMember, ApiUser, ApiVendor, AuditSummary, AuthResponse, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta, ReportType, SavingsSummary, SavingsType, TeamRole } from "../types/api";
+import type { ActionItemPriority, ActionItemStatus, ActivityEntityType, ApiActionItem, ApiActivityLog, ApiContactRequest, ApiOnboardingState, ApiRenewal, ApiReport, ApiSavingsEntry, ApiSession, ApiTeamInvite, ApiTeamMember, ApiUser, ApiVendor, AuditSummary, AuthResponse, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta, ReportType, SavingsSummary, SavingsType, TeamRole } from "../types/api";
 
 export const authApi = {
   async signup(input: { name: string; email: string; password: string; companyName: string; companyDomain?: string; plan?: string }) {
@@ -10,6 +10,49 @@ export const authApi = {
   async login(input: { email: string; password: string }) {
     const { data } = await apiClient.post<AuthResponse>("/api/auth/login", input);
     return data;
+  },
+
+  async completeMfaChallenge(input: { mfaSessionToken: string; code: string }) {
+    const { data } = await apiClient.post<AuthResponse>("/api/auth/mfa/challenge", input);
+    return data;
+  },
+
+  async setupMfa() {
+    const { data } = await apiClient.post<{ qrCodeDataUri: string; secret: string; label: string }>("/api/auth/mfa/setup");
+    return data;
+  },
+
+  async verifyMfaSetup(code: string) {
+    const { data } = await apiClient.post<{ backupCodes: string[] }>("/api/auth/mfa/verify-setup", { code });
+    return data;
+  },
+
+  async disableMfa(input: { password: string; code: string }) {
+    const { data } = await apiClient.post<{ mfaEnabled: boolean }>("/api/auth/mfa/disable", input);
+    return data;
+  },
+
+  async sessions() {
+    const { data } = await apiClient.get<{ sessions: ApiSession[] }>("/api/auth/sessions");
+    return data.sessions;
+  },
+
+  async revokeSession(sessionId: string) {
+    await apiClient.delete(`/api/auth/sessions/${encodeURIComponent(sessionId)}`);
+  },
+
+  async revokeOtherSessions() {
+    const { data } = await apiClient.delete<{ revokedCount: number }>("/api/auth/sessions");
+    return data;
+  },
+
+  async updateSecurityPreferences(input: { storeIpAddresses: boolean }) {
+    const { data } = await apiClient.patch<{ user: ApiUser }>("/api/auth/security-preferences", input);
+    return data.user;
+  },
+
+  async logout(refreshToken?: string | null) {
+    await apiClient.post("/api/auth/logout", { refreshToken });
   },
 
   async forgotPassword(input: { email: string }) {
@@ -126,8 +169,32 @@ export const savingsApi = {
     return data.summary;
   },
 
-  async create(input: { vendorId?: string; vendorName: string; savingsType: SavingsType; monthlySavings: number; notes?: string }) {
+  async create(input: {
+    actionItemId?: string;
+    vendorId?: string;
+    vendorName: string;
+    signalType?: string;
+    savingsType?: SavingsType;
+    estimatedMonthlySavings?: number;
+    expectedMonthlySavings?: number;
+    realizedMonthlySavings?: number;
+    monthlySavings?: number;
+    status?: string;
+    evidence?: Array<{ type: string; value: string } | string>;
+    notes?: string;
+    nextReviewDate?: string;
+  }) {
     const { data } = await apiClient.post<{ entry: ApiSavingsEntry }>("/api/savings", input);
+    return data.entry;
+  },
+
+  async realize(id: string, input: { realizedMonthlySavings: number; notes?: string }) {
+    const { data } = await apiClient.patch<{ entry: ApiSavingsEntry }>(`/api/savings/${id}/realize`, input);
+    return data.entry;
+  },
+
+  async dismiss(id: string, reason: string) {
+    const { data } = await apiClient.patch<{ entry: ApiSavingsEntry }>(`/api/savings/${id}/dismiss`, { reason });
     return data.entry;
   },
 
@@ -142,13 +209,38 @@ export const actionItemApi = {
     return data.actions;
   },
 
-  async create(input: { vendorId?: string; vendorName: string; title: string; detail?: string; signalType?: string; impact?: number; priority?: ActionItemPriority }) {
+  async create(input: { vendorId?: string; vendorName: string; title: string; detail?: string; signalType?: string; impact?: number; estimatedSavings?: number; priority?: ActionItemPriority; assignedTo?: string; dueDate?: string }) {
     const { data } = await apiClient.post<{ action: ApiActionItem }>("/api/action-items", input);
     return data.action;
   },
 
   async updateStatus(id: string, status: ActionItemStatus) {
     const { data } = await apiClient.patch<{ action: ApiActionItem }>(`/api/action-items/${id}`, { status });
+    return data.action;
+  },
+
+  async assign(id: string, input: { assignedTo?: string; dueDate?: string }) {
+    const { data } = await apiClient.patch<{ action: ApiActionItem }>(`/api/action-items/${id}/assign`, input);
+    return data.action;
+  },
+
+  async approve(id: string) {
+    const { data } = await apiClient.patch<{ action: ApiActionItem }>(`/api/action-items/${id}/approve`);
+    return data.action;
+  },
+
+  async reject(id: string, rejectionReason: string) {
+    const { data } = await apiClient.patch<{ action: ApiActionItem }>(`/api/action-items/${id}/reject`, { rejectionReason });
+    return data.action;
+  },
+
+  async comment(id: string, text: string) {
+    const { data } = await apiClient.post<{ action: ApiActionItem }>(`/api/action-items/${id}/comments`, { text });
+    return data.action;
+  },
+
+  async complete(id: string, confirmedSavings?: number) {
+    const { data } = await apiClient.patch<{ action: ApiActionItem }>(`/api/action-items/${id}/complete`, { confirmedSavings });
     return data.action;
   },
 
@@ -186,6 +278,11 @@ export const vendorApi = {
     const { data } = await apiClient.delete<{ deletedCount: number }>("/api/vendors/bulk", { data: { vendorIds } });
     return data;
   },
+
+  async clearSampleData() {
+    const { data } = await apiClient.delete<{ deletedCount: number }>("/api/vendors/sample");
+    return data;
+  },
 };
 
 export const workspaceApi = {
@@ -215,6 +312,11 @@ export const onboardingApi = {
 
   async dismiss() {
     const { data } = await apiClient.patch<{ onboarding: ApiOnboardingState }>("/api/onboarding/dismiss");
+    return data.onboarding;
+  },
+
+  async complete(step: "reviewedWaste") {
+    const { data } = await apiClient.patch<{ onboarding: ApiOnboardingState }>("/api/onboarding/complete", { step });
     return data.onboarding;
   },
 };
@@ -286,11 +388,23 @@ export const reportApi = {
   async remove(id: string) {
     await apiClient.delete(`/api/reports/${id}`);
   },
+
+  async exportPdf(id: string) {
+    const response = await apiClient.post<Blob>(`/api/reports/${id}/export-pdf`, undefined, {
+      responseType: "blob",
+    });
+    return response.data;
+  },
 };
 
 export const billingApi = {
   async createCheckoutSession(input: { plan: "starter" | "standard" }) {
     const { data } = await apiClient.post<{ url: string }>("/api/billing/checkout", input);
+    return data;
+  },
+
+  async createBillingPortalSession() {
+    const { data } = await apiClient.post<{ url: string }>("/api/billing/portal");
     return data;
   },
 };

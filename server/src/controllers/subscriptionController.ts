@@ -6,8 +6,9 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { cleanDate, cleanEnum, cleanNumber, cleanString } from "../middleware/validate.js";
 import { recordAuditLog } from "../utils/auditLogger.js";
 import { buildPagination, parsePagination } from "../utils/query.js";
+import { markAuditSummaryStale } from "../services/auditSummaryCache.js";
 
-export const listSubscriptions = asyncHandler(async (req, res) => {
+export const listSubscriptions = asyncHandler(async (req: any, res: any) => {
   const { page, limit, skip } = parsePagination(req.query);
   const filter: Record<string, unknown> = { company: req.companyId };
   const status = cleanString(req.query.status, { field: "Status", max: 40 });
@@ -21,7 +22,7 @@ export const listSubscriptions = asyncHandler(async (req, res) => {
   res.json({ subscriptions, pagination: buildPagination({ page, limit, total }) });
 });
 
-export const createSubscription = asyncHandler(async (req, res) => {
+export const createSubscription = asyncHandler(async (req: any, res: any) => {
   const input = sanitizeSubscriptionInput(req.body);
   const { vendor: vendorId, renewalDate, cost, billingCycle } = input;
   const vendor = await Vendor.findOne({ _id: vendorId, company: req.companyId });
@@ -55,22 +56,59 @@ export const createSubscription = asyncHandler(async (req, res) => {
     resourceId: subscription._id,
     metadata: { vendorId, cost, billingCycle },
   });
+  await markAuditSummaryStale(req.companyId);
 
   res.status(201).json({ subscription });
 });
 
-function sanitizeSubscriptionInput(body) {
-  return {
-    vendor: cleanString(body.vendor, { required: true, field: "Vendor", max: 80 }),
-    planName: cleanString(body.planName, { required: true, field: "Plan name", max: 140 }),
-    billingCycle: cleanEnum(body.billingCycle, ["monthly", "annual", "quarterly"], { field: "Billing cycle", defaultValue: "monthly" }),
+export const updateSubscription = asyncHandler(async (req: any, res: any) => {
+  const existingSubscription = await Subscription.findOne({ _id: req.params.id, company: req.companyId });
+
+  if (!existingSubscription) {
+    res.status(404).json({ error: { message: "Subscription not found" } });
+    return;
+  }
+
+  const input = sanitizeSubscriptionInput(req.body, { partial: true });
+
+  if (input.vendor) {
+    const vendor = await Vendor.findOne({ _id: input.vendor, company: req.companyId });
+    if (!vendor) {
+      throw new AppError("Vendor not found for this company", 404);
+    }
+  }
+
+  const subscription = await Subscription.findOneAndUpdate(
+    { _id: req.params.id, company: req.companyId },
+    input,
+    { new: true, runValidators: true },
+  );
+
+  await recordAuditLog(req, {
+    action: "subscription.updated",
+    resourceType: "subscription",
+    resourceId: subscription?._id,
+    metadata: { fields: Object.keys(input) },
+  });
+  await markAuditSummaryStale(req.companyId);
+
+  res.json({ subscription });
+});
+
+function sanitizeSubscriptionInput(body: any, { partial } = { partial: false }) {
+  const input = {
+    vendor: cleanString(body.vendor, { required: !partial, field: "Vendor", max: 80 }),
+    planName: cleanString(body.planName, { required: !partial, field: "Plan name", max: 140 }),
+    billingCycle: cleanEnum(body.billingCycle, ["monthly", "annual", "quarterly"], { field: "Billing cycle", defaultValue: partial ? undefined : "monthly" }),
     cost: cleanNumber(body.cost, { field: "Subscription cost", min: 0, max: 100000000 }),
     seatsPurchased: cleanNumber(body.seatsPurchased, { field: "Seats purchased", min: 0, max: 1000000 }),
     activeSeats: cleanNumber(body.activeSeats, { field: "Active seats", min: 0, max: 1000000 }),
     startDate: cleanDate(body.startDate, { field: "Start date" }),
     renewalDate: cleanDate(body.renewalDate, { field: "Renewal date" }),
-    autoRenew: Boolean(body.autoRenew ?? true),
+    autoRenew: body.autoRenew === undefined && partial ? undefined : Boolean(body.autoRenew ?? true),
     paymentSource: cleanString(body.paymentSource, { field: "Payment source", max: 100 }),
-    status: cleanEnum(body.status, ["active", "cancelled", "paused"], { field: "Status", defaultValue: "active" }),
+    status: cleanEnum(body.status, ["active", "cancelled", "paused"], { field: "Status", defaultValue: partial ? undefined : "active" }),
   };
+
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined));
 }

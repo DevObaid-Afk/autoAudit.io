@@ -9,6 +9,7 @@ import { recordActivity } from "../utils/activityLogger.js";
 import { completeOnboardingStep } from "../utils/onboarding.js";
 import { buildPagination, parsePagination } from "../utils/query.js";
 import { assertCanCreateVendors } from "../services/planLimits.js";
+import { markAuditSummaryStale } from "../services/auditSummaryCache.js";
 
 export const listVendors = asyncHandler(async (req, res) => {
   const { page, limit, skip } = parsePagination(req.query);
@@ -61,6 +62,7 @@ export const createVendor = asyncHandler(async (req, res) => {
     metadata: { monthlySpend: vendor.monthlySpend },
   });
   await completeOnboardingStep(req.companyId, "addedFirstVendor");
+  await markAuditSummaryStale(req.companyId);
 
   res.status(201).json({ vendor });
 });
@@ -100,6 +102,7 @@ export const importVendors = asyncHandler(async (req, res) => {
   });
   await completeOnboardingStep(req.companyId, "addedFirstVendor");
   await completeOnboardingStep(req.companyId, "importedCsv");
+  await markAuditSummaryStale(req.companyId);
 
   res.status(201).json({ vendors, count: vendors.length });
 });
@@ -135,6 +138,7 @@ export const updateVendor = asyncHandler(async (req, res) => {
     entityName: vendor.name,
     metadata: { fields: Object.keys(update) },
   });
+  await markAuditSummaryStale(req.companyId);
 
   res.json({ vendor });
 });
@@ -159,6 +163,7 @@ export const deleteVendor = asyncHandler(async (req, res) => {
     entityId: vendor._id,
     entityName: vendor.name,
   });
+  await markAuditSummaryStale(req.companyId);
 
   res.status(204).send();
 });
@@ -179,6 +184,27 @@ export const bulkDeleteVendors = asyncHandler(async (req, res) => {
     entityName: "Bulk delete",
     metadata: { count: result.deletedCount },
   });
+  await markAuditSummaryStale(req.companyId);
+
+  res.json({ deletedCount: result.deletedCount });
+});
+
+export const clearSampleVendors = asyncHandler(async (req, res) => {
+  const result = await Vendor.deleteMany({ company: req.companyId, source: "sample" });
+
+  await recordAuditLog(req, {
+    action: "vendor.sample_data_cleared",
+    resourceType: "vendor",
+    resourceId: undefined,
+    metadata: { count: result.deletedCount },
+  });
+  await recordActivity(req, {
+    action: "vendor.sample_data_cleared",
+    entityType: "vendor",
+    entityName: "Sample data",
+    metadata: { count: result.deletedCount },
+  });
+  await markAuditSummaryStale(req.companyId);
 
   res.json({ deletedCount: result.deletedCount });
 });

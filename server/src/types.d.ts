@@ -7,6 +7,8 @@ declare global {
       id?: string;
       user?: IUserDocument;
       companyId?: Types.ObjectId | string;
+      authToken?: string;
+      sessionId?: string;
     }
   }
 }

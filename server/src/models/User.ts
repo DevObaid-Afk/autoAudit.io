@@ -22,6 +22,12 @@ export interface IUser {
   failedLoginAttempts?: number;
   lockoutUntil?: Date | null;
   passwordChangedAt?: Date | null;
+  refreshTokenHash?: string;
+  refreshTokenExpiresAt?: Date;
+  storeIpAddresses?: boolean;
+  mfaEnabled?: boolean;
+  mfaTotpSecret?: string;
+  mfaBackupCodes?: string[];
   emailVerificationTokenHash?: string;
   emailVerificationExpiresAt?: Date;
   passwordResetTokenHash?: string;
@@ -116,6 +122,31 @@ const userSchema = new mongoose.Schema<IUser, UserModel, IUserMethods>(
       type: Date,
       default: null,
     },
+    refreshTokenHash: {
+      type: String,
+      select: false,
+    },
+    refreshTokenExpiresAt: {
+      type: Date,
+      select: false,
+    },
+    storeIpAddresses: {
+      type: Boolean,
+      default: true,
+    },
+    mfaEnabled: {
+      type: Boolean,
+      default: false,
+    },
+    mfaTotpSecret: {
+      type: String,
+      select: false,
+    },
+    mfaBackupCodes: {
+      type: [String],
+      select: false,
+      default: [],
+    },
     emailVerificationTokenHash: {
       type: String,
       select: false,
@@ -137,6 +168,7 @@ const userSchema = new mongoose.Schema<IUser, UserModel, IUserMethods>(
 );
 
 userSchema.index({ company: 1, role: 1 });
+userSchema.index({ refreshTokenExpiresAt: 1 }, { sparse: true });
 userSchema.index({ emailVerificationTokenHash: 1 }, { sparse: true });
 userSchema.index({ passwordResetTokenHash: 1 }, { sparse: true });
 

@@ -1,6 +1,26 @@
-import mongoose from "mongoose";
+import mongoose, { type Types } from "mongoose";
 
-const reportSchema = new mongoose.Schema(
+export type ReportKind = "monthly_waste" | "renewal_risk" | "unused_seats" | "custom";
+export type AiReportType = "cfo_summary" | "board_summary" | "owner_action_list" | "full_audit";
+export type ReportStatus = "draft" | "ready" | "archived";
+
+export interface IReport {
+  company: Types.ObjectId;
+  requestedBy: Types.ObjectId;
+  title: string;
+  type: ReportKind;
+  reportType: AiReportType;
+  periodStart?: Date;
+  periodEnd?: Date;
+  summary: Record<string, unknown>;
+  findings: Array<Record<string, unknown>>;
+  content?: string;
+  status: ReportStatus;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+const reportSchema = new mongoose.Schema<IReport>(
   {
     company: {
       type: mongoose.Schema.Types.ObjectId,
@@ -57,8 +77,8 @@ const reportSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-export type ReportDocument = mongoose.InferSchemaType<typeof reportSchema> & {
+export type ReportDocument = IReport & {
   _id: mongoose.Types.ObjectId;
 };
 
-export const Report = mongoose.model("Report", reportSchema);
+export const Report = mongoose.model<IReport>("Report", reportSchema);

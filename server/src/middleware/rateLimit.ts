@@ -21,6 +21,14 @@ export const authRateLimit = rateLimit({
   message: { error: { message: "Too many sign-in attempts. Please wait and try again." } },
 });
 
+// MFA challenges should be rate limited strictly: max 5 attempts per 15 minutes.
+export const mfaChallengeRateLimit = rateLimit({
+  ...standardOptions,
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  message: { error: { message: "Too many MFA attempts. Please wait and try again." } },
+});
+
 export const aiRateLimit = rateLimit({
   ...standardOptions,
   windowMs: env.aiRateLimitWindowMs,

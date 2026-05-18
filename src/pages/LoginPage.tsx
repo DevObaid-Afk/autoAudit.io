@@ -8,7 +8,7 @@ import { PageMeta } from "../components/PageMeta";
 import { useTheme } from "../theme/ThemeContext";
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { completeMfaLogin, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState("");
@@ -19,9 +19,12 @@ export function LoginPage() {
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
   const [lockoutUntil, setLockoutUntil] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
+  const [mfaSessionToken, setMfaSessionToken] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [isUsingBackupCode, setUsingBackupCode] = useState(false);
 
-  const redirectTo = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/dashboard";
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const redirectTo = searchParams.get("returnTo") || (location.state as { from?: { pathname?: string } } | null)?.from?.pathname || "/dashboard";
   const showSessionExpired = searchParams.get("reason") === "session_expired";
   const lockoutRemainingMs = lockoutUntil ? Math.max(0, new Date(lockoutUntil).getTime() - now) : 0;
   const isLockedOut = Boolean(lockoutUntil && lockoutRemainingMs > 0);
@@ -34,6 +37,13 @@ export function LoginPage() {
     return () => window.clearInterval(timer);
   }, [isLockedOut]);
 
+  useEffect(() => {
+    const token = searchParams.get("mfaSessionToken");
+    if (token) {
+      setMfaSessionToken(token);
+    }
+  }, [searchParams]);
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setSubmitting(true);
@@ -41,7 +51,12 @@ export function LoginPage() {
     setRemainingAttempts(null);
 
     try {
-      await login({ email, password });
+      const result = await login({ email, password });
+      if (result?.mfaRequired && result.mfaSessionToken) {
+        setMfaSessionToken(result.mfaSessionToken);
+        setPassword("");
+        return;
+      }
       navigate(redirectTo, { replace: true });
     } catch (err) {
       if (axios.isAxiosError(err)) {
@@ -63,58 +78,94 @@ export function LoginPage() {
     }
   }
 
+  async function handleMfaSubmit(event: FormEvent) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError("");
+
+    try {
+      await completeMfaLogin({ mfaSessionToken, code: mfaCode });
+      navigate(redirectTo, { replace: true });
+    } catch (err) {
+      setError(getApiErrorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <AuthLayout title="Welcome back" subtitle="Sign in to review SaaS waste, renewals, and vendor actions.">
       <PageMeta title="Sign In - AutoAudit.ai" description="Sign in to your AutoAudit.ai SaaS waste control dashboard." canonicalPath="/login" noindex />
-      <form className="grid gap-4" onSubmit={handleSubmit}>
+      <form className="grid gap-4" onSubmit={mfaSessionToken ? handleMfaSubmit : handleSubmit}>
         {showSessionExpired && <AuthInfo message="Your session expired because your password was changed. Please log in again." />}
         {error && <AuthError message={error} />}
-        <GoogleAuthButton returnTo={redirectTo} />
-        <AuthDivider />
-        <AuthField label="Email">
-          <input className="input" type="email" value={email} autoComplete="email" placeholder="you@company.com" onChange={(event) => setEmail(event.target.value)} required />
-        </AuthField>
-        <AuthField label="Password">
-          {isLockedOut ? (
-            <div className="rounded-lg border border-risk/20 bg-risk-soft p-4 text-risk">
-              <div className="flex items-start gap-3">
-                <LockKeyhole aria-hidden="true" className="mt-0.5 shrink-0" size={20} />
-                <div>
-                  <strong className="block text-sm font-extrabold">Account temporarily locked</strong>
-                  <p className="mt-1 text-sm font-bold leading-6">Try again in {lockoutMinutes} minute{lockoutMinutes === 1 ? "" : "s"}.</p>
+        {mfaSessionToken ? (
+          <>
+            <AuthInfo message={isUsingBackupCode ? "Enter one of your saved backup codes." : "Enter the 6-digit code from your authenticator app."} />
+            <AuthField label={isUsingBackupCode ? "Backup code" : "Authenticator code"}>
+              <input className="input" inputMode={isUsingBackupCode ? "text" : "numeric"} autoComplete="one-time-code" value={mfaCode} placeholder={isUsingBackupCode ? "ABCDE-12345" : "123456"} onChange={(event) => setMfaCode(event.target.value)} required />
+            </AuthField>
+            <button className="min-h-11 rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Verifying..." : "Verify and sign in"}
+            </button>
+            <button className="text-center text-sm font-extrabold text-brand hover:text-brand-strong" type="button" onClick={() => {
+              setUsingBackupCode((current) => !current);
+              setMfaCode("");
+            }}>
+              {isUsingBackupCode ? "Use authenticator code" : "Use a backup code"}
+            </button>
+            <button className="text-center text-sm font-extrabold text-quiet hover:text-ink" type="button" onClick={() => {
+              setMfaSessionToken("");
+              setMfaCode("");
+              setUsingBackupCode(false);
+            }}>
+              Back to password
+            </button>
+          </>
+        ) : (
+          <>
+            <GoogleAuthButton returnTo={redirectTo} />
+            <AuthDivider />
+            <AuthField label="Email">
+              <input className="input" type="email" value={email} autoComplete="email" placeholder="you@company.com" onChange={(event) => setEmail(event.target.value)} required />
+            </AuthField>
+            <AuthField label="Password">
+              {isLockedOut ? (
+                <div className="rounded-lg border border-risk/20 bg-risk-soft p-4 text-risk">
+                  <div className="flex items-start gap-3">
+                    <LockKeyhole aria-hidden="true" className="mt-0.5 shrink-0" size={20} />
+                    <div>
+                      <strong className="block text-sm font-extrabold">Account temporarily locked</strong>
+                      <p className="mt-1 text-sm font-bold leading-6">Try again in {lockoutMinutes} minute{lockoutMinutes === 1 ? "" : "s"}.</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="relative">
-                <input className="input pr-12" type={showPassword ? "text" : "password"} value={password} autoComplete="current-password" placeholder="Enter your password" onChange={(event) => setPassword(event.target.value)} required />
-                <button
-                  className="absolute right-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-quiet transition hover:bg-panel-muted hover:text-ink"
-                  type="button"
-                  onClick={() => setShowPassword((current) => !current)}
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                  title={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? <EyeOff aria-hidden="true" size={17} /> : <Eye aria-hidden="true" size={17} />}
-                </button>
-              </div>
-              {remainingAttempts !== null && <p className="text-sm font-bold text-risk">{remainingAttempts} attempt{remainingAttempts === 1 ? "" : "s"} remaining before your account is temporarily locked.</p>}
-            </>
-          )}
-        </AuthField>
-        <button className="min-h-11 rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong hover:shadow-[0_16px_32px_rgb(var(--color-brand)/0.28)] disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSubmitting || isLockedOut}>
-          {isLockedOut ? `Locked for ${lockoutMinutes} minute${lockoutMinutes === 1 ? "" : "s"}` : isSubmitting ? "Signing in..." : "Sign in"}
-        </button>
-        <Link className="text-center text-sm font-extrabold text-brand hover:text-brand-strong" to="/forgot-password">
-          Forgot password?
-        </Link>
-        <p className="text-center text-sm text-quiet">
-          New workspace?{" "}
-          <Link className="font-extrabold text-brand hover:text-brand-strong" to="/signup">
-            Create account
-          </Link>
-        </p>
+              ) : (
+                <>
+                  <div className="relative">
+                    <input className="input pr-12" type={showPassword ? "text" : "password"} value={password} autoComplete="current-password" placeholder="Enter your password" onChange={(event) => setPassword(event.target.value)} required />
+                    <button className="absolute right-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-quiet transition hover:bg-panel-muted hover:text-ink" type="button" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? "Hide password" : "Show password"} title={showPassword ? "Hide password" : "Show password"}>
+                      {showPassword ? <EyeOff aria-hidden="true" size={17} /> : <Eye aria-hidden="true" size={17} />}
+                    </button>
+                  </div>
+                  {remainingAttempts !== null && <p className="text-sm font-bold text-risk">{remainingAttempts} attempt{remainingAttempts === 1 ? "" : "s"} remaining before your account is temporarily locked.</p>}
+                </>
+              )}
+            </AuthField>
+            <button className="min-h-11 rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong hover:shadow-[0_16px_32px_rgb(var(--color-brand)/0.28)] disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSubmitting || isLockedOut}>
+              {isLockedOut ? `Locked for ${lockoutMinutes} minute${lockoutMinutes === 1 ? "" : "s"}` : isSubmitting ? "Signing in..." : "Sign in"}
+            </button>
+            <Link className="text-center text-sm font-extrabold text-brand hover:text-brand-strong" to="/forgot-password">
+              Forgot password?
+            </Link>
+            <p className="text-center text-sm text-quiet">
+              New workspace?{" "}
+              <Link className="font-extrabold text-brand hover:text-brand-strong" to="/signup">
+                Create account
+              </Link>
+            </p>
+          </>
+        )}
       </form>
     </AuthLayout>
   );

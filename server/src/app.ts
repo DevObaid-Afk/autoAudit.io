@@ -3,6 +3,7 @@ import express from "express";
 import helmet from "helmet";
 import path from "node:path";
 import { env } from "./config/env.js";
+import { handleStripeWebhook } from "./controllers/billingController.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import { apiRateLimit } from "./middleware/rateLimit.js";
 import { apiRouter } from "./routes/index.js";
@@ -34,6 +35,7 @@ export function createApp() {
       credentials: true,
     }),
   );
+  app.post("/api/billing/webhook", express.raw({ type: "application/json" }), handleStripeWebhook);
   app.use(express.json({ limit: "6mb" }));
   app.use("/uploads", express.static(path.resolve("server", "uploads")));
 

@@ -1,7 +1,8 @@
 import { Router } from "express";
-import { dismissOnboarding, getOnboarding } from "../controllers/onboardingController.js";
+import { completeOnboarding, dismissOnboarding, getOnboarding } from "../controllers/onboardingController.js";
 
 export const onboardingRoutes = Router();
 
 onboardingRoutes.get("/", getOnboarding);
+onboardingRoutes.patch("/complete", completeOnboarding);
 onboardingRoutes.patch("/dismiss", dismissOnboarding);

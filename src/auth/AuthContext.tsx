@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { authApi } from "../api/services";
-import { clearStoredToken, getApiErrorMessage, getStoredToken, setStoredToken } from "../api/client";
-import type { ApiCompany, ApiUser } from "../types/api";
+import { clearStoredAuth, getApiErrorMessage, getStoredRefreshToken, getStoredToken, setStoredRefreshToken, setStoredToken } from "../api/client";
+import type { ApiCompany, ApiUser, AuthResponse } from "../types/api";
 
 type AuthContextValue = {
   user: ApiUser | null;
@@ -13,9 +13,10 @@ type AuthContextValue = {
   authError: string;
   refreshSession: () => Promise<void>;
   updateUser: (user: ApiUser) => void;
-  login: (input: { email: string; password: string }) => Promise<void>;
+  login: (input: { email: string; password: string }) => Promise<AuthResponse | void>;
+  completeMfaLogin: (input: { mfaSessionToken: string; code: string }) => Promise<void>;
   signup: (input: { name: string; email: string; password: string; companyName: string; companyDomain?: string; plan?: string }) => Promise<void>;
-  completeOAuthLogin: (token: string, session?: { user: ApiUser; company: ApiCompany }) => Promise<void>;
+  completeOAuthLogin: (token: string, refreshToken?: string | null, session?: { user: ApiUser; company: ApiCompany }) => Promise<void>;
   logout: () => void;
 };
 
@@ -45,7 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         if (!isActive) return;
         setAuthError(getApiErrorMessage(error));
-        clearStoredToken();
+        clearStoredAuth();
         setToken(null);
         setUser(null);
         setCompany(null);
@@ -73,27 +74,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(nextUser);
   }, []);
 
-  const login = useCallback(async (input: { email: string; password: string }) => {
-    setAuthError("");
-    const response = await authApi.login(input);
+  const applyAuthResponse = useCallback((response: AuthResponse) => {
+    if (!response.token || !response.user || !response.company) {
+      throw new Error("Complete authentication session was not returned.");
+    }
+
     setStoredToken(response.token);
+    if (response.refreshToken) setStoredRefreshToken(response.refreshToken);
     setToken(response.token);
     setUser(response.user);
     setCompany(response.company);
   }, []);
+
+  const login = useCallback(async (input: { email: string; password: string }) => {
+    setAuthError("");
+    const response = await authApi.login(input);
+    if (response.mfaRequired) return response;
+    applyAuthResponse(response);
+  }, [applyAuthResponse]);
+
+  const completeMfaLogin = useCallback(async (input: { mfaSessionToken: string; code: string }) => {
+    setAuthError("");
+    applyAuthResponse(await authApi.completeMfaChallenge(input));
+  }, [applyAuthResponse]);
 
   const signup = useCallback(async (input: { name: string; email: string; password: string; companyName: string; companyDomain?: string; plan?: string }) => {
     setAuthError("");
     const response = await authApi.signup(input);
-    setStoredToken(response.token);
-    setToken(response.token);
-    setUser(response.user);
-    setCompany(response.company);
-  }, []);
+    applyAuthResponse(response);
+  }, [applyAuthResponse]);
 
-  const completeOAuthLogin = useCallback(async (nextToken: string, session?: { user: ApiUser; company: ApiCompany }) => {
+  const completeOAuthLogin = useCallback(async (nextToken: string, refreshToken?: string | null, session?: { user: ApiUser; company: ApiCompany }) => {
     setAuthError("");
     setStoredToken(nextToken);
+    if (refreshToken) setStoredRefreshToken(refreshToken);
     setToken(nextToken);
     if (session) {
       setUser(session.user);
@@ -108,7 +122,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
-    clearStoredToken();
+    const refreshToken = getStoredRefreshToken();
+    authApi.logout(refreshToken).catch(() => undefined);
+    clearStoredAuth();
     setToken(null);
     setUser(null);
     setCompany(null);
@@ -125,11 +141,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshSession,
       updateUser,
       login,
+      completeMfaLogin,
       signup,
       completeOAuthLogin,
       logout,
     }),
-    [authError, company, completeOAuthLogin, isBootstrapping, login, logout, refreshSession, signup, token, updateUser, user],
+    [authError, company, completeMfaLogin, completeOAuthLogin, isBootstrapping, login, logout, refreshSession, signup, token, updateUser, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

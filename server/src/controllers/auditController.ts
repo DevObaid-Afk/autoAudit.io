@@ -1,18 +1,31 @@
-import { Renewal } from "../models/Renewal.js";
-import { Subscription } from "../models/Subscription.js";
-import { Vendor } from "../models/Vendor.js";
-import { buildAuditSummary } from "../services/wasteDetection.js";
+import { AuditSummaryCache } from "../models/AuditSummaryCache.js";
+import {
+  isAuditSummaryCacheFresh,
+  markAuditSummaryStale,
+  recomputeAuditSummary,
+  recomputeAuditSummaryInBackground,
+} from "../services/auditSummaryCache.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
-export const getAuditSummary = asyncHandler(async (req, res) => {
-  const [vendors, subscriptions, renewals] = await Promise.all([
-    Vendor.find({ company: req.companyId }),
-    Subscription.find({ company: req.companyId }),
-    Renewal.find({ company: req.companyId }).populate("vendor"),
-  ]);
+export const getAuditSummary = asyncHandler(async (req: any, res: any) => {
+  const cache = await AuditSummaryCache.findOne({ companyId: req.companyId }).lean();
 
-  res.json({
-    summary: buildAuditSummary({ vendors, subscriptions, renewals }),
-  });
+  if (cache && isAuditSummaryCacheFresh(cache)) {
+    res.json({ summary: cache.summary, cache: { hit: true, stale: false, computedAt: cache.computedAt } });
+    return;
+  }
+
+  if (cache?.isStale && cache.summary && Object.keys(cache.summary).length > 0) {
+    setImmediate(() => recomputeAuditSummaryInBackground(req.companyId));
+    res.json({ summary: cache.summary, cache: { hit: true, stale: true, computedAt: cache.computedAt } });
+    return;
+  }
+
+  const summary = await recomputeAuditSummary(req.companyId);
+  res.json({ summary, cache: { hit: false, stale: false, computedAt: new Date() } });
 });
 
+export const flushAuditSummaryCache = asyncHandler(async (req: any, res: any) => {
+  await markAuditSummaryStale(req.companyId);
+  res.json({ ok: true });
+});

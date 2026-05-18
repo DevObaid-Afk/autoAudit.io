@@ -59,9 +59,11 @@ import { actionItemApi, activityApi, aiApi, analyticsApi, auditApi, authApi, bil
 import { getApiErrorMessage, resolveApiAssetUrl } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { PageMeta } from "../components/PageMeta";
+import { PlanLimitModal } from "../components/PlanLimitModal";
 import { PublicFooter } from "../components/PublicFooter";
 import { useTheme } from "../theme/ThemeContext";
-import type { ActionItemStatus, ActivityEntityType, AiEmailGoal, ApiActionItem, ApiActivityLog, ApiCompany, ApiContactRequest, ApiOnboardingState, ApiRenewal, ApiReport, ApiSavingsEntry, ApiTeamInvite, ApiTeamMember, ApiUser, ApiVendor, AuditSummary, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta, ReportType, SavingsSummary, SavingsType, TeamRole } from "../types/api";
+import { usePlanLimit } from "../hooks/usePlanLimit";
+import type { ActionItemStatus, ActivityEntityType, AiEmailGoal, ApiActionItem, ApiActivityLog, ApiCompany, ApiContactRequest, ApiOnboardingState, ApiRenewal, ApiReport, ApiSavingsEntry, ApiSession, ApiTeamInvite, ApiTeamMember, ApiUser, ApiVendor, AuditSummary, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta, ReportType, SavingsSignalType, SavingsSummary, SavingsType, TeamRole } from "../types/api";
 
 type PageId = "overview" | "vendors" | "waste" | "renewals" | "reports" | "savings" | "activity" | "email" | "team" | "billing" | "settings";
 type RiskLevel = "critical" | "high" | "medium" | "low";
@@ -149,6 +151,22 @@ type PlanLimitSet = {
   vendorAnalyses: number | null;
 };
 
+type PlanUsage = {
+  vendors: number;
+  reports: number;
+  aiEmails: number;
+  vendorAnalyses: number;
+};
+
+type PlanUsageWarning = {
+  type: keyof PlanUsage;
+  label: string;
+  used: number;
+  limit: number;
+  nextPlan: ApiCompany["plan"];
+  multiplier: number;
+};
+
 type OnboardingItem = {
   label: string;
   done: boolean;
@@ -217,16 +235,16 @@ const integrations = [
   { name: "Google Workspace", status: "Coming soon", detail: "Future account, app usage, and renewal-notice discovery." },
   { name: "Microsoft 365", status: "Coming soon", detail: "Future workspace and user activity signals." },
   { name: "QuickBooks", status: "Coming soon", detail: "Future accounting-side SaaS spend checks." },
-  { name: "Stripe", status: "Coming soon", detail: "Future billing and subscription activation workflow." },
+  { name: "Stripe", status: "Available", detail: "Hosted checkout, subscription activation, and billing portal." },
   { name: "Okta", status: "Coming soon", detail: "Future login activity and seat usage signals." },
   { name: "Slack alerts", status: "Coming soon", detail: "Future renewal and owner follow-up notifications." },
 ];
 
 const planLimitSets = {
   free: { vendors: 10, reports: 1, aiEmails: 3, vendorAnalyses: 3 },
-  starter: { vendors: 50, reports: 3, aiEmails: 0, vendorAnalyses: 0 },
+  starter: { vendors: 50, reports: 5, aiEmails: 20, vendorAnalyses: 15 },
   standard: { vendors: 200, reports: 25, aiEmails: 100, vendorAnalyses: 50 },
-  growth: { vendors: 200, reports: 25, aiEmails: 100, vendorAnalyses: 50 },
+  growth: { vendors: 500, reports: 75, aiEmails: 300, vendorAnalyses: 150 },
   enterprise: { vendors: null, reports: null, aiEmails: null, vendorAnalyses: null },
   custom: { vendors: null, reports: null, aiEmails: null, vendorAnalyses: null },
 } satisfies Record<ApiCompany["plan"], PlanLimitSet>;
@@ -295,6 +313,8 @@ export function DashboardPage() {
   const [activityPagination, setActivityPagination] = useState<PaginationMeta | null>(null);
   const [activityFilter, setActivityFilter] = useState<ActivityEntityType | "all">("all");
   const [onboarding, setOnboarding] = useState<ApiOnboardingState | null>(null);
+  const [teamMemberCount, setTeamMemberCount] = useState(1);
+  const [teamMembers, setTeamMembers] = useState<ApiTeamMember[]>([]);
   const [vendorPagination, setVendorPagination] = useState<PaginationMeta | null>(null);
   const [vendorCategoryOptions, setVendorCategoryOptions] = useState<string[]>(["All"]);
   const [auditSummary, setAuditSummary] = useState<AuditSummary | null>(null);
@@ -306,13 +326,19 @@ export function DashboardPage() {
   const [wasteAnalysis, setWasteAnalysis] = useState("");
   const [isWasteAnalyzing, setWasteAnalyzing] = useState(false);
   const [isLoadingDemo, setLoadingDemo] = useState(false);
+  const [isSampleBannerDismissed, setSampleBannerDismissed] = useState(false);
+  const [isPlanWarningDismissed, setPlanWarningDismissed] = useState(false);
+  const [isClearingSampleData, setClearingSampleData] = useState(false);
   const toastTimer = useRef<number | undefined>(undefined);
+  const { closePlanLimitModal, planLimitError } = usePlanLimit();
 
   const pageTitle = navItems.find((item) => item.id === activePage)?.label ?? "Overview";
   const isTrialExpired = company ? getTrialState(company).isExpired : false;
   const canManageTeam = user?.role === "owner" || user?.role === "admin";
 
   const dashboardVendors = useMemo(() => apiVendors.map(mapApiVendorToDashboardVendor), [apiVendors]);
+  const hasSampleVendors = useMemo(() => apiVendors.some((vendor) => vendor.source === "sample"), [apiVendors]);
+  const sampleBannerKey = company?._id ? `autoaudit.sampleDataBannerDismissed.${company._id}` : "";
   const renewalRows = useMemo(() => buildRenewalRows({ renewals: apiRenewals, auditSummary }), [apiRenewals, auditSummary]);
   const unusedSeatRows = useMemo(() => buildUnusedSeatRows(auditSummary), [auditSummary]);
   const duplicateToolRows = useMemo(() => buildDuplicateToolRows(auditSummary), [auditSummary]);
@@ -342,6 +368,8 @@ export function DashboardPage() {
       monthlyWaste: auditSummary?.monthlyWasteFound ?? 0,
     };
   }, [auditSummary, dashboardVendors, renewalRows]);
+  const planWarning = useMemo(() => buildPlanUsageWarning(company, getPlanUsage(company, totals.vendorCount)), [company, totals.vendorCount]);
+  const planWarningKey = company?._id && planWarning ? `autoaudit.planWarningDismissed.${company._id}.${planWarning.type}` : "";
 
   const loadVendorDirectory = async (query: VendorQueryState) => {
     setVendorLoading(true);
@@ -383,7 +411,7 @@ export function DashboardPage() {
     setDataError("");
 
     try {
-      const [vendorsResponse, summaryResponse, renewalsResponse, reportsResponse, savingsEntriesResponse, savingsSummaryResponse, actionItemsResponse, activityResponse, onboardingResponse] = await Promise.all([
+      const [vendorsResponse, summaryResponse, renewalsResponse, reportsResponse, savingsEntriesResponse, savingsSummaryResponse, actionItemsResponse, activityResponse, onboardingResponse, teamMembersResponse] = await Promise.all([
         vendorApi.list({
           page: vendorQuery.page,
           limit: vendorQuery.limit,
@@ -399,6 +427,7 @@ export function DashboardPage() {
         actionItemApi.list({ status: "all" }),
         activityApi.list({ limit: 50, entityType: activityFilter }),
         onboardingApi.get(),
+        canManageTeam ? teamApi.members() : Promise.resolve(user ? [{ id: user.id ?? String(user._id ?? ""), name: user.name, email: user.email, role: user.role }] as ApiTeamMember[] : []),
       ]);
 
       setApiVendors(vendorsResponse.vendors);
@@ -413,6 +442,8 @@ export function DashboardPage() {
       setActivityEntries(activityResponse.activity);
       setActivityPagination(activityResponse.pagination);
       setOnboarding(onboardingResponse);
+      setTeamMemberCount(teamMembersResponse.length || 1);
+      setTeamMembers(teamMembersResponse);
     } catch (error) {
       setDataError(getApiErrorMessage(error));
     } finally {
@@ -426,8 +457,24 @@ export function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    setSampleBannerDismissed(Boolean(sampleBannerKey && window.localStorage.getItem(sampleBannerKey) === "true"));
+  }, [sampleBannerKey]);
+
+  useEffect(() => {
+    setPlanWarningDismissed(Boolean(planWarningKey && window.localStorage.getItem(planWarningKey) === "true"));
+  }, [planWarningKey]);
+
+  useEffect(() => {
     refreshActivityData(activityFilter).catch((error) => setDataError(getApiErrorMessage(error)));
   }, [activityFilter]);
+
+  useEffect(() => {
+    if (activePage !== "waste" || dashboardWasteSignals.length === 0 || onboarding?.reviewedWaste) return;
+
+    onboardingApi.complete("reviewedWaste")
+      .then(setOnboarding)
+      .catch((error) => setDataError(getApiErrorMessage(error)));
+  }, [activePage, dashboardWasteSignals.length, onboarding?.reviewedWaste]);
 
   useEffect(() => {
     let isCurrent = true;
@@ -542,6 +589,34 @@ export function DashboardPage() {
       showToast(firstError ? withUpgradePrompt(getApiErrorMessage(firstError.reason)) : `${created} sample vendors loaded.`);
     } finally {
       setLoadingDemo(false);
+    }
+  };
+
+  const dismissSampleBanner = () => {
+    if (sampleBannerKey) {
+      window.localStorage.setItem(sampleBannerKey, "true");
+    }
+    setSampleBannerDismissed(true);
+  };
+
+  const dismissPlanWarning = () => {
+    if (planWarningKey) {
+      window.localStorage.setItem(planWarningKey, "true");
+    }
+    setPlanWarningDismissed(true);
+  };
+
+  const handleClearSampleData = async () => {
+    setClearingSampleData(true);
+
+    try {
+      const result = await vendorApi.clearSampleData();
+      await Promise.all([refreshDashboardData(), refreshActivityData()]);
+      showToast(result.deletedCount > 0 ? `${result.deletedCount} sample vendors cleared.` : "No sample vendors to clear.");
+    } catch (error) {
+      showToast(getApiErrorMessage(error));
+    } finally {
+      setClearingSampleData(false);
     }
   };
 
@@ -661,8 +736,12 @@ export function DashboardPage() {
     const entry = await savingsApi.create({
       vendorId: input.signal.vendorId,
       vendorName: input.signal.vendor,
+      signalType: mapWasteSignalToSavingsSignal(input.signal),
       savingsType: input.savingsType,
-      monthlySavings: input.monthlySavings,
+      estimatedMonthlySavings: Math.round(input.signal.impact / 12),
+      realizedMonthlySavings: input.monthlySavings,
+      status: "realized",
+      evidence: input.signal.evidence.map((value) => ({ type: "waste_signal", value })),
       notes: input.notes,
     });
     setSavingsEntries((current) => [entry, ...current]);
@@ -679,6 +758,7 @@ export function DashboardPage() {
       signalType: signal.type,
       impact: signal.impact,
       priority: signal.impact >= 10000 ? "high" : signal.impact >= 3000 ? "medium" : "low",
+      estimatedSavings: signal.impact,
     });
     setActionItems((current) => [action, ...current]);
     await refreshActivityData();
@@ -690,6 +770,59 @@ export function DashboardPage() {
     setActionItems((current) => current.map((action) => (action.id === actionId ? updated : action)));
     await refreshActivityData();
     showToast("Action item updated.");
+  };
+
+  const updateActionItemInState = (updated: ApiActionItem) => {
+    setActionItems((current) => current.map((action) => (action.id === updated.id ? updated : action)));
+  };
+
+  const handleAssignActionItem = async (actionId: string, input: { assignedTo?: string; dueDate?: string }) => {
+    const updated = await actionItemApi.assign(actionId, input);
+    updateActionItemInState(updated);
+    await refreshActivityData();
+    showToast("Action assignment updated.");
+  };
+
+  const handleApproveActionItem = async (actionId: string) => {
+    const updated = await actionItemApi.approve(actionId);
+    updateActionItemInState(updated);
+    await refreshActivityData();
+    showToast("Action approved.");
+  };
+
+  const handleRejectActionItem = async (actionId: string, rejectionReason: string) => {
+    const updated = await actionItemApi.reject(actionId, rejectionReason);
+    updateActionItemInState(updated);
+    await refreshActivityData();
+    showToast("Action rejected.");
+  };
+
+  const handleCommentActionItem = async (actionId: string, text: string) => {
+    const updated = await actionItemApi.comment(actionId, text);
+    updateActionItemInState(updated);
+    await refreshActivityData();
+    showToast("Comment added.");
+  };
+
+  const handleCompleteActionItem = async (actionId: string, confirmedSavings?: number) => {
+    const updated = await actionItemApi.complete(actionId, confirmedSavings);
+    updateActionItemInState(updated);
+    await refreshActivityData();
+    showToast("Action completed.");
+  };
+
+  const handleRealizeSaving = async (entry: ApiSavingsEntry, realizedMonthlySavings: number) => {
+    await savingsApi.realize(entry.id, { realizedMonthlySavings });
+    await refreshSavingsData();
+    await refreshActivityData();
+    showToast("Realized savings confirmed.");
+  };
+
+  const handleDismissSaving = async (entry: ApiSavingsEntry, reason: string) => {
+    await savingsApi.dismiss(entry.id, reason);
+    await refreshSavingsData();
+    await refreshActivityData();
+    showToast("Savings opportunity dismissed.");
   };
 
   const handleDeleteActionItem = async (actionId: string) => {
@@ -728,9 +861,13 @@ export function DashboardPage() {
           <main className="mx-auto max-w-[1480px] overflow-x-hidden px-3 py-4 sm:px-6 lg:px-8">
             <div className="min-w-0 animate-[fadeIn_420ms_ease-out]">
               {dataError && <ErrorState message={dataError} onRetry={refreshDashboardData} />}
+              {planWarning && !isPlanWarningDismissed && <PlanUsageWarningBanner warning={planWarning} onDismiss={dismissPlanWarning} onNavigate={handleNav} />}
               {isDataLoading && <LoadingState label="Loading live audit data" />}
-              {activePage === "overview" && <OverviewPage categoryData={dashboardCategorySpend} duplicateTools={duplicateToolRows} renewalRows={renewalRows} totals={totals} unusedSeats={unusedSeatRows} wasteSignals={dashboardWasteSignals} company={company} onboarding={onboarding} onDismissOnboarding={async () => { const next = await onboardingApi.dismiss(); setOnboarding(next); }} onNavigate={handleNav} onToast={showToast} />}
-              {activePage === "vendors" && <VendorsPage activityEntries={activityEntries} apiVendors={apiVendors} categoryOptions={vendorCategoryOptions} isLoading={isDataLoading || isVendorLoading} isLoadingDemo={isLoadingDemo} pagination={vendorPagination} query={vendorQuery} savingsEntries={savingsEntries} vendors={dashboardVendors} wasteSignals={dashboardWasteSignals} onCreateVendor={handleCreateVendor} onDeleteVendor={handleDeleteVendor} onEmailShortcut={(vendorName) => { setEmailVendorName(vendorName); handleNav("email"); }} onImportVendors={handleImportVendors} onLoadDemoData={handleLoadDemoData} onQueryChange={handleVendorQueryChange} onToast={showToast} onUpdateVendor={async (id, input) => { const vendor = await vendorApi.update(id, input); setApiVendors((current) => current.map((item) => item._id === id ? vendor : item)); await refreshDashboardData(); showToast(`${vendor.name} updated.`); }} />}
+              {hasSampleVendors && !isSampleBannerDismissed && (
+                <SampleDataBanner onDismiss={dismissSampleBanner} onNavigate={handleNav} />
+              )}
+              {activePage === "overview" && <OverviewPage apiVendors={apiVendors} categoryData={dashboardCategorySpend} duplicateTools={duplicateToolRows} renewalRows={renewalRows} reports={apiReports} savingsEntries={savingsEntries} teamMemberCount={teamMemberCount} totals={totals} unusedSeats={unusedSeatRows} wasteSignals={dashboardWasteSignals} company={company} onboarding={onboarding} onDismissOnboarding={async () => { const next = await onboardingApi.dismiss(); setOnboarding(next); }} onNavigate={handleNav} onToast={showToast} />}
+              {activePage === "vendors" && <VendorsPage activityEntries={activityEntries} apiVendors={apiVendors} categoryOptions={vendorCategoryOptions} isClearingSampleData={isClearingSampleData} isLoading={isDataLoading || isVendorLoading} isLoadingDemo={isLoadingDemo} pagination={vendorPagination} query={vendorQuery} savingsEntries={savingsEntries} vendors={dashboardVendors} wasteSignals={dashboardWasteSignals} onClearSampleData={handleClearSampleData} onCreateVendor={handleCreateVendor} onDeleteVendor={handleDeleteVendor} onEmailShortcut={(vendorName) => { setEmailVendorName(vendorName); handleNav("email"); }} onImportVendors={handleImportVendors} onLoadDemoData={handleLoadDemoData} onQueryChange={handleVendorQueryChange} onToast={showToast} onUpdateVendor={async (id, input) => { const vendor = await vendorApi.update(id, input); setApiVendors((current) => current.map((item) => item._id === id ? vendor : item)); await refreshDashboardData(); showToast(`${vendor.name} updated.`); }} />}
               {activePage === "waste" && (
                 <WasteDetectionPage
                   aiAnalysis={wasteAnalysis}
@@ -739,22 +876,29 @@ export function DashboardPage() {
                   isLoadingDemo={isLoadingDemo}
                   isAnalyzing={isWasteAnalyzing}
                   actionItems={actionItems}
+                  currentUser={user}
                   unusedSeats={unusedSeatRows}
                   wasteSignals={dashboardWasteSignals}
                   onExplainWaste={handleExplainWaste}
                   onCreateActionItem={handleCreateActionItem}
                   onUpdateActionItemStatus={handleUpdateActionItemStatus}
                   onDeleteActionItem={handleDeleteActionItem}
+                  onAssignActionItem={handleAssignActionItem}
+                  onApproveActionItem={handleApproveActionItem}
+                  onRejectActionItem={handleRejectActionItem}
+                  onCommentActionItem={handleCommentActionItem}
+                  onCompleteActionItem={handleCompleteActionItem}
                   onConfirmSaving={handleConfirmSaving}
                   onLoadDemoData={handleLoadDemoData}
                   onNavigate={handleNav}
                   onRunDetection={handleSuggestDuplicateTools}
                   onToast={showToast}
+                  teamMembers={teamMembers}
                 />
               )}
               {activePage === "renewals" && <RenewalsPage hasVendors={dashboardVendors.length > 0} isLoadingDemo={isLoadingDemo} renewalChartData={dashboardRenewalChart} renewalRows={renewalRows} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} onToast={showToast} />}
               {activePage === "reports" && <ReportsPage hasVendors={dashboardVendors.length > 0} isGenerating={isReportGenerating} isLoadingDemo={isLoadingDemo} reports={apiReports} reportDraft={monthlyReportDraft} trialExpired={isTrialExpired} onGenerateReport={handleGenerateMonthlyReport} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} onToast={showToast} />}
-              {activePage === "savings" && <SavingsPage entries={savingsEntries} summary={savingsSummary} currentUser={user} onDelete={async (entry) => { await savingsApi.remove(entry.id); await refreshSavingsData(); showToast("Savings entry removed."); }} />}
+              {activePage === "savings" && <SavingsPage entries={savingsEntries} summary={savingsSummary} currentUser={user} onDelete={async (entry) => { await savingsApi.remove(entry.id); await refreshSavingsData(); showToast("Savings entry removed."); }} onDismiss={handleDismissSaving} onRealize={handleRealizeSaving} />}
               {activePage === "activity" && <ActivityPage activity={activityEntries} filter={activityFilter} pagination={activityPagination} onFilterChange={setActivityFilter} onPageChange={(page) => refreshActivityData(activityFilter, page)} />}
               {activePage === "email" && (
                 <EmailGeneratorPage
@@ -785,12 +929,12 @@ export function DashboardPage() {
                   onToneChange={setEmailTone}
                 />
               )}
-              {activePage === "billing" && <PlanPage company={company} vendorCount={dashboardVendors.length} onToast={showToast} />}
-              {activePage === "team" && canManageTeam && <TeamPage currentUser={user} onActivityRefresh={async () => { await Promise.all([refreshActivityData(), refreshOnboardingData()]); }} onToast={showToast} />}
+              {activePage === "billing" && <PlanPage company={company} vendorCount={totals.vendorCount} onToast={showToast} />}
+              {activePage === "team" && canManageTeam && <TeamPage currentUser={user} onActivityRefresh={async () => { await Promise.all([refreshActivityData(), refreshOnboardingData(), refreshDashboardData()]); }} onToast={showToast} />}
               {activePage === "settings" && <SettingsPage company={company} companySettings={company?.settings} user={user} vendors={apiVendors} onToast={showToast} onUserUpdate={updateUser} onWorkspaceDeleted={handleWorkspaceDeleted} />}
               <div className="mt-6 grid gap-4">
                 {user && !user.emailVerifiedAt && <EmailVerificationBanner email={user.email} onResend={handleResendVerification} />}
-                {company && <TrialStatusBanner company={company} isLoadingDemo={isLoadingDemo} vendorCount={dashboardVendors.length} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} />}
+                {company && <TrialStatusBanner company={company} isLoadingDemo={isLoadingDemo} vendorCount={totals.vendorCount} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} />}
               </div>
               <div className="mt-8 overflow-hidden rounded-lg border border-line shadow-[0_18px_45px_rgba(23,32,38,0.08)]">
                 <PublicFooter />
@@ -801,6 +945,55 @@ export function DashboardPage() {
       </div>
 
       <Toast message={toast} />
+      <PlanLimitModal error={planLimitError} onDismiss={closePlanLimitModal} />
+    </div>
+  );
+}
+
+function SampleDataBanner({ onDismiss, onNavigate }: { onDismiss: () => void; onNavigate: (page: PageId) => void }) {
+  return (
+    <div className="mb-4 rounded-lg border border-warning/20 bg-warning-soft p-4 text-warning shadow-sm">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <strong className="block text-sm font-extrabold">This is sample data.</strong>
+          <p className="mt-1 text-sm font-bold leading-6">Import your own vendors to start your real audit.</p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong" type="button" onClick={() => onNavigate("vendors")}>
+            Import vendors
+          </button>
+          <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-warning/30 bg-panel px-4 text-sm font-extrabold text-warning transition hover:-translate-y-0.5" type="button" onClick={onDismiss}>
+            Got it, I'll import mine
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PlanUsageWarningBanner({ warning, onDismiss, onNavigate }: { warning: PlanUsageWarning; onDismiss: () => void; onNavigate: (page: PageId) => void }) {
+  const moreCapacity = warning.multiplier > 1 ? `${warning.multiplier}x more capacity` : "more capacity";
+
+  return (
+    <div className="mb-4 rounded-lg border border-warning/25 bg-warning-soft p-4 text-warning shadow-sm">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <strong className="block text-sm font-extrabold">
+            You're using {warning.used} of {warning.limit} {warning.label}.
+          </strong>
+          <p className="mt-1 text-sm font-bold leading-6">
+            Upgrade to {formatPlanLabel(warning.nextPlan)} for {moreCapacity}.
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong" type="button" onClick={() => onNavigate("billing")}>
+            Review plans
+          </button>
+          <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-warning/25 bg-panel px-4 text-sm font-extrabold text-warning transition hover:-translate-y-0.5" type="button" onClick={onDismiss}>
+            Dismiss
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1030,10 +1223,14 @@ function Topbar({
 }
 
 function OverviewPage({
+  apiVendors,
   company,
   categoryData,
   duplicateTools,
   renewalRows,
+  reports,
+  savingsEntries,
+  teamMemberCount,
   totals,
   unusedSeats,
   wasteSignals,
@@ -1042,10 +1239,14 @@ function OverviewPage({
   onNavigate,
   onToast,
 }: {
+  apiVendors: ApiVendor[];
   company: ApiCompany | null;
   categoryData: typeof categorySpend;
   duplicateTools: DuplicateToolRow[];
   renewalRows: RenewalRow[];
+  reports: ApiReport[];
+  savingsEntries: ApiSavingsEntry[];
+  teamMemberCount: number;
   totals: DashboardTotals;
   unusedSeats: UnusedSeatRow[];
   wasteSignals: WasteSignal[];
@@ -1058,7 +1259,7 @@ function OverviewPage({
     <div className="grid min-w-0 gap-5 overflow-hidden">
       <HeroBand totals={totals} wasteSignals={wasteSignals} onNavigate={onNavigate} />
       <SummaryGrid totals={totals} />
-      <OnboardingChecklist onboarding={onboarding} onDismiss={onDismissOnboarding} onNavigate={onNavigate} onToast={onToast} />
+      <OnboardingChecklist apiVendors={apiVendors} company={company} onboarding={onboarding} reports={reports} savingsEntries={savingsEntries} teamMemberCount={teamMemberCount} totals={totals} wasteSignals={wasteSignals} onDismiss={onDismissOnboarding} onNavigate={onNavigate} onToast={onToast} />
 
       <OverviewActionCenter duplicateTools={duplicateTools} renewalRows={renewalRows} unusedSeats={unusedSeats} wasteSignals={wasteSignals} onNavigate={onNavigate} onToast={onToast} />
 
@@ -1117,19 +1318,49 @@ function OverviewPage({
   );
 }
 
-function OnboardingChecklist({ onboarding, onDismiss, onNavigate, onToast }: { onboarding: ApiOnboardingState | null; onDismiss: () => Promise<void>; onNavigate: (page: PageId) => void; onToast: (message: string) => void }) {
+function OnboardingChecklist({
+  apiVendors,
+  company,
+  onboarding,
+  reports,
+  savingsEntries,
+  teamMemberCount,
+  totals,
+  wasteSignals,
+  onDismiss,
+  onNavigate,
+  onToast,
+}: {
+  apiVendors: ApiVendor[];
+  company: ApiCompany | null;
+  onboarding: ApiOnboardingState | null;
+  reports: ApiReport[];
+  savingsEntries: ApiSavingsEntry[];
+  teamMemberCount: number;
+  totals: DashboardTotals;
+  wasteSignals: WasteSignal[];
+  onDismiss: () => Promise<void>;
+  onNavigate: (page: PageId) => void;
+  onToast: (message: string) => void;
+}) {
+  const [isCollapsed, setCollapsed] = useState(false);
   if (!onboarding || onboarding.dismissed) return null;
 
-  const steps: Array<{ key: keyof ApiOnboardingState; label: string; page: PageId }> = [
-    { key: "addedFirstVendor", label: "Add first vendor", page: "vendors" },
-    { key: "importedCsv", label: "Import CSV", page: "vendors" },
-    { key: "reviewedWaste", label: "Review waste signals", page: "waste" },
-    { key: "generatedReport", label: "Generate report", page: "reports" },
-    { key: "createdEmailDraft", label: "Create email draft", page: "email" },
-    { key: "invitedTeammate", label: "Invite teammate", page: "team" },
+  const hasCsvVendor = apiVendors.some((vendor) => vendor.source === "csv");
+  const steps: Array<{ label: string; done: boolean; page: PageId; action: string }> = [
+    { label: "Add your first vendor", done: apiVendors.length > 0, page: "vendors", action: "Add vendor" },
+    { label: "Import your vendor list (CSV)", done: hasCsvVendor, page: "vendors", action: "Import CSV" },
+    { label: "Review your first waste signal", done: wasteSignals.length > 0 && Boolean(onboarding.reviewedWaste), page: "waste", action: "Review waste" },
+    { label: "Generate your first report", done: reports.length > 0, page: "reports", action: "Generate report" },
+    { label: "Draft a vendor email", done: Boolean(onboarding.createdEmailDraft), page: "email", action: "Draft email" },
+    { label: "Confirm your first saving", done: savingsEntries.length > 0, page: "savings", action: "Confirm savings" },
+    { label: "Invite a teammate", done: teamMemberCount > 1, page: "team", action: "Invite teammate" },
   ];
-  const completed = steps.filter((step) => Boolean(onboarding[step.key])).length;
+  const completed = steps.filter((step) => step.done).length;
   const isComplete = completed === steps.length;
+  const nextStep = steps.find((step) => !step.done);
+  const progress = Math.round((completed / steps.length) * 100);
+  const paidPlanStarted = company?.plan !== "free";
 
   const handleDismiss = async () => {
     try {
@@ -1141,24 +1372,72 @@ function OnboardingChecklist({ onboarding, onDismiss, onNavigate, onToast }: { o
   };
 
   return (
-    <Panel
-      title={isComplete ? "Workspace setup complete" : "Onboarding checklist"}
-      eyebrow={`${completed} of ${steps.length} steps completed`}
-      action={isComplete ? <SecondaryButton onClick={handleDismiss}>Dismiss</SecondaryButton> : undefined}
-    >
-      {isComplete && <p className="mb-4 rounded-lg border border-good/20 bg-good-soft px-4 py-3 text-sm font-extrabold text-good">Congratulations. Your workspace has the core audit workflow set up.</p>}
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-        {steps.map((step) => {
-          const done = Boolean(onboarding[step.key]);
-          return (
-            <button className="flex min-h-14 items-center gap-3 rounded-lg border border-line bg-panel-subtle px-3 py-2 text-left transition hover:-translate-y-0.5 hover:border-brand/50 hover:bg-panel-muted" key={step.key} type="button" onClick={() => onNavigate(step.page)}>
-              <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${done ? "bg-good-soft text-good" : "bg-panel-muted text-quiet"}`}>
-                {done ? <CheckCircle2 aria-hidden="true" size={18} /> : <span className="size-2 rounded-full bg-current" />}
-              </span>
-              <span className="text-sm font-extrabold">{step.label}</span>
-            </button>
-          );
-        })}
+    <Panel title={isComplete ? "Workspace setup complete" : "Start your SaaS audit"} eyebrow={`${completed} of ${steps.length} steps completed`} action={
+      <div className="flex gap-2">
+        <IconButton label={isCollapsed ? "Expand checklist" : "Collapse checklist"} onClick={() => setCollapsed((current) => !current)}>
+          <ChevronRight aria-hidden="true" className={`transition ${isCollapsed ? "" : "rotate-90"}`} size={18} />
+        </IconButton>
+        <SecondaryButton onClick={handleDismiss}>{isComplete ? "Dismiss" : "Hide"}</SecondaryButton>
+      </div>
+    }>
+      <div className="grid gap-4">
+        <div>
+          <div className="h-2 overflow-hidden rounded-full bg-panel-muted">
+            <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${progress}%` }} />
+          </div>
+          <p className="mt-3 text-sm font-extrabold text-ink">
+            Based on your current data, AutoAudit has found {currency(totals.estimatedSavings)} in potential annual savings.
+          </p>
+        </div>
+
+        {!isCollapsed && (
+          <>
+            {nextStep && (
+              <div className="rounded-lg border border-brand/25 bg-brand-soft p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs font-extrabold uppercase text-brand-strong">Next step</p>
+                    <strong className="mt-1 block text-base font-extrabold">{nextStep.label}</strong>
+                  </div>
+                  <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong" type="button" onClick={() => onNavigate(nextStep.page)}>
+                    {nextStep.action}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {isComplete && (
+              <p className="rounded-lg border border-good/20 bg-good-soft px-4 py-3 text-sm font-extrabold text-good">
+                Your core audit workflow is set up. You can hide this checklist when you are ready.
+              </p>
+            )}
+
+            <div className="grid gap-2">
+              {steps.map((step, index) => (
+                <button className={`flex min-h-12 items-center gap-3 rounded-lg border px-3 py-2 text-left transition hover:-translate-y-0.5 ${step.done ? "border-line bg-panel-subtle text-quiet" : step === nextStep ? "border-brand/40 bg-panel text-ink" : "border-line bg-panel-subtle text-ink"}`} key={step.label} type="button" onClick={() => onNavigate(step.page)}>
+                  <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${step.done ? "bg-good-soft text-good" : "bg-panel-muted text-quiet"}`}>
+                    {step.done ? <CheckCircle2 aria-hidden="true" size={18} /> : <span className="text-sm font-extrabold">{index + 1}</span>}
+                  </span>
+                  <span className={`text-sm font-extrabold ${step.done ? "line-through decoration-2" : ""}`}>{step.label}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel-subtle p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <strong className="block text-sm font-extrabold">Bonus: Start your paid plan</strong>
+                <span className="text-xs font-bold text-quiet">{paidPlanStarted ? "Paid plan active" : "Unlock paid limits when the audit becomes part of your finance rhythm."}</span>
+              </div>
+              {paidPlanStarted ? (
+                <span className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-good-soft px-3 text-sm font-extrabold text-good"><CheckCircle2 aria-hidden="true" size={16} /> Done</span>
+              ) : (
+                <button className="inline-flex min-h-9 items-center justify-center rounded-lg border border-line bg-panel px-3 text-sm font-extrabold text-ink transition hover:border-brand hover:text-brand" type="button" onClick={() => onNavigate("billing")}>
+                  View plans
+                </button>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </Panel>
   );
@@ -1360,6 +1639,7 @@ function VendorsPage({
   activityEntries,
   apiVendors,
   categoryOptions,
+  isClearingSampleData,
   isLoading,
   isLoadingDemo,
   pagination,
@@ -1367,6 +1647,7 @@ function VendorsPage({
   savingsEntries,
   vendors,
   wasteSignals,
+  onClearSampleData,
   onCreateVendor,
   onDeleteVendor,
   onEmailShortcut,
@@ -1379,6 +1660,7 @@ function VendorsPage({
   activityEntries: ApiActivityLog[];
   apiVendors: ApiVendor[];
   categoryOptions: string[];
+  isClearingSampleData: boolean;
   isLoading: boolean;
   isLoadingDemo: boolean;
   pagination: PaginationMeta | null;
@@ -1386,6 +1668,7 @@ function VendorsPage({
   savingsEntries: ApiSavingsEntry[];
   vendors: Vendor[];
   wasteSignals: WasteSignal[];
+  onClearSampleData: () => Promise<void>;
   onCreateVendor: (input: CreateVendorInput) => Promise<void>;
   onDeleteVendor: (vendor: Vendor) => Promise<void>;
   onEmailShortcut: (vendorName: string) => void;
@@ -1424,6 +1707,7 @@ function VendorsPage({
   const currentPage = pagination?.page ?? query.page;
   const totalPages = pagination?.totalPages ?? 1;
   const visibleVendors = vendors;
+  const sampleVendorCount = apiVendors.filter((vendor) => vendor.source === "sample").length;
 
   useEffect(() => {
     if (selectedVendor && !vendors.some((vendor) => vendor.id === selectedVendor.id)) {
@@ -1544,6 +1828,11 @@ function VendorsPage({
             <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line bg-panel px-4 text-sm font-extrabold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-brand hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60" disabled={isLoadingDemo || vendors.length > 0} type="button" onClick={onLoadDemoData}>
               {isLoadingDemo ? "Loading..." : "Load sample data"}
             </button>
+            {sampleVendorCount > 0 && (
+              <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-risk/20 bg-risk-soft px-4 text-sm font-extrabold text-risk shadow-sm transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60" disabled={isClearingSampleData} type="button" onClick={onClearSampleData}>
+                {isClearingSampleData ? "Clearing..." : "Clear sample data"}
+              </button>
+            )}
             <PrimaryButton onClick={() => setShowForm((current) => !current)}>{showForm ? "Close form" : "Add vendor"}</PrimaryButton>
           </div>
         }
@@ -1932,17 +2221,24 @@ function WasteDetectionPage({
   isLoadingDemo,
   isAnalyzing,
   actionItems,
+  currentUser,
   unusedSeats,
   wasteSignals,
   onExplainWaste,
   onCreateActionItem,
   onUpdateActionItemStatus,
   onDeleteActionItem,
+  onAssignActionItem,
+  onApproveActionItem,
+  onRejectActionItem,
+  onCommentActionItem,
+  onCompleteActionItem,
   onConfirmSaving,
   onLoadDemoData,
   onNavigate,
   onRunDetection,
   onToast,
+  teamMembers,
 }: {
   aiAnalysis: string;
   duplicateTools: DuplicateToolRow[];
@@ -1950,19 +2246,27 @@ function WasteDetectionPage({
   isLoadingDemo: boolean;
   isAnalyzing: boolean;
   actionItems: ApiActionItem[];
+  currentUser: ApiUser | null;
   unusedSeats: UnusedSeatRow[];
   wasteSignals: WasteSignal[];
   onExplainWaste: (signal: WasteSignal) => Promise<void>;
   onCreateActionItem: (signal: WasteSignal) => Promise<void>;
   onUpdateActionItemStatus: (actionId: string, status: ActionItemStatus) => Promise<void>;
   onDeleteActionItem: (actionId: string) => Promise<void>;
+  onAssignActionItem: (actionId: string, input: { assignedTo?: string; dueDate?: string }) => Promise<void>;
+  onApproveActionItem: (actionId: string) => Promise<void>;
+  onRejectActionItem: (actionId: string, rejectionReason: string) => Promise<void>;
+  onCommentActionItem: (actionId: string, text: string) => Promise<void>;
+  onCompleteActionItem: (actionId: string, confirmedSavings?: number) => Promise<void>;
   onConfirmSaving: (input: { signal: WasteSignal; savingsType: SavingsType; monthlySavings: number; notes?: string }) => Promise<void>;
   onLoadDemoData: () => Promise<void>;
   onNavigate: (page: PageId) => void;
   onRunDetection: () => Promise<void>;
   onToast: (message: string) => void;
+  teamMembers: ApiTeamMember[];
 }) {
   const [savingSignal, setSavingSignal] = useState<WasteSignal | null>(null);
+  const canApproveActions = currentUser?.role === "owner" || currentUser?.role === "admin";
 
   return (
     <div className="grid gap-4">
@@ -2039,29 +2343,19 @@ function WasteDetectionPage({
         <Panel title="Action queue" eyebrow={`${actionItems.length} saved action${actionItems.length === 1 ? "" : "s"}`}>
           <div className="grid gap-3">
             {actionItems.map((action) => (
-              <article className="rounded-lg border border-line bg-panel-subtle p-4" key={action.id}>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <strong className="block text-sm font-extrabold">{action.vendorName}</strong>
-                      <span className="rounded-full bg-panel-muted px-2.5 py-1 text-xs font-extrabold uppercase text-quiet">{formatActionStatus(action.status)}</span>
-                      <span className="rounded-full bg-brand-soft px-2.5 py-1 text-xs font-extrabold text-brand-strong">{action.priority}</span>
-                    </div>
-                    <p className="mt-1 text-sm font-extrabold">{action.title}</p>
-                    {action.detail && <p className="mt-1 text-sm leading-6 text-quiet">{action.detail}</p>}
-                  </div>
-                  <span className="rounded-full bg-good-soft px-3 py-1.5 text-sm font-extrabold text-good">{currency(action.impact)}</span>
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <SecondaryButton onClick={() => onUpdateActionItemStatus(action.id, action.status === "open" ? "in_progress" : "open")}>
-                    {action.status === "open" ? "Start" : "Reopen"}
-                  </SecondaryButton>
-                  {action.status !== "done" && <PrimaryButton onClick={() => onUpdateActionItemStatus(action.id, "done")}>Mark done</PrimaryButton>}
-                  <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-risk/20 bg-risk-soft px-4 text-sm font-extrabold text-risk transition hover:-translate-y-0.5" type="button" onClick={() => onDeleteActionItem(action.id)}>
-                    Delete
-                  </button>
-                </div>
-              </article>
+              <ActionItemWorkflowCard
+                action={action}
+                canApprove={canApproveActions}
+                key={action.id}
+                teamMembers={teamMembers}
+                onAddComment={onCommentActionItem}
+                onApprove={onApproveActionItem}
+                onAssign={onAssignActionItem}
+                onComplete={onCompleteActionItem}
+                onDelete={onDeleteActionItem}
+                onReject={onRejectActionItem}
+                onUpdateStatus={onUpdateActionItemStatus}
+              />
             ))}
           </div>
         </Panel>
@@ -2215,10 +2509,29 @@ function ReportsPage({
   const reportCards = savedReports.map(mapApiReportToCard);
   const visibleReports: ReportCard[] = reportCards.length > 0 ? reportCards : reports;
   const [selectedReport, setSelectedReport] = useState<ReportCard>(visibleReports[0]);
+  const [pdfReportId, setPdfReportId] = useState<string | null>(null);
 
   useEffect(() => {
     setSelectedReport(visibleReports[0]);
   }, [savedReports.length]);
+
+  async function handleDownloadPdf(report: ReportCard) {
+    if (!report.id) {
+      onToast("Create or open a saved report before downloading a server PDF.");
+      return;
+    }
+
+    setPdfReportId(report.id);
+
+    try {
+      const pdf = await reportApi.exportPdf(report.id);
+      downloadBlob(`${safeFilename(report.name)}.pdf`, pdf, onToast);
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setPdfReportId(null);
+    }
+  }
 
   return (
     <div className="grid gap-4">
@@ -2281,7 +2594,14 @@ function ReportsPage({
             <div className="flex flex-wrap gap-2">
               <PanelAction label="Export TXT" onClick={() => downloadTextFile(`${safeFilename(selectedReport.name)}.txt`, buildReportSummary(selectedReport), onToast)} />
               <PanelAction label="Export CSV" onClick={() => exportReportCsv(selectedReport, onToast)} />
-              <PanelAction label="Print PDF" onClick={() => printReportPdf(selectedReport, onToast)} />
+              <button
+                className="inline-flex min-h-9 items-center justify-center rounded-lg border border-line/60 bg-panel-subtle/72 px-3 text-sm font-extrabold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-brand/60 hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60"
+                type="button"
+                disabled={!selectedReport.id || pdfReportId === selectedReport.id}
+                onClick={() => handleDownloadPdf(selectedReport)}
+              >
+                {pdfReportId === selectedReport.id ? "Generating PDF..." : "Download PDF"}
+              </button>
             </div>
           }
         >
@@ -2475,6 +2795,8 @@ function PlanPage({ company, vendorCount, onToast }: { company: ApiCompany | nul
   const [requestedPlan, setRequestedPlan] = useState<"starter" | "standard" | "custom" | null>(null);
   const [isRequestingUpgrade, setRequestingUpgrade] = useState(false);
   const [isStartingCheckout, setStartingCheckout] = useState<"starter" | "standard" | null>(null);
+  const [isOpeningPortal, setOpeningPortal] = useState(false);
+  const [billingPortalError, setBillingPortalError] = useState("");
   const checkoutStatus = new URLSearchParams(window.location.search).get("checkout");
 
   async function handleUpgradeRequest(plan: "starter" | "standard" | "custom") {
@@ -2494,6 +2816,7 @@ function PlanPage({ company, vendorCount, onToast }: { company: ApiCompany | nul
 
   async function handleCheckout(plan: "starter" | "standard") {
     setStartingCheckout(plan);
+    setBillingPortalError("");
 
     try {
       const response = await billingApi.createCheckoutSession({ plan });
@@ -2503,6 +2826,23 @@ function PlanPage({ company, vendorCount, onToast }: { company: ApiCompany | nul
       onToast(getApiErrorMessage(error));
     } finally {
       setStartingCheckout(null);
+    }
+  }
+
+  async function handleBillingPortal() {
+    setOpeningPortal(true);
+    setBillingPortalError("");
+
+    try {
+      const response = await billingApi.createBillingPortalSession();
+      analyticsApi.track("stripe_billing_portal_opened");
+      window.location.assign(response.url);
+    } catch (error) {
+      const message = getApiErrorMessage(error);
+      setBillingPortalError(message);
+      onToast(message);
+    } finally {
+      setOpeningPortal(false);
     }
   }
 
@@ -2520,7 +2860,7 @@ function PlanPage({ company, vendorCount, onToast }: { company: ApiCompany | nul
           <div className="grid gap-4 md:grid-cols-3">
             <PlanMetric label="Selected plan" value={trial.isExpired ? "Trial ended" : planLabel} />
             <PlanMetric label="Trial remaining" value={trial.label} />
-            <PlanMetric label="Payments" value="Stripe-ready" />
+            <PlanMetric label="Payments" value={company?.stripeCustomerId ? "Stripe connected" : "Stripe-ready"} />
           </div>
           {checkoutStatus === "success" && (
             <div className="mt-5 rounded-lg border border-good/20 bg-good-soft p-4 text-sm font-bold text-good">
@@ -2551,12 +2891,20 @@ function PlanPage({ company, vendorCount, onToast }: { company: ApiCompany | nul
                 Upgrade requested for {requestedPlan === "starter" ? "Starter" : requestedPlan === "standard" ? "Standard" : "Custom"}. Founder will contact you soon.
               </div>
             )}
+            {billingPortalError && (
+              <div className="rounded-lg border border-warning/20 bg-warning-soft p-3 text-sm font-bold text-warning">
+                {billingPortalError}
+              </div>
+            )}
             <div className="grid gap-2">
               <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-60" disabled={Boolean(isStartingCheckout)} type="button" onClick={() => handleCheckout("starter")}>
                 {isStartingCheckout === "starter" ? "Opening checkout..." : "Start Starter checkout"}
               </button>
               <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white shadow-[0_10px_24px_rgb(var(--color-brand)/0.2)] transition hover:-translate-y-0.5 hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60" disabled={Boolean(isStartingCheckout)} type="button" onClick={() => handleCheckout("standard")}>
                 {isStartingCheckout === "standard" ? "Opening checkout..." : "Start Standard checkout"}
+              </button>
+              <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-60" disabled={isOpeningPortal} type="button" onClick={handleBillingPortal}>
+                {isOpeningPortal ? "Opening billing..." : "Manage billing"}
               </button>
               <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-line bg-panel-subtle px-4 text-sm font-extrabold text-ink transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-60" disabled={isRequestingUpgrade} type="button" onClick={() => handleUpgradeRequest("custom")}>
                 Request custom plan
@@ -3318,74 +3666,153 @@ function ActivityPage({
   );
 }
 
-function SavingsPage({ entries, summary, currentUser, onDelete }: { entries: ApiSavingsEntry[]; summary: SavingsSummary | null; currentUser: ApiUser | null; onDelete: (entry: ApiSavingsEntry) => Promise<void> }) {
-  const chartData = buildSavingsByMonth(entries);
+function SavingsPage({
+  entries,
+  summary,
+  currentUser,
+  onDelete,
+  onDismiss,
+  onRealize,
+}: {
+  entries: ApiSavingsEntry[];
+  summary: SavingsSummary | null;
+  currentUser: ApiUser | null;
+  onDelete: (entry: ApiSavingsEntry) => Promise<void>;
+  onDismiss: (entry: ApiSavingsEntry, reason: string) => Promise<void>;
+  onRealize: (entry: ApiSavingsEntry, realizedMonthlySavings: number) => Promise<void>;
+}) {
+  const chartData = buildRealizedSavingsTimeline(entries);
   const canDelete = currentUser?.role === "owner" || currentUser?.role === "admin";
+  const identified = entries.filter((entry) => entry.status === "identified");
+  const inProgress = entries.filter((entry) => entry.status === "in_progress");
+  const realized = entries.filter((entry) => entry.status === "realized");
 
   return (
     <div className="grid gap-4">
-      <PageHeader eyebrow="Confirmed savings" title="Savings ledger" detail="Track accepted savings after cancellations, renegotiations, and seat reductions are confirmed by the team." action={<CircleDollarSign aria-hidden="true" className="text-brand" size={24} />} />
-      <section className="grid gap-3 sm:grid-cols-3">
-        <PlanMetric label="Total Monthly Savings" value={currency(summary?.totalMonthlySavings ?? 0)} />
-        <PlanMetric label="Total Annual Savings" value={currency(summary?.totalAnnualSavings ?? 0)} />
-        <PlanMetric label="Confirmed Actions" value={String(summary?.confirmedActionsCount ?? entries.length)} />
+      <PageHeader
+        eyebrow="ROI evidence"
+        title={`AutoAudit has helped you realize ${currency(summary?.totalRealizedAnnualSavings ?? 0)} in savings this year`}
+        detail="Separate estimates from expected actions and invoice-confirmed savings so finance can see exactly what moved from signal to outcome."
+        action={<CircleDollarSign aria-hidden="true" className="text-brand" size={24} />}
+      />
+      <section className="grid gap-3 sm:grid-cols-4">
+        <PlanMetric label="Identified annual savings" value={currency(summary?.totalEstimatedAnnualSavings ?? 0)} />
+        <PlanMetric label="Expected annual savings" value={currency(summary?.totalExpectedAnnualSavings ?? 0)} />
+        <PlanMetric label="Realized annual savings" value={currency(summary?.totalRealizedAnnualSavings ?? 0)} />
+        <PlanMetric label="AutoAudit ROI" value={`${summary?.AutoAuditROI ?? 0}x`} />
       </section>
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.45fr)]">
-        <Panel title="Confirmed entries" eyebrow={`${entries.length} recorded action${entries.length === 1 ? "" : "s"}`}>
-          {entries.length === 0 ? (
-            <EmptyState title="No confirmed savings yet" detail="Confirm a saving from a waste signal once a cancellation, renegotiation, or seat reduction is real." />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="text-xs font-extrabold uppercase text-quiet">
-                  <tr className="border-b border-line">
-                    <th className="px-3 py-3">Vendor</th>
-                    <th className="px-3 py-3">Type</th>
-                    <th className="px-3 py-3">Monthly</th>
-                    <th className="px-3 py-3">Annual</th>
-                    <th className="px-3 py-3">Confirmed by</th>
-                    <th className="px-3 py-3">Date</th>
-                    <th className="px-3 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {entries.map((entry) => (
-                    <tr className="border-b border-line/60 last:border-0" key={entry.id}>
-                      <td className="px-3 py-3 font-extrabold">{entry.vendorName}</td>
-                      <td className="px-3 py-3 text-quiet">{formatSavingsType(entry.savingsType)}</td>
-                      <td className="px-3 py-3 font-bold">{currency(entry.monthlySavings)}</td>
-                      <td className="px-3 py-3 font-bold">{currency(entry.annualSavings)}</td>
-                      <td className="px-3 py-3 text-quiet">{entry.confirmedBy?.name ?? entry.confirmedBy?.email ?? "Team member"}</td>
-                      <td className="px-3 py-3 text-quiet">{formatShortDate(entry.confirmedAt)}</td>
-                      <td className="px-3 py-3 text-right">
-                        {canDelete && (
-                          <button className="inline-flex min-h-9 items-center justify-center rounded-lg border border-risk/20 bg-risk-soft px-3 text-xs font-extrabold text-risk transition hover:-translate-y-0.5" type="button" onClick={() => onDelete(entry)}>
-                            Delete
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Panel>
-        <Panel title="Savings by month" eyebrow="Confirmed impact">
-          <div className="h-[320px]">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 320 }}>
-              <BarChart data={chartData} margin={{ top: 10, right: 18, left: 0, bottom: 4 }}>
-                <CartesianGrid stroke="#dce4e8" strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: "#66747d", fontSize: 12 }} />
-                <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `$${Number(value) / 1000}k`} tick={{ fill: "#66747d", fontSize: 12 }} />
-                <Tooltip content={<ChartTooltip />} />
-                <Bar dataKey="monthlySavings" name="Monthly savings" radius={[8, 8, 0, 0]} fill="#0f9f8f" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Panel>
+
+      <div className="rounded-lg border border-good/20 bg-good-soft p-4 text-good">
+        <strong className="block text-sm font-extrabold">
+          You're getting {currency(summary?.AutoAuditROI ?? 0)} back for every $1 you spend on AutoAudit.
+        </strong>
+        <p className="mt-1 text-sm font-bold leading-6">
+          Realized savings are only counted after the user confirms the actual invoice reduction.
+        </p>
       </div>
+
+      <section className="grid gap-4 xl:grid-cols-3">
+        <SavingsColumn title="Identified" eyebrow="Estimated" entries={identified} empty="No open savings signals." amountForEntry={(entry) => entry.estimatedAnnualSavings} onDelete={canDelete ? onDelete : undefined} onDismiss={onDismiss} />
+        <SavingsColumn title="In Progress" eyebrow="Expected" entries={inProgress} empty="No savings under review." amountForEntry={(entry) => (entry.expectedMonthlySavings ?? entry.estimatedMonthlySavings) * 12} onDelete={canDelete ? onDelete : undefined} onDismiss={onDismiss} onRealize={onRealize} />
+        <SavingsColumn title="Realized" eyebrow="Confirmed" entries={realized} empty="No realized savings yet." amountForEntry={(entry) => (entry.realizedMonthlySavings ?? 0) * 12} onDelete={canDelete ? onDelete : undefined} />
+      </section>
+
+      <Panel title="Realized savings timeline" eyebrow="Month over month">
+        <div className="h-[320px]">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 320, height: 320 }}>
+            <LineChart data={chartData} margin={{ top: 10, right: 18, left: 0, bottom: 4 }}>
+              <CartesianGrid stroke="#dce4e8" strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: "#66747d", fontSize: 12 }} />
+              <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `$${Number(value) / 1000}k`} tick={{ fill: "#66747d", fontSize: 12 }} />
+              <Tooltip content={<ChartTooltip />} />
+              <Line type="monotone" dataKey="cumulativeAnnualSavings" name="Cumulative annual savings" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </Panel>
     </div>
+  );
+}
+
+function SavingsColumn({
+  title,
+  eyebrow,
+  entries,
+  empty,
+  amountForEntry,
+  onDelete,
+  onDismiss,
+  onRealize,
+}: {
+  title: string;
+  eyebrow: string;
+  entries: ApiSavingsEntry[];
+  empty: string;
+  amountForEntry: (entry: ApiSavingsEntry) => number;
+  onDelete?: (entry: ApiSavingsEntry) => Promise<void>;
+  onDismiss?: (entry: ApiSavingsEntry, reason: string) => Promise<void>;
+  onRealize?: (entry: ApiSavingsEntry, realizedMonthlySavings: number) => Promise<void>;
+}) {
+  const total = entries.reduce((sum, entry) => sum + amountForEntry(entry), 0);
+
+  return (
+    <Panel title={title} eyebrow={`${eyebrow} · ${currency(total)}`}>
+      <div className="grid gap-3">
+        {entries.length === 0 && <EmptyState title={empty} detail="Savings will appear here as waste findings move through review and confirmation." />}
+        {entries.map((entry) => (
+          <article className="rounded-lg border border-line bg-panel-subtle p-4" key={entry.id}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <span className="rounded-full bg-brand-soft px-2.5 py-1 text-xs font-extrabold text-brand-strong">{formatSavingsSignalType(entry.signalType)}</span>
+                <h3 className="mt-3 text-sm font-extrabold">{entry.vendorName}</h3>
+                <p className="mt-1 text-xs font-bold text-quiet">{entry.notes || nextSavingsStep(entry)}</p>
+              </div>
+              <strong className="text-sm font-extrabold text-good">{currency(amountForEntry(entry))}</strong>
+            </div>
+            {entry.evidence && entry.evidence.length > 0 && (
+              <div className="mt-3 grid gap-1">
+                {entry.evidence.slice(0, 2).map((item) => (
+                  <span className="text-xs font-bold text-quiet" key={`${entry.id}-${item.type}-${item.value}`}>{item.value}</span>
+                ))}
+              </div>
+            )}
+            <div className="mt-4 flex flex-wrap gap-2">
+              {onRealize && (
+                <button
+                  className="inline-flex min-h-9 items-center justify-center rounded-lg bg-brand px-3 text-xs font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong"
+                  type="button"
+                  onClick={() => {
+                    const value = window.prompt("Actual monthly savings confirmed on the next invoice?", String(entry.expectedMonthlySavings ?? entry.estimatedMonthlySavings ?? 0));
+                    if (!value) return;
+                    const amount = Number(value);
+                    if (Number.isFinite(amount) && amount > 0) onRealize(entry, amount);
+                  }}
+                >
+                  Mark realized
+                </button>
+              )}
+              {onDismiss && (
+                <button
+                  className="inline-flex min-h-9 items-center justify-center rounded-lg border border-line bg-panel px-3 text-xs font-extrabold text-ink transition hover:border-brand hover:text-brand"
+                  type="button"
+                  onClick={() => {
+                    const reason = window.prompt("Why should this savings opportunity be dismissed?");
+                    if (reason?.trim()) onDismiss(entry, reason.trim());
+                  }}
+                >
+                  Dismiss
+                </button>
+              )}
+              {onDelete && (
+                <button className="inline-flex min-h-9 items-center justify-center rounded-lg border border-risk/20 bg-risk-soft px-3 text-xs font-extrabold text-risk transition hover:-translate-y-0.5" type="button" onClick={() => onDelete(entry)}>
+                  Delete
+                </button>
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+    </Panel>
   );
 }
 
@@ -3523,15 +3950,23 @@ function formatTeamRole(role: ApiUser["role"] | TeamRole) {
   return role.charAt(0).toUpperCase() + role.slice(1);
 }
 
-function formatSavingsType(type: SavingsType) {
-  const labels: Record<SavingsType, string> = {
+function formatSavingsType(type: SavingsType | string) {
+  const labels: Record<string, string> = {
     cancelled: "Cancelled",
     renegotiated: "Renegotiated",
     seat_reduced: "Seat reduced",
     other: "Other",
+    zombie: "Zombie app",
+    unused_seats: "Unused seats",
+    duplicate_tool: "Duplicate tool",
+    negotiated_rate: "Negotiated rate",
   };
 
-  return labels[type];
+  return labels[type] ?? String(type).replace(/_/g, " ");
+}
+
+function formatSavingsSignalType(type: SavingsSignalType) {
+  return formatSavingsType(type);
 }
 
 function formatReportType(type: ReportType | undefined) {
@@ -3575,6 +4010,11 @@ function formatActivityDescription(activity: ApiActivityLog) {
     "savings.confirmed": "Confirmed savings",
     "action_item.created": "Created action item",
     "action_item.status_changed": "Updated action status",
+    "action_item.assigned": "Assigned action item",
+    "action_item.approved": "Approved action item",
+    "action_item.rejected": "Rejected action item",
+    "action_item.commented": "Commented on action item",
+    "action_item.completed": "Completed action item",
     "action_item.deleted": "Deleted action item",
     "team.member_invited": "Invited teammate",
     "team.member_removed": "Removed teammate",
@@ -3593,6 +4033,17 @@ function formatActionStatus(status: ActionItemStatus) {
   };
 
   return labels[status];
+}
+
+function formatApprovalStatus(status: ApiActionItem["approvalStatus"]) {
+  const labels = {
+    not_required: "No approval needed",
+    pending: "Pending approval",
+    approved: "Approved",
+    rejected: "Rejected",
+  } satisfies Record<ApiActionItem["approvalStatus"], string>;
+
+  return labels[status] ?? "No approval needed";
 }
 
 function formatRelativeTimestamp(value: string) {
@@ -3620,18 +4071,37 @@ function defaultSavingsTypeForSignal(signal: WasteSignal): SavingsType {
   return "other";
 }
 
-function buildSavingsByMonth(entries: ApiSavingsEntry[]) {
+function mapWasteSignalToSavingsSignal(signal: WasteSignal): SavingsSignalType {
+  if (signal.type === "Zombie app") return "zombie";
+  if (signal.type === "Unused seats") return "unused_seats";
+  if (signal.type === "Duplicate tool") return "duplicate_tool";
+  return "negotiated_rate";
+}
+
+function nextSavingsStep(entry: ApiSavingsEntry) {
+  if (entry.status === "identified") return "Review the finding and decide whether to act.";
+  if (entry.status === "in_progress") return `Check again ${formatShortDate(entry.nextReviewDate)} after the next billing cycle.`;
+  if (entry.status === "realized") return `Confirmed ${formatShortDate(entry.realizedAt ?? entry.confirmedAt)}.`;
+  return entry.dismissalReason ?? "Dismissed by the team.";
+}
+
+function buildRealizedSavingsTimeline(entries: ApiSavingsEntry[]) {
+  const realizedEntries = entries
+    .filter((entry) => entry.status === "realized")
+    .sort((first, second) => new Date(first.realizedAt ?? first.confirmedAt).getTime() - new Date(second.realizedAt ?? second.confirmedAt).getTime());
   const monthTotals = new Map<string, number>();
 
-  entries.forEach((entry) => {
-    const date = new Date(entry.confirmedAt);
+  realizedEntries.forEach((entry) => {
+    const date = new Date(entry.realizedAt ?? entry.confirmedAt);
     const key = Number.isNaN(date.getTime()) ? "Unknown" : new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit" }).format(date);
-    monthTotals.set(key, (monthTotals.get(key) ?? 0) + Number(entry.monthlySavings ?? 0));
+    monthTotals.set(key, (monthTotals.get(key) ?? 0) + Number(entry.realizedMonthlySavings ?? 0) * 12);
   });
 
-  return Array.from(monthTotals.entries())
-    .map(([month, monthlySavings]) => ({ month, monthlySavings }))
-    .reverse();
+  let cumulativeAnnualSavings = 0;
+  return Array.from(monthTotals.entries()).map(([month, annualSavings]) => {
+    cumulativeAnnualSavings += annualSavings;
+    return { month, cumulativeAnnualSavings };
+  });
 }
 
 function SettingsPage({
@@ -3736,6 +4206,8 @@ function SettingsPage({
 
       {activeSettingsTab === "workspace" && (
         <>
+      {user && <MfaSettingsPanel user={user} onToast={onToast} onUserUpdate={onUserUpdate} />}
+      {user && <SessionsSecurityPanel user={user} onToast={onToast} onUserUpdate={onUserUpdate} />}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
         <Panel title="Integrations" eyebrow="Data sources">
@@ -3836,6 +4308,260 @@ function SettingsPage({
       )}
     </div>
   );
+}
+
+function MfaSettingsPanel({ user, onToast, onUserUpdate }: { user: ApiUser; onToast: (message: string) => void; onUserUpdate: (user: ApiUser) => void }) {
+  const [setup, setSetup] = useState<{ qrCodeDataUri: string; secret: string } | null>(null);
+  const [setupCode, setSetupCode] = useState("");
+  const [backupCodes, setBackupCodes] = useState<string[]>([]);
+  const [savedBackupCodes, setSavedBackupCodes] = useState(false);
+  const [disablePassword, setDisablePassword] = useState("");
+  const [disableCode, setDisableCode] = useState("");
+  const [isBusy, setBusy] = useState(false);
+
+  async function startSetup() {
+    setBusy(true);
+    try {
+      setSetup(await authApi.setupMfa());
+      setBackupCodes([]);
+      setSavedBackupCodes(false);
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function verifySetup() {
+    setBusy(true);
+    try {
+      const response = await authApi.verifyMfaSetup(setupCode);
+      setBackupCodes(response.backupCodes);
+      setSetup(null);
+      setSetupCode("");
+      onUserUpdate({ ...user, mfaEnabled: true });
+      onToast("Two-factor authentication enabled.");
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disableMfa() {
+    setBusy(true);
+    try {
+      await authApi.disableMfa({ password: disablePassword, code: disableCode });
+      setDisablePassword("");
+      setDisableCode("");
+      setBackupCodes([]);
+      setSavedBackupCodes(false);
+      onUserUpdate({ ...user, mfaEnabled: false });
+      onToast("Two-factor authentication disabled.");
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Panel title="Two-factor authentication" eyebrow={user.mfaEnabled ? "Enabled" : "Authenticator app"}>
+      <div className="grid gap-4">
+        <p className="text-sm font-bold leading-6 text-quiet">
+          Protect your workspace with a 6-digit code from Google Authenticator, Authy, 1Password, or another authenticator app.
+        </p>
+
+        {!user.mfaEnabled && !setup && backupCodes.length === 0 && (
+          <div className="flex flex-wrap gap-2">
+            <PrimaryButton onClick={startSetup}>{isBusy ? "Preparing..." : "Enable two-factor authentication"}</PrimaryButton>
+          </div>
+        )}
+
+        {setup && (
+          <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+            <div className="rounded-lg border border-line bg-white p-3">
+              <img className="h-auto w-full" src={setup.qrCodeDataUri} alt="Authenticator QR code" />
+            </div>
+            <div className="grid gap-3">
+              <div className="rounded-lg border border-line bg-panel-subtle p-3">
+                <span className="text-xs font-extrabold uppercase text-quiet">Manual entry code</span>
+                <code className="mt-2 block break-all rounded-md bg-panel px-3 py-2 text-sm font-extrabold text-ink">{setup.secret}</code>
+              </div>
+              <Field label="6-digit code">
+                <input className="input" inputMode="numeric" autoComplete="one-time-code" value={setupCode} onChange={(event) => setSetupCode(event.target.value)} />
+              </Field>
+              <div className="flex flex-wrap gap-2">
+                <PrimaryButton onClick={verifySetup}>{isBusy ? "Verifying..." : "Verify and enable"}</PrimaryButton>
+                <SecondaryButton onClick={() => setSetup(null)}>Cancel</SecondaryButton>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {backupCodes.length > 0 && (
+          <div className="rounded-lg border border-warning/20 bg-warning-soft p-4 text-warning">
+            <strong className="block text-sm font-extrabold">Save these backup codes now.</strong>
+            <p className="mt-1 text-sm font-bold leading-6">Each code can be used once if you lose access to your authenticator app. They will not be shown again.</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              {backupCodes.map((code) => (
+                <code className="rounded-md bg-panel px-3 py-2 text-center text-sm font-extrabold text-ink" key={code}>{code}</code>
+              ))}
+            </div>
+            <label className="mt-4 flex items-center gap-2 text-sm font-extrabold">
+              <input checked={savedBackupCodes} type="checkbox" onChange={(event) => setSavedBackupCodes(event.target.checked)} />
+              I saved these backup codes
+            </label>
+            <button className="mt-3 inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition disabled:cursor-not-allowed disabled:opacity-60" type="button" disabled={!savedBackupCodes} onClick={() => setBackupCodes([])}>
+              Done
+            </button>
+          </div>
+        )}
+
+        {user.mfaEnabled && backupCodes.length === 0 && (
+          <div className="grid gap-3 md:grid-cols-3">
+            <Field label="Current password">
+              <input className="input" type="password" value={disablePassword} onChange={(event) => setDisablePassword(event.target.value)} />
+            </Field>
+            <Field label="Authenticator code">
+              <input className="input" inputMode="numeric" value={disableCode} onChange={(event) => setDisableCode(event.target.value)} />
+            </Field>
+            <div className="flex items-end">
+              <button className="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-risk/20 bg-risk-soft px-4 text-sm font-extrabold text-risk transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60" disabled={isBusy || !disablePassword || !disableCode} type="button" onClick={disableMfa}>
+                {isBusy ? "Disabling..." : "Disable MFA"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+function SessionsSecurityPanel({ user, onToast, onUserUpdate }: { user: ApiUser; onToast: (message: string) => void; onUserUpdate: (user: ApiUser) => void }) {
+  const [sessions, setSessions] = useState<ApiSession[]>([]);
+  const [isLoading, setLoading] = useState(true);
+  const [isRevoking, setRevoking] = useState("");
+  const [isUpdatingPreference, setUpdatingPreference] = useState(false);
+
+  async function loadSessions() {
+    setLoading(true);
+    try {
+      setSessions(await authApi.sessions());
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadSessions();
+  }, []);
+
+  async function revokeSession(sessionId: string) {
+    setRevoking(sessionId);
+    try {
+      await authApi.revokeSession(sessionId);
+      await loadSessions();
+      onToast("Session revoked.");
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setRevoking("");
+    }
+  }
+
+  async function revokeOtherSessions() {
+    setRevoking("all");
+    try {
+      const result = await authApi.revokeOtherSessions();
+      await loadSessions();
+      onToast(result.revokedCount > 0 ? "Other sessions revoked." : "No other active sessions.");
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setRevoking("");
+    }
+  }
+
+  async function updateIpStorage() {
+    setUpdatingPreference(true);
+    try {
+      const updated = await authApi.updateSecurityPreferences({ storeIpAddresses: !user.storeIpAddresses });
+      onUserUpdate(updated);
+      await loadSessions();
+      onToast(updated.storeIpAddresses ? "IP address storage enabled." : "IP address storage disabled.");
+    } catch (error) {
+      onToast(getApiErrorMessage(error));
+    } finally {
+      setUpdatingPreference(false);
+    }
+  }
+
+  return (
+    <Panel
+      title="Sessions & security"
+      eyebrow={isLoading ? "Loading sessions" : `${sessions.length} active session${sessions.length === 1 ? "" : "s"}`}
+      action={<SecondaryButton onClick={loadSessions}>Refresh</SecondaryButton>}
+    >
+      <div className="grid gap-4">
+        <div className="flex flex-col gap-3 rounded-lg border border-line bg-panel-subtle p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <strong className="block text-sm font-extrabold">IP address storage</strong>
+            <p className="mt-1 text-sm font-bold leading-6 text-quiet">When disabled, AutoAudit stops storing IP addresses for sessions and clears saved session IPs.</p>
+          </div>
+          <button className={`min-h-10 rounded-lg px-4 text-sm font-extrabold transition disabled:cursor-not-allowed disabled:opacity-60 ${user.storeIpAddresses === false ? "border border-line bg-panel text-ink" : "bg-brand text-white"}`} disabled={isUpdatingPreference} type="button" onClick={updateIpStorage}>
+            {isUpdatingPreference ? "Saving..." : user.storeIpAddresses === false ? "IP storage off" : "IP storage on"}
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm font-bold leading-6 text-quiet">Review where your account is signed in. Revoke anything you do not recognize.</p>
+          <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-risk/20 bg-risk-soft px-4 text-sm font-extrabold text-risk transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60" disabled={isRevoking === "all"} type="button" onClick={revokeOtherSessions}>
+            {isRevoking === "all" ? "Revoking..." : "Log out all other devices"}
+          </button>
+        </div>
+
+        {isLoading ? (
+          <TableSkeleton rows={3} />
+        ) : sessions.length === 0 ? (
+          <EmptyState title="No active sessions" detail="Active sessions will appear here after sign-in." icon={ShieldCheck} />
+        ) : (
+          <div className="grid gap-3">
+            {sessions.map((session) => (
+              <article className="rounded-lg border border-line bg-panel-subtle p-4" key={session.id}>
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <strong className="text-sm font-extrabold">{session.device}</strong>
+                      {session.isCurrent && <span className="rounded-full bg-good-soft px-2.5 py-1 text-xs font-extrabold text-good">Current session</span>}
+                    </div>
+                    <div className="mt-3 grid gap-2 text-sm font-bold text-quiet sm:grid-cols-3">
+                      <span>IP: {session.ipAddress}</span>
+                      <span>First seen: {formatSessionDate(session.createdAt)}</span>
+                      <span>Last active: {formatSessionDate(session.lastSeenAt)}</span>
+                    </div>
+                  </div>
+                  {!session.isCurrent && (
+                    <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-risk/20 bg-risk-soft px-4 text-sm font-extrabold text-risk transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60" disabled={isRevoking === session.id} type="button" onClick={() => revokeSession(session.id)}>
+                      {isRevoking === session.id ? "Revoking..." : "Revoke"}
+                    </button>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+function formatSessionDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
 }
 
 function DataPrivacyPanel({
@@ -4283,6 +5009,186 @@ function VendorIdentity({ vendor }: { vendor: Vendor }) {
   );
 }
 
+function ActionItemWorkflowCard({
+  action,
+  canApprove,
+  teamMembers,
+  onAddComment,
+  onApprove,
+  onAssign,
+  onComplete,
+  onDelete,
+  onReject,
+  onUpdateStatus,
+}: {
+  action: ApiActionItem;
+  canApprove: boolean;
+  teamMembers: ApiTeamMember[];
+  onAddComment: (actionId: string, text: string) => Promise<void>;
+  onApprove: (actionId: string) => Promise<void>;
+  onAssign: (actionId: string, input: { assignedTo?: string; dueDate?: string }) => Promise<void>;
+  onComplete: (actionId: string, confirmedSavings?: number) => Promise<void>;
+  onDelete: (actionId: string) => Promise<void>;
+  onReject: (actionId: string, rejectionReason: string) => Promise<void>;
+  onUpdateStatus: (actionId: string, status: ActionItemStatus) => Promise<void>;
+}) {
+  const [areCommentsOpen, setCommentsOpen] = useState(false);
+  const [commentText, setCommentText] = useState("");
+  const [confirmedSavings, setConfirmedSavings] = useState(String(action.confirmedSavings ?? action.estimatedSavings ?? action.impact ?? ""));
+  const [isSaving, setSaving] = useState(false);
+  const assignedUserId = getUserId(action.assignedTo);
+  const dueDateValue = action.dueDate ? action.dueDate.slice(0, 10) : "";
+
+  const handleAssign = async (assignedTo: string) => {
+    setSaving(true);
+    try {
+      await onAssign(action.id, { assignedTo: assignedTo || undefined, dueDate: dueDateValue || undefined });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDueDate = async (dueDate: string) => {
+    setSaving(true);
+    try {
+      await onAssign(action.id, { assignedTo: assignedUserId, dueDate: dueDate || undefined });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReject = async () => {
+    const rejectionReason = window.prompt("Why is this action being rejected?");
+    if (!rejectionReason?.trim()) return;
+    await onReject(action.id, rejectionReason.trim());
+  };
+
+  const handleComment = async () => {
+    if (!commentText.trim()) return;
+    await onAddComment(action.id, commentText.trim());
+    setCommentText("");
+    setCommentsOpen(true);
+  };
+
+  const handleComplete = async () => {
+    const parsedSavings = confirmedSavings === "" ? undefined : Number(confirmedSavings);
+    await onComplete(action.id, Number.isFinite(parsedSavings) ? parsedSavings : undefined);
+  };
+
+  return (
+    <article className="rounded-lg border border-line bg-panel-subtle p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <strong className="block text-sm font-extrabold">{action.vendorName}</strong>
+            <span className="rounded-full bg-panel-muted px-2.5 py-1 text-xs font-extrabold uppercase text-quiet">{formatActionStatus(action.status)}</span>
+            <span className="rounded-full bg-brand-soft px-2.5 py-1 text-xs font-extrabold text-brand-strong">{action.priority}</span>
+            <ApprovalBadge status={action.approvalStatus} />
+            {action.dueDate && <span className="rounded-full bg-warning-soft px-2.5 py-1 text-xs font-extrabold text-warning">Due {formatShortDate(action.dueDate)}</span>}
+          </div>
+          <p className="mt-2 text-sm font-extrabold">{action.title}</p>
+          {action.detail && <p className="mt-1 text-sm leading-6 text-quiet">{action.detail}</p>}
+          {action.rejectionReason && <p className="mt-2 rounded-lg border border-risk/20 bg-risk-soft px-3 py-2 text-xs font-bold text-risk">Rejected: {action.rejectionReason}</p>}
+        </div>
+        <div className="grid gap-2 sm:min-w-40 sm:text-right">
+          <span className="rounded-full bg-good-soft px-3 py-1.5 text-sm font-extrabold text-good">{currency(action.estimatedSavings ?? action.impact)}</span>
+          <AssigneeChip user={action.assignedTo} />
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_180px_170px]">
+        <label className="grid gap-1 text-xs font-bold text-quiet">
+          Assign
+          <select className="min-h-10 rounded-lg border border-line bg-panel px-3 text-sm font-bold text-ink outline-none focus:border-brand" value={assignedUserId ?? ""} disabled={isSaving} onChange={(event) => handleAssign(event.target.value)}>
+            <option value="">Unassigned</option>
+            {teamMembers.map((member) => (
+              <option value={member.id} key={member.id}>{member.name} · {member.role}</option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-bold text-quiet">
+          Due date
+          <input className="min-h-10 rounded-lg border border-line bg-panel px-3 text-sm font-bold text-ink outline-none focus:border-brand" type="date" value={dueDateValue} disabled={isSaving} onChange={(event) => handleDueDate(event.target.value)} />
+        </label>
+        <label className="grid gap-1 text-xs font-bold text-quiet">
+          Confirmed savings
+          <input className="min-h-10 rounded-lg border border-line bg-panel px-3 text-sm font-bold text-ink outline-none focus:border-brand" type="number" min="0" value={confirmedSavings} onChange={(event) => setConfirmedSavings(event.target.value)} />
+        </label>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <SecondaryButton onClick={() => onUpdateStatus(action.id, action.status === "open" ? "in_progress" : "open")}>
+          {action.status === "open" ? "Start" : "Reopen"}
+        </SecondaryButton>
+        {action.status !== "done" && <PrimaryButton onClick={handleComplete}>Mark done</PrimaryButton>}
+        {canApprove && action.approvalStatus === "pending" && (
+          <>
+            <PrimaryButton onClick={() => onApprove(action.id)}>Approve</PrimaryButton>
+            <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-risk/20 bg-risk-soft px-4 text-sm font-extrabold text-risk transition hover:-translate-y-0.5" type="button" onClick={handleReject}>
+              Reject
+            </button>
+          </>
+        )}
+        <SecondaryButton onClick={() => setCommentsOpen((current) => !current)}>
+          Comments ({action.comments?.length ?? 0})
+        </SecondaryButton>
+        <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-risk/20 bg-risk-soft px-4 text-sm font-extrabold text-risk transition hover:-translate-y-0.5" type="button" onClick={() => onDelete(action.id)}>
+          Delete
+        </button>
+      </div>
+
+      {areCommentsOpen && (
+        <div className="mt-4 rounded-lg border border-line bg-panel p-3">
+          <div className="grid gap-2">
+            {(action.comments ?? []).length === 0 && <p className="text-sm font-bold text-quiet">No comments yet.</p>}
+            {(action.comments ?? []).map((comment) => (
+              <div className="rounded-lg bg-panel-subtle p-3" key={comment._id ?? `${comment.createdAt}-${comment.text}`}>
+                <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-quiet">
+                  <span>{comment.author?.name ?? "Team member"}</span>
+                  <span>{formatRelativeDate(comment.createdAt)}</span>
+                </div>
+                <p className="mt-1 text-sm leading-6 text-ink">{comment.text}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <input className="min-h-10 flex-1 rounded-lg border border-line bg-panel-subtle px-3 text-sm text-ink outline-none focus:border-brand" value={commentText} placeholder="Add an update for the team" onChange={(event) => setCommentText(event.target.value)} />
+            <PrimaryButton onClick={handleComment}>Add comment</PrimaryButton>
+          </div>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function ApprovalBadge({ status }: { status: ApiActionItem["approvalStatus"] }) {
+  const classes = {
+    not_required: "bg-panel-muted text-quiet",
+    pending: "bg-warning-soft text-warning",
+    approved: "bg-good-soft text-good",
+    rejected: "bg-risk-soft text-risk",
+  } satisfies Record<ApiActionItem["approvalStatus"], string>;
+
+  return <span className={`rounded-full px-2.5 py-1 text-xs font-extrabold ${classes[status]}`}>{formatApprovalStatus(status)}</span>;
+}
+
+function AssigneeChip({ user }: { user?: ApiActionItem["assignedTo"] }) {
+  if (!user) {
+    return <span className="text-xs font-bold text-quiet">Unassigned</span>;
+  }
+
+  return (
+    <span className="inline-flex items-center gap-2 rounded-lg border border-line bg-panel px-2.5 py-1 text-xs font-extrabold text-ink sm:justify-end">
+      <span className="grid size-6 place-items-center rounded-full bg-brand-soft text-[10px] text-brand-strong">{initials(user.name ?? user.email ?? "U")}</span>
+      {user.name ?? user.email}
+    </span>
+  );
+}
+
+function getUserId(user?: { id?: string; _id?: string }) {
+  return user?.id ?? user?._id;
+}
+
 function PlanMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-line/55 bg-panel-subtle/72 p-4">
@@ -4296,16 +5202,22 @@ function UsageMeter({ label, used, limit, compact = false }: { label: string; us
   const cappedUsed = Math.max(0, used);
   const percent = limit === null || limit === 0 ? 0 : Math.min(100, Math.round((cappedUsed / limit) * 100));
   const isAtLimit = limit !== null && cappedUsed >= limit;
+  const tone = percent >= 90 ? "risk" : percent >= 70 ? "warning" : "good";
+  const fillClass = tone === "risk" ? "bg-risk" : tone === "warning" ? "bg-warning" : "bg-good";
+  const valueClass = isAtLimit || tone === "risk" ? "text-risk" : tone === "warning" ? "text-warning" : "text-ink";
 
   return (
     <div className={`rounded-lg border border-line/55 bg-panel-subtle/72 ${compact ? "p-3" : "p-4"}`}>
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs font-bold text-quiet">{label}</span>
-        <strong className={`text-sm font-extrabold ${isAtLimit ? "text-risk" : "text-ink"}`}>{limit === null ? `${cappedUsed} / Custom` : `${cappedUsed} / ${limit}`}</strong>
+        <strong className={`text-sm font-extrabold ${valueClass}`}>{limit === null ? `${cappedUsed} / Custom` : `${cappedUsed} / ${limit}`}</strong>
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-panel-muted">
-        <div className={`h-full rounded-full ${isAtLimit ? "bg-risk" : "bg-brand"}`} style={{ width: limit === null ? "18%" : `${percent}%` }} />
+        <div className={`h-full rounded-full ${fillClass}`} style={{ width: limit === null ? "18%" : `${percent}%` }} />
       </div>
+      {!compact && limit !== null && (
+        <span className={`mt-2 block text-xs font-bold ${valueClass}`}>{percent}% used</span>
+      )}
     </div>
   );
 }
@@ -4449,6 +5361,18 @@ function exportRenewalCalendar(rows: RenewalRow[], onToast: (message: string) =>
 
 function downloadTextFile(filename: string, content: string, onToast: (message: string) => void) {
   const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  onToast(`${filename} downloaded.`);
+}
+
+function downloadBlob(filename: string, blob: Blob, onToast: (message: string) => void) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -4982,8 +5906,8 @@ function getTrialState(company: ApiCompany | null) {
 function formatPlanLabel(plan: ApiCompany["plan"]) {
   const labels = {
     free: "Free trial",
-    starter: "Starter trial",
-    standard: "Standard trial",
+    starter: "Starter",
+    standard: "Standard",
     growth: "Growth",
     enterprise: "Enterprise",
     custom: "Custom plan",
@@ -5008,7 +5932,7 @@ function getPlanLimitSet(companyOrPlan: ApiCompany | ApiCompany["plan"] | null) 
   return limits;
 }
 
-function getPlanUsage(company: ApiCompany | null, vendorCount: number) {
+function getPlanUsage(company: ApiCompany | null, vendorCount: number): PlanUsage {
   return {
     vendors: vendorCount,
     reports: Number(company?.planUsage?.reportsGenerated ?? 0),
@@ -5017,8 +5941,74 @@ function getPlanUsage(company: ApiCompany | null, vendorCount: number) {
   };
 }
 
+function buildPlanUsageWarning(company: ApiCompany | null, usage: PlanUsage): PlanUsageWarning | null {
+  if (!company) return null;
+
+  const limits = getPlanLimitSet(company);
+  const labels = {
+    vendors: "vendor slots",
+    reports: "reports",
+    aiEmails: "AI email drafts",
+    vendorAnalyses: "AI analyses",
+  } satisfies Record<keyof PlanUsage, string>;
+
+  const warnings = (Object.keys(usage) as Array<keyof PlanUsage>)
+    .map((type) => {
+      const limit = limits[type];
+      if (limit === null || limit <= 0) return null;
+
+      const used = usage[type];
+      const percent = used / limit;
+      if (percent < 0.8) return null;
+
+      const nextPlan = getUpgradePlanForUsage(company.plan, type);
+      const nextLimit = getPlanLimitSet(nextPlan)[type];
+
+      return {
+        type,
+        label: labels[type],
+        used,
+        limit,
+        nextPlan,
+        multiplier: nextLimit && nextLimit > limit ? Math.round(nextLimit / limit) : 1,
+        percent,
+      };
+    })
+    .filter(isPresent)
+    .sort((first, second) => second.percent - first.percent);
+
+  const warning = warnings[0];
+  if (!warning) return null;
+
+  return {
+    type: warning.type,
+    label: warning.label,
+    used: warning.used,
+    limit: warning.limit,
+    nextPlan: warning.nextPlan,
+    multiplier: warning.multiplier,
+  };
+}
+
+function getUpgradePlanForUsage(currentPlan: ApiCompany["plan"], type: keyof PlanUsage): ApiCompany["plan"] {
+  const orderedPlans: ApiCompany["plan"][] = ["free", "starter", "standard", "growth", "enterprise"];
+  const currentLimit = getPlanLimitSet(currentPlan)[type];
+  const currentIndex = Math.max(0, orderedPlans.indexOf(currentPlan));
+
+  for (const plan of orderedPlans.slice(currentIndex + 1)) {
+    const nextLimit = getPlanLimitSet(plan)[type];
+    if (nextLimit === null || currentLimit === null || nextLimit > currentLimit) return plan;
+  }
+
+  return "custom";
+}
+
 function formatLimit(value: number | null) {
   return value === null ? "Custom" : String(value);
+}
+
+function isPresent<T>(value: T | null | undefined): value is T {
+  return value !== null && value !== undefined;
 }
 
 function withUpgradePrompt(message: string) {

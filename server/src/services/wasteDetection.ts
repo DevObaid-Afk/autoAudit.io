@@ -1,10 +1,109 @@
+import type { Types } from "mongoose";
+import type { VendorStatus } from "../models/Vendor.js";
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export function buildAuditSummary({ vendors = [], subscriptions = [], renewals = [] }) {
+export type WasteSignalType = "zombie_subscription" | "unused_seats" | "duplicate_tools";
+export type RenewalRiskLevel = "low" | "medium" | "high" | "critical";
+export type UpcomingRenewalSource = "renewal" | "vendor";
+
+export type AuditVendor = {
+  _id?: Types.ObjectId | string;
+  name: string;
+  category?: string;
+  ownerName?: string;
+  monthlySpend?: number | null;
+  seatsPurchased?: number | null;
+  activeSeats?: number | null;
+  lastUsedAt?: Date | string | null;
+  renewalDate?: Date | string | null;
+  status?: VendorStatus | string;
+};
+
+export type AuditSubscription = Record<string, unknown>;
+
+export type AuditRenewal = {
+  _id?: Types.ObjectId | string;
+  vendor?: { name?: string } | null;
+  vendorName?: string;
+  renewalDate?: Date | string | null;
+  contractValue?: number | null;
+  riskLevel?: RenewalRiskLevel;
+};
+
+export type UnusedSeatFinding = {
+  vendorId?: Types.ObjectId | string;
+  vendorName: string;
+  ownerName?: string;
+  unusedSeats: number;
+  annualWaste: number;
+  recommendation: string;
+  evidence: string[];
+};
+
+export type DuplicateToolFinding = {
+  category: string;
+  vendorNames: string[];
+  estimatedWaste: number;
+  recommendation: string;
+  evidence: string[];
+};
+
+export type UpcomingRenewal = {
+  id?: Types.ObjectId | string;
+  vendorName?: string;
+  renewalDate?: Date | string | null;
+  contractValue: number;
+  riskLevel: RenewalRiskLevel;
+  source: UpcomingRenewalSource;
+};
+
+export type WasteSignal = {
+  type: WasteSignalType;
+  vendorId?: Types.ObjectId | string;
+  vendorName?: string;
+  category?: string;
+  vendorNames?: string[];
+  annualImpact: number;
+  confidence: number;
+  recommendation: string;
+  evidence: string[];
+};
+
+export type AuditSummary = {
+  monthlySpend: number;
+  estimatedAnnualSavings: number;
+  monthlyWasteFound: number;
+  activeVendors: number;
+  vendorCount: number;
+  subscriptionCount: number;
+  zombieSubscriptionCount: number;
+  unusedSeatCount: number;
+  upcomingRenewalCount: number;
+  unusedSeats: UnusedSeatFinding[];
+  duplicateTools: DuplicateToolFinding[];
+  upcomingRenewals: UpcomingRenewal[];
+  wasteSignals: WasteSignal[];
+};
+
+export type VendorClassification = {
+  status: VendorStatus;
+  riskScore: number;
+};
+
+export function buildAuditSummary({
+  vendors = [],
+  subscriptions = [],
+  renewals = [],
+}: {
+  vendors?: AuditVendor[];
+  subscriptions?: AuditSubscription[];
+  renewals?: AuditRenewal[];
+} = {}): AuditSummary {
   const monthlySpend = vendors.reduce((sum, vendor) => sum + numberValue(vendor.monthlySpend), 0);
   const activeVendors = vendors.filter((vendor) => vendor.status !== "cancelled").length;
   const zombieSubscriptions = vendors.filter(isZombieVendor);
-  const unusedSeatFindings = vendors.map(buildUnusedSeatFinding).filter(Boolean);
+  const unusedSeatFindings = vendors.map(buildUnusedSeatFinding).filter(isPresent);
   const duplicateTools = buildDuplicateToolFindings(vendors);
   const upcomingRenewals = buildUpcomingRenewals({ vendors, renewals });
 
@@ -12,9 +111,9 @@ export function buildAuditSummary({ vendors = [], subscriptions = [], renewals =
   const unusedSeatSavings = unusedSeatFindings.reduce((sum, finding) => sum + finding.annualWaste, 0);
   const duplicateSavings = duplicateTools.reduce((sum, finding) => sum + finding.estimatedWaste, 0);
 
-  const wasteSignals = [
+  const wasteSignals: WasteSignal[] = [
     ...zombieSubscriptions.map((vendor) => ({
-      type: "zombie_subscription",
+      type: "zombie_subscription" as const,
       vendorId: vendor._id,
       vendorName: vendor.name,
       annualImpact: numberValue(vendor.monthlySpend) * 12,
@@ -23,7 +122,7 @@ export function buildAuditSummary({ vendors = [], subscriptions = [], renewals =
       evidence: buildZombieEvidence(vendor),
     })),
     ...unusedSeatFindings.map((finding) => ({
-      type: "unused_seats",
+      type: "unused_seats" as const,
       vendorId: finding.vendorId,
       vendorName: finding.vendorName,
       annualImpact: finding.annualWaste,
@@ -32,7 +131,7 @@ export function buildAuditSummary({ vendors = [], subscriptions = [], renewals =
       evidence: finding.evidence,
     })),
     ...duplicateTools.map((finding) => ({
-      type: "duplicate_tools",
+      type: "duplicate_tools" as const,
       category: finding.category,
       vendorNames: finding.vendorNames,
       annualImpact: finding.estimatedWaste,
@@ -59,7 +158,7 @@ export function buildAuditSummary({ vendors = [], subscriptions = [], renewals =
   };
 }
 
-export function classifyVendorWaste(vendor) {
+export function classifyVendorWaste(vendor: AuditVendor): VendorClassification {
   if (isZombieVendor(vendor)) {
     return { status: "zombie", riskScore: 95 };
   }
@@ -79,7 +178,7 @@ export function classifyVendorWaste(vendor) {
   return { status: "active", riskScore: 20 };
 }
 
-function buildUnusedSeatFinding(vendor) {
+function buildUnusedSeatFinding(vendor: AuditVendor): UnusedSeatFinding | null {
   const seatsPurchased = numberValue(vendor.seatsPurchased);
   const activeSeats = numberValue(vendor.activeSeats);
   const unusedSeats = Math.max(seatsPurchased - activeSeats, 0);
@@ -112,8 +211,8 @@ function buildUnusedSeatFinding(vendor) {
   };
 }
 
-function buildDuplicateToolFindings(vendors) {
-  const byCategory = vendors.reduce((groups, vendor) => {
+function buildDuplicateToolFindings(vendors: AuditVendor[]): DuplicateToolFinding[] {
+  const byCategory = vendors.reduce<Map<string, AuditVendor[]>>((groups, vendor) => {
     const key = (vendor.category || "Uncategorized").trim();
     const bucket = groups.get(key) ?? [];
     bucket.push(vendor);
@@ -125,6 +224,7 @@ function buildDuplicateToolFindings(vendors) {
     .filter(([, group]) => group.length > 1)
     .map(([category, group]) => {
       const sortedBySpend = [...group].sort((a, b) => numberValue(b.monthlySpend) - numberValue(a.monthlySpend));
+      const keeper = sortedBySpend[0];
       const duplicateVendors = sortedBySpend.slice(1);
       const estimatedWaste = Math.round(duplicateVendors.reduce((sum, vendor) => sum + numberValue(vendor.monthlySpend) * 12, 0));
 
@@ -132,10 +232,10 @@ function buildDuplicateToolFindings(vendors) {
         category,
         vendorNames: group.map((vendor) => vendor.name),
         estimatedWaste,
-        recommendation: `Keep ${sortedBySpend[0].name}; review ${duplicateVendors.map((vendor) => vendor.name).join(", ")}.`,
+        recommendation: `Keep ${keeper.name}; review ${duplicateVendors.map((vendor) => vendor.name).join(", ")}.`,
         evidence: [
           `${group.length} tools share the ${category} category`,
-          `${sortedBySpend[0].name} has the highest monthly spend in this group`,
+          `${keeper.name} has the highest monthly spend in this group`,
           `${duplicateVendors.map((vendor) => vendor.name).join(", ")} creates $${estimatedWaste.toLocaleString("en-US")} estimated annual overlap`,
         ],
       };
@@ -143,8 +243,8 @@ function buildDuplicateToolFindings(vendors) {
     .filter((finding) => finding.estimatedWaste > 0);
 }
 
-function buildZombieEvidence(vendor) {
-  const evidence = [];
+function buildZombieEvidence(vendor: AuditVendor): string[] {
+  const evidence: string[] = [];
   const monthlySpend = numberValue(vendor.monthlySpend);
   const seatsPurchased = numberValue(vendor.seatsPurchased);
   const activeSeats = numberValue(vendor.activeSeats);
@@ -171,15 +271,15 @@ function buildZombieEvidence(vendor) {
   return evidence;
 }
 
-function buildUpcomingRenewals({ vendors, renewals }) {
-  const renewalItems = [
+function buildUpcomingRenewals({ vendors, renewals }: { vendors: AuditVendor[]; renewals: AuditRenewal[] }): UpcomingRenewal[] {
+  const renewalItems: UpcomingRenewal[] = [
     ...renewals.map((renewal) => ({
       id: renewal._id,
       vendorName: renewal.vendor?.name ?? renewal.vendorName,
       renewalDate: renewal.renewalDate,
       contractValue: numberValue(renewal.contractValue),
-      riskLevel: renewal.riskLevel,
-      source: "renewal",
+      riskLevel: renewal.riskLevel ?? "medium",
+      source: "renewal" as const,
     })),
     ...vendors
       .filter((vendor) => vendor.renewalDate)
@@ -188,24 +288,24 @@ function buildUpcomingRenewals({ vendors, renewals }) {
         vendorName: vendor.name,
         renewalDate: vendor.renewalDate,
         contractValue: numberValue(vendor.monthlySpend) * 12,
-        riskLevel: isRenewalSoon(vendor.renewalDate, 30) ? "high" : "medium",
-        source: "vendor",
+        riskLevel: isRenewalSoon(vendor.renewalDate, 30) ? "high" as const : "medium" as const,
+        source: "vendor" as const,
       })),
   ];
 
   return renewalItems
     .filter((item) => isRenewalSoon(item.renewalDate, 60))
-    .sort((a, b) => new Date(a.renewalDate).getTime() - new Date(b.renewalDate).getTime());
+    .sort((a, b) => new Date(a.renewalDate ?? 0).getTime() - new Date(b.renewalDate ?? 0).getTime());
 }
 
-function isZombieVendor(vendor) {
+function isZombieVendor(vendor: AuditVendor): boolean {
   const hasNoActiveSeats = numberValue(vendor.seatsPurchased) > 0 && numberValue(vendor.activeSeats) === 0;
   const daysInactive = daysSince(vendor.lastUsedAt);
 
   return vendor.status === "zombie" || hasNoActiveSeats || Boolean(vendor.lastUsedAt) && daysInactive >= 90;
 }
 
-function isRenewalSoon(date, days) {
+function isRenewalSoon(date: Date | string | null | undefined, days: number): boolean {
   if (!date) return false;
 
   const now = new Date();
@@ -215,12 +315,16 @@ function isRenewalSoon(date, days) {
   return diffDays >= 0 && diffDays <= days;
 }
 
-function daysSince(date) {
+function daysSince(date: Date | string | null | undefined): number {
   if (!date) return Number.POSITIVE_INFINITY;
 
   return Math.floor((Date.now() - new Date(date).getTime()) / DAY_MS);
 }
 
-function numberValue(value) {
+function numberValue(value: number | null | undefined): number {
   return Number(value ?? 0);
+}
+
+function isPresent<T>(value: T | null | undefined): value is T {
+  return value !== null && value !== undefined;
 }

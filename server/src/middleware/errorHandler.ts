@@ -2,12 +2,26 @@ import mongoose from "mongoose";
 import { env } from "../config/env.js";
 import { captureException } from "../config/sentry.js";
 import { AppError } from "../utils/AppError.js";
+import { PlanLimitError } from "../utils/PlanLimitError.js";
 
-export function notFoundHandler(req, _res, next) {
+export function notFoundHandler(req: any, _res: any, next: any) {
   next(new AppError(`Route not found: ${req.method} ${req.originalUrl}`, 404));
 }
 
-export function errorHandler(error, req, res, _next) {
+export function errorHandler(error: any, req: any, res: any, _next: any) {
+  if (error instanceof PlanLimitError) {
+    res.status(error.statusCode).json({
+      error: "plan_limit_reached",
+      limitType: error.limitType,
+      currentUsage: error.currentUsage,
+      planLimit: error.planLimit,
+      upgradeToUnlock: error.upgradeToUnlock,
+      message: error.message,
+      requestId: req.id,
+    });
+    return;
+  }
+
   let statusCode = error.statusCode ?? 500;
   let message = error.message ?? "Internal server error";
   let details = error.details;

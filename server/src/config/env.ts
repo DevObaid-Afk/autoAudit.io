@@ -8,6 +8,7 @@ type Env = {
   mongoUri?: string;
   jwtSecret: string;
   jwtExpiresIn: string;
+  mfaEncryptionKey?: string;
   openaiApiKey?: string;
   openaiModel: string;
   openaiImageModel: string;
@@ -20,6 +21,7 @@ type Env = {
   sentryEnvironment: string;
   sentryTracesSampleRate: number;
   stripeSecretKey?: string;
+  stripeWebhookSecret?: string;
   stripeStarterPriceId?: string;
   stripeStandardPriceId?: string;
   googleClientId?: string;
@@ -40,6 +42,7 @@ export const env: Env = {
   mongoUri: process.env.MONGODB_URI,
   jwtSecret: process.env.JWT_SECRET ?? "",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
+  mfaEncryptionKey: process.env.MFA_ENCRYPTION_KEY,
   openaiApiKey: process.env.OPENAI_API_KEY,
   openaiModel: process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
   openaiImageModel: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1.5",
@@ -52,6 +55,7 @@ export const env: Env = {
   sentryEnvironment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? "development",
   sentryTracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0.1),
   stripeSecretKey: process.env.STRIPE_SECRET_KEY,
+  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
   stripeStarterPriceId: process.env.STRIPE_STARTER_PRICE_ID,
   stripeStandardPriceId: process.env.STRIPE_STANDARD_PRICE_ID,
   googleClientId: process.env.GOOGLE_CLIENT_ID,

@@ -13,8 +13,16 @@ export function GoogleOAuthCallbackPage() {
   useEffect(() => {
     async function finishGoogleSignIn() {
       const token = oauthParams.get("token");
+      const refreshToken = oauthParams.get("refreshToken");
+      const mfaSessionToken = oauthParams.get("mfaSessionToken");
       const session = parseOAuthSession(oauthParams.get("session"));
       const returnTo = cleanReturnTo(oauthParams.get("returnTo"));
+
+      if (oauthParams.get("mfaRequired") === "true" && mfaSessionToken) {
+        window.history.replaceState({}, "", "/oauth/google");
+        navigate(`/login?mfaSessionToken=${encodeURIComponent(mfaSessionToken)}&returnTo=${encodeURIComponent(returnTo)}`, { replace: true });
+        return;
+      }
 
       if (!token) {
         window.history.replaceState({}, "", "/oauth/google");
@@ -23,7 +31,7 @@ export function GoogleOAuthCallbackPage() {
       }
 
       try {
-        await completeOAuthLogin(token, session);
+        await completeOAuthLogin(token, refreshToken, session);
         navigate(returnTo, { replace: true });
       } catch (err) {
         window.history.replaceState({}, "", "/oauth/google");

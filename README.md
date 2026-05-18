@@ -101,6 +101,10 @@ Required backend variables:
 - `CONTACT_TO_EMAIL`
 - `RESEND_API_KEY` optional, for contact-form email alerts
 - `EMAIL_FROM` optional, for contact-form email alerts
+- `STRIPE_SECRET_KEY` optional, for hosted Checkout and the billing portal
+- `STRIPE_WEBHOOK_SECRET` optional, required for Stripe subscription activation webhooks
+- `STRIPE_STARTER_PRICE_ID` optional, Starter subscription price
+- `STRIPE_STANDARD_PRICE_ID` optional, Standard subscription price
 
 Required frontend variable:
 
@@ -147,6 +151,9 @@ API:
 - `GET /api/auth/google/callback`
 - `GET /api/profile/me`
 - `PATCH /api/profile/company-settings`
+- `POST /api/billing/checkout`
+- `POST /api/billing/portal`
+- `POST /api/billing/webhook`
 - `GET /api/vendors?page=1&limit=25&search=slack&status=active&category=Sales`
 - `POST /api/vendors`
 - `PATCH /api/vendors/:id`

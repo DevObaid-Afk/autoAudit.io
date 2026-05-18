@@ -1,6 +1,44 @@
-import mongoose from "mongoose";
+import mongoose, { type Types } from "mongoose";
 
-const companySchema = new mongoose.Schema(
+export type CompanyPlan = "free" | "starter" | "standard" | "growth" | "enterprise" | "custom";
+export type SubscriptionStatus = "trialing" | "active" | "expired";
+
+export interface ICompany {
+  name: string;
+  domain?: string;
+  plan: CompanyPlan;
+  trialStartedAt: Date;
+  trialEndsAt: Date;
+  subscriptionStatus: SubscriptionStatus;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  planUsage: {
+    reportsGenerated: number;
+    aiEmailsGenerated: number;
+    vendorAnalysesGenerated: number;
+  };
+  trackedSpendLimit: number;
+  settings: {
+    requireCfoApprovalAbove: number;
+    weeklyRenewalDigest: boolean;
+    autoDraftCancellationEmails: boolean;
+    allowManagedRenegotiation: boolean;
+  };
+  onboarding: {
+    addedFirstVendor: boolean;
+    importedCsv: boolean;
+    reviewedWaste: boolean;
+    generatedReport: boolean;
+    createdEmailDraft: boolean;
+    invitedTeammate: boolean;
+    dismissed: boolean;
+  };
+  createdBy?: Types.ObjectId;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+const companySchema = new mongoose.Schema<ICompany>(
   {
     name: {
       type: String,
@@ -123,8 +161,8 @@ const companySchema = new mongoose.Schema(
 companySchema.index({ domain: 1 });
 companySchema.index({ createdBy: 1 });
 
-export type CompanyDocument = mongoose.InferSchemaType<typeof companySchema> & {
+export type CompanyDocument = ICompany & {
   _id: mongoose.Types.ObjectId;
 };
 
-export const Company = mongoose.model("Company", companySchema);
+export const Company = mongoose.model<ICompany>("Company", companySchema);

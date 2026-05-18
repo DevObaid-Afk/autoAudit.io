@@ -1,6 +1,28 @@
-import mongoose from "mongoose";
+import mongoose, { type Types } from "mongoose";
 
-const vendorSchema = new mongoose.Schema(
+export type VendorStatus = "active" | "zombie" | "duplicate" | "renewal_risk" | "unused_seats" | "cancelled";
+export type VendorSource = "manual" | "csv" | "email" | "sso" | "bank_feed" | "sample";
+
+export interface IVendor {
+  company: Types.ObjectId;
+  name: string;
+  category: string;
+  ownerName?: string;
+  ownerEmail?: string;
+  monthlySpend: number;
+  seatsPurchased: number;
+  activeSeats: number;
+  lastUsedAt?: Date;
+  renewalDate?: Date;
+  status: VendorStatus;
+  riskScore: number;
+  source: VendorSource;
+  notes?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+const vendorSchema = new mongoose.Schema<IVendor>(
   {
     company: {
       type: mongoose.Schema.Types.ObjectId,
@@ -64,7 +86,7 @@ const vendorSchema = new mongoose.Schema(
     },
     source: {
       type: String,
-      enum: ["manual", "csv", "email", "sso", "bank_feed"],
+      enum: ["manual", "csv", "email", "sso", "bank_feed", "sample"],
       default: "manual",
     },
     notes: {
@@ -81,8 +103,8 @@ vendorSchema.index({ company: 1, category: 1, monthlySpend: -1 });
 vendorSchema.index({ company: 1, renewalDate: 1 });
 vendorSchema.index({ name: "text", category: "text", ownerName: "text", ownerEmail: "text" });
 
-export type VendorDocument = mongoose.InferSchemaType<typeof vendorSchema> & {
+export type VendorDocument = IVendor & {
   _id: mongoose.Types.ObjectId;
 };
 
-export const Vendor = mongoose.model("Vendor", vendorSchema);
+export const Vendor = mongoose.model<IVendor>("Vendor", vendorSchema);

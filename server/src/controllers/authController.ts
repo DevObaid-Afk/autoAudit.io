@@ -1,16 +1,21 @@
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import jwt, { type JwtPayload, type SignOptions } from "jsonwebtoken";
+import { generateSecret, verifySync } from "otplib";
+import QRCode from "qrcode";
 import type { Request } from "express";
 import { Company } from "../models/Company.js";
 import { ActivityLog } from "../models/ActivityLog.js";
+import { AuditLog } from "../models/AuditLog.js";
+import { Session } from "../models/Session.js";
 import { User, type IUserDocument } from "../models/User.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { signAuthToken } from "../utils/auth.js";
+import { REFRESH_TOKEN_TTL_MS, signAccessToken, signRefreshToken } from "../utils/auth.js";
 import { cleanString } from "../middleware/validate.js";
 import { sendPasswordResetEmail, sendVerificationEmail } from "../services/emailService.js";
+import { seedSampleVendors } from "../services/sampleVendors.js";
 
 const VERIFICATION_TOKEN_MINUTES = 24 * 60;
 const PASSWORD_RESET_TOKEN_MINUTES = 30;
@@ -20,12 +25,24 @@ const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo";
 const OAUTH_STATE_COOKIE = "autoaudit_oauth_state";
+const MFA_SESSION_EXPIRES_IN = "5m";
 
 type Plan = "free" | "starter" | "standard" | "custom";
 
 type OAuthStatePayload = JwtPayload & {
   returnTo: string;
   plan: Plan;
+};
+
+type RefreshTokenPayload = JwtPayload & {
+  userId: string;
+  type: "refresh";
+  sessionId?: string;
+};
+
+type MfaSessionPayload = JwtPayload & {
+  userId: string;
+  type: "mfa";
 };
 
 type GoogleTokenResponse = {
@@ -92,12 +109,14 @@ export const signup = asyncHandler(async (req, res) => {
 
   company.createdBy = user._id;
   await company.save();
+  await seedWorkspaceSamples(company._id);
 
-  const token = signAuthToken(user);
+  const tokens = await issueAuthTokens(user, req);
   await sendVerificationEmail({ email: user.email, name: user.name, token: verification.token, companyId: company._id });
 
   res.status(201).json({
-    token,
+    token: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
     user: serializeUser(user),
     company,
   });
@@ -164,7 +183,7 @@ export const resetPassword = asyncHandler(async (req, res) => {
   const user = await User.findOne({
     passwordResetTokenHash: hashToken(token),
     passwordResetExpiresAt: { $gt: new Date() },
-  }).select("+passwordHash +passwordResetTokenHash +passwordResetExpiresAt");
+  }).select("+passwordHash +passwordResetTokenHash +passwordResetExpiresAt +refreshTokenHash +refreshTokenExpiresAt");
 
   if (!user) {
     throw new AppError("Password reset link is invalid or expired", 400);
@@ -174,9 +193,12 @@ export const resetPassword = asyncHandler(async (req, res) => {
   user.passwordChangedAt = new Date();
   user.failedLoginAttempts = 0;
   user.lockoutUntil = null;
+  user.refreshTokenHash = undefined;
+  user.refreshTokenExpiresAt = undefined;
   user.passwordResetTokenHash = undefined;
   user.passwordResetExpiresAt = undefined;
   await user.save();
+  await Session.updateMany({ userId: user._id, revokedAt: { $exists: false } }, { $set: { revokedAt: new Date() } });
 
   res.json({ message: "Password reset. You can sign in with your new password." });
 });
@@ -208,13 +230,252 @@ export const login = asyncHandler(async (req, res) => {
   user.lockoutUntil = null;
   await user.save();
 
-  const token = signAuthToken(user);
+  if (user.mfaEnabled) {
+    res.json({
+      mfaRequired: true,
+      mfaSessionToken: signMfaSessionToken(user),
+      message: "Enter your authenticator code to finish signing in.",
+    });
+    return;
+  }
+
+  const tokens = await issueAuthTokens(user, req);
 
   res.json({
-    token,
+    token: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
     user: serializeUser(user),
     company: user.company,
   });
+});
+
+export const setupMfa = asyncHandler(async (req, res) => {
+  ensureMfaEncryptionConfigured();
+
+  const secret = generateSecret();
+  const user = await User.findById(req.user._id).select("+mfaTotpSecret");
+  if (!user) {
+    throw new AppError("User not found", 404);
+  }
+
+  user.mfaTotpSecret = encryptMfaSecret(secret);
+  user.mfaEnabled = false;
+  await user.save();
+
+  const issuer = "AutoAudit.ai";
+  const label = `${issuer}:${req.user.email}`;
+  const otpauthUrl = `otpauth://totp/${encodeURIComponent(label)}?secret=${encodeURIComponent(secret)}&issuer=${encodeURIComponent(issuer)}&digits=6&period=30`;
+  const qrCodeDataUri = await QRCode.toDataURL(otpauthUrl);
+
+  res.json({ qrCodeDataUri, secret, label });
+});
+
+export const verifyMfaSetup = asyncHandler(async (req, res) => {
+  const code = cleanString(req.body.code, { required: true, field: "MFA code", max: 40 });
+  const user = await User.findById(req.user._id).select("+mfaTotpSecret +mfaBackupCodes");
+
+  if (!user?.mfaTotpSecret) {
+    throw new AppError("Start MFA setup before verifying a code", 400);
+  }
+
+  if (!verifyTotpCode(code, decryptMfaSecret(user.mfaTotpSecret))) {
+    await logMfaAudit({ req, user, action: "mfa.setup_failed" });
+    throw new AppError("Authenticator code is invalid", 400);
+  }
+
+  const backupCodes = generateBackupCodes();
+  user.mfaEnabled = true;
+  user.mfaBackupCodes = await Promise.all(backupCodes.map((backupCode) => bcrypt.hash(normalizeMfaCode(backupCode), 12)));
+  await user.save();
+  await logMfaAudit({ req, user, action: "mfa.enabled" });
+
+  res.json({ backupCodes });
+});
+
+export const disableMfa = asyncHandler(async (req, res) => {
+  const password = cleanString(req.body.password, { required: true, field: "Password", max: 256 });
+  const code = cleanString(req.body.code, { required: true, field: "MFA code", max: 40 });
+  const user = await User.findById(req.user._id).select("+passwordHash +mfaTotpSecret +mfaBackupCodes");
+
+  if (!user || !user.mfaEnabled || !user.mfaTotpSecret) {
+    throw new AppError("MFA is not enabled for this user", 400);
+  }
+
+  if (!user.passwordHash || !(await user.comparePassword(password))) {
+    await logMfaAudit({ req, user, action: "mfa.disable_failed", metadata: { reason: "password" } });
+    throw new AppError("Current password is incorrect", 401);
+  }
+
+  if (!verifyTotpCode(code, decryptMfaSecret(user.mfaTotpSecret))) {
+    await logMfaAudit({ req, user, action: "mfa.disable_failed", metadata: { reason: "totp" } });
+    throw new AppError("Authenticator code is invalid", 400);
+  }
+
+  user.mfaEnabled = false;
+  user.mfaTotpSecret = undefined;
+  user.mfaBackupCodes = [];
+  await user.save();
+  await logMfaAudit({ req, user, action: "mfa.disabled" });
+
+  res.json({ mfaEnabled: false });
+});
+
+export const completeMfaChallenge = asyncHandler(async (req, res) => {
+  const mfaSessionToken = cleanString(req.body.mfaSessionToken, { required: true, field: "MFA session token", max: 4096 });
+  const code = cleanString(req.body.code, { required: true, field: "MFA code", max: 80 });
+  const payload = verifyMfaSessionToken(mfaSessionToken);
+  const user = await User.findById(payload.userId).select("+mfaTotpSecret +mfaBackupCodes").populate("company");
+
+  if (!user || !user.mfaEnabled || !user.mfaTotpSecret) {
+    throw new AppError("MFA challenge is invalid. Please sign in again.", 401);
+  }
+
+  const normalizedCode = normalizeMfaCode(code);
+  const isTotpValid = verifyTotpCode(normalizedCode, decryptMfaSecret(user.mfaTotpSecret));
+  const backupMatchIndex = isTotpValid ? -1 : await findBackupCodeMatch(normalizedCode, user.mfaBackupCodes ?? []);
+
+  if (!isTotpValid && backupMatchIndex === -1) {
+    await logMfaAudit({ req, user, action: "mfa.challenge_failed" });
+    throw new AppError("MFA code is invalid", 401);
+  }
+
+  if (backupMatchIndex >= 0) {
+    // Each backup code can only be used once; remove it after successful consumption.
+    user.mfaBackupCodes = (user.mfaBackupCodes ?? []).filter((_, index) => index !== backupMatchIndex);
+    await user.save();
+  }
+
+  await logMfaAudit({ req, user, action: "mfa.challenge_succeeded", metadata: { method: backupMatchIndex >= 0 ? "backup_code" : "totp" } });
+  const tokens = await issueAuthTokens(user, req);
+
+  res.json({
+    token: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    user: serializeUser(user),
+    company: user.company,
+  });
+});
+
+export const refresh = asyncHandler(async (req, res) => {
+  const refreshToken = cleanString(req.body.refreshToken, { required: true, field: "Refresh token", max: 4096 });
+  const payload = verifyRefreshToken(refreshToken);
+  const user = await User.findById(payload.userId).select("+refreshTokenHash +refreshTokenExpiresAt");
+
+  if (!user || !user.refreshTokenHash || !user.refreshTokenExpiresAt) {
+    throw new AppError("Refresh session is invalid. Please sign in again.", 401);
+  }
+
+  if (user.refreshTokenExpiresAt.getTime() <= Date.now()) {
+    user.refreshTokenHash = undefined;
+    user.refreshTokenExpiresAt = undefined;
+    await user.save();
+    throw new AppError("Refresh session expired. Please sign in again.", 401);
+  }
+
+  const matches = await bcrypt.compare(refreshToken, user.refreshTokenHash);
+  if (!matches) {
+    throw new AppError("Refresh session is invalid. Please sign in again.", 401);
+  }
+
+  const tokens = await issueAuthTokens(user, req, payload.sessionId);
+  res.json({ token: tokens.accessToken, refreshToken: tokens.refreshToken });
+});
+
+export const logout = asyncHandler(async (req, res) => {
+  const refreshToken = cleanString(req.body.refreshToken, { field: "Refresh token", max: 4096 });
+
+  if (refreshToken) {
+    try {
+      const payload = verifyRefreshToken(refreshToken);
+      const user = await User.findById(payload.userId).select("+refreshTokenHash +refreshTokenExpiresAt");
+
+      if (user?.refreshTokenHash && await bcrypt.compare(refreshToken, user.refreshTokenHash)) {
+        user.refreshTokenHash = undefined;
+        user.refreshTokenExpiresAt = undefined;
+        await user.save();
+        if (payload.sessionId) {
+          await Session.findOneAndUpdate({ _id: payload.sessionId, userId: user._id }, { $set: { revokedAt: new Date() } });
+        }
+      }
+    } catch {
+      // Logout is intentionally idempotent; invalid tokens still clear client state.
+    }
+  }
+
+  res.status(204).send();
+});
+
+export const listSessions = asyncHandler(async (req, res) => {
+  await anonymizeOldSessionIps(req.user._id);
+
+  const sessions = await Session.find({
+    userId: req.user._id,
+    revokedAt: { $exists: false },
+    expiresAt: { $gt: new Date() },
+  }).sort({ lastSeenAt: -1, createdAt: -1 });
+
+  res.json({
+    sessions: sessions.map((session) => serializeSession(session, req.sessionId)),
+  });
+});
+
+export const revokeSession = asyncHandler(async (req, res) => {
+  const sessionId = cleanString(req.params.sessionId, { required: true, field: "Session ID", max: 80 });
+
+  if (req.sessionId && sessionId === req.sessionId) {
+    throw new AppError("Use sign out to end your current session.", 400);
+  }
+
+  const session = await Session.findOneAndUpdate(
+    { _id: sessionId, userId: req.user._id, revokedAt: { $exists: false } },
+    { $set: { revokedAt: new Date() } },
+    { new: true },
+  );
+
+  if (!session) {
+    throw new AppError("Session not found", 404);
+  }
+
+  await logAuthAudit({ req, action: "session.revoked", resourceId: session._id, metadata: { revokedSessionId: String(session._id) } });
+  res.status(204).send();
+});
+
+export const revokeOtherSessions = asyncHandler(async (req, res) => {
+  const result = await Session.updateMany(
+    {
+      userId: req.user._id,
+      revokedAt: { $exists: false },
+      expiresAt: { $gt: new Date() },
+      ...(req.sessionId ? { _id: { $ne: req.sessionId } } : {}),
+    },
+    { $set: { revokedAt: new Date() } },
+  );
+
+  await logAuthAudit({ req, action: "session.revoked_others", metadata: { count: result.modifiedCount } });
+  res.json({ revokedCount: result.modifiedCount });
+});
+
+export const updateSecurityPreferences = asyncHandler(async (req, res) => {
+  const storeIpAddresses = Boolean(req.body.storeIpAddresses);
+  const user = await User.findByIdAndUpdate(
+    req.user._id,
+    { $set: { storeIpAddresses } },
+    { new: true, runValidators: true },
+  );
+
+  if (!user) {
+    throw new AppError("User not found", 404);
+  }
+
+  if (!storeIpAddresses) {
+    await Session.updateMany(
+      { userId: req.user._id },
+      { $unset: { ipAddress: "" }, $set: { ipAddressAnonymized: true } },
+    );
+  }
+
+  await logAuthAudit({ req, action: "session.ip_storage_preference_changed", metadata: { storeIpAddresses } });
+  res.json({ user: serializeUser(user) });
 });
 
 export const unlockUser = asyncHandler(async (req, res) => {
@@ -271,17 +532,27 @@ export const handleGoogleOAuthCallback = asyncHandler(async (req, res) => {
   const googleTokens = await exchangeGoogleCode(code);
   const googleProfile = await verifyGoogleIdToken(googleTokens.id_token);
   const { user, company } = await findOrCreateGoogleUser(googleProfile, statePayload.plan);
-  const token = signAuthToken(user);
   const callbackUrl = new URL("/oauth/google", env.appUrl);
-  const session = encodeOAuthSession({
-    user: serializeUser(user),
-    company,
-  });
-  const callbackParams = new URLSearchParams({
-    token,
-    session,
-    returnTo: statePayload.returnTo,
-  });
+  let callbackParams: URLSearchParams;
+
+  if (user.mfaEnabled) {
+    callbackParams = new URLSearchParams({
+      mfaRequired: "true",
+      mfaSessionToken: signMfaSessionToken(user),
+      returnTo: statePayload.returnTo,
+    });
+  } else {
+    const tokens = await issueAuthTokens(user, req);
+    callbackParams = new URLSearchParams({
+      token: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      session: encodeOAuthSession({
+        user: serializeUser(user),
+        company,
+      }),
+      returnTo: statePayload.returnTo,
+    });
+  }
 
   callbackUrl.hash = callbackParams.toString();
   res.clearCookie(OAUTH_STATE_COOKIE);
@@ -296,7 +567,248 @@ function serializeUser(user: IUserDocument) {
     role: user.role,
     company: user.company?._id ?? user.company,
     emailVerifiedAt: user.emailVerifiedAt,
+    storeIpAddresses: user.storeIpAddresses !== false,
+    mfaEnabled: Boolean(user.mfaEnabled),
   };
+}
+
+async function issueAuthTokens(user: IUserDocument, req?: Request, existingSessionId?: string) {
+  const sessionId = existingSessionId || new Session()._id.toString();
+  const accessToken = signAccessToken(user, sessionId);
+  const refreshToken = signRefreshToken(user, sessionId);
+  const refreshTokenHash = await bcrypt.hash(refreshToken, 12);
+  const refreshTokenExpiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
+  const tokenHash = await bcrypt.hash(accessToken, 12);
+  const companyId = user.company?._id ?? user.company;
+
+  await User.findByIdAndUpdate(user._id, {
+    refreshTokenHash,
+    refreshTokenExpiresAt,
+  });
+
+  await Session.findOneAndUpdate(
+    { _id: sessionId, userId: user._id },
+    {
+      $set: {
+        companyId,
+        tokenHash,
+        deviceInfo: req?.get("user-agent") || "Unknown device",
+        ipAddress: user.storeIpAddresses === false ? undefined : getRequestIp(req),
+        ipAddressAnonymized: false,
+        lastSeenAt: new Date(),
+        expiresAt: refreshTokenExpiresAt,
+      },
+      $setOnInsert: {
+        userId: user._id,
+        createdAt: new Date(),
+      },
+      $unset: {
+        revokedAt: "",
+      },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true },
+  );
+
+  return { accessToken, refreshToken };
+}
+
+function verifyRefreshToken(refreshToken: string) {
+  let payload: RefreshTokenPayload;
+
+  try {
+    payload = jwt.verify(refreshToken, env.jwtSecret) as RefreshTokenPayload;
+  } catch {
+    throw new AppError("Refresh session is invalid or expired. Please sign in again.", 401);
+  }
+
+  if (!payload.userId || payload.type !== "refresh") {
+    throw new AppError("Refresh session is invalid. Please sign in again.", 401);
+  }
+
+  return payload;
+}
+
+function serializeSession(session, currentSessionId?: string) {
+  return {
+    id: String(session._id),
+    device: parseDeviceInfo(session.deviceInfo),
+    deviceInfo: session.deviceInfo,
+    ipAddress: session.ipAddress || "Not stored",
+    createdAt: session.createdAt,
+    lastSeenAt: session.lastSeenAt,
+    expiresAt: session.expiresAt,
+    isCurrent: currentSessionId ? String(session._id) === currentSessionId : false,
+  };
+}
+
+function parseDeviceInfo(userAgent = "") {
+  const browser = /Edg\//.test(userAgent) ? "Edge" :
+    /Chrome\//.test(userAgent) ? "Chrome" :
+    /Firefox\//.test(userAgent) ? "Firefox" :
+    /Safari\//.test(userAgent) ? "Safari" :
+    "Unknown browser";
+  const os = /Windows/i.test(userAgent) ? "Windows" :
+    /Mac OS X|Macintosh/i.test(userAgent) ? "macOS" :
+    /iPhone|iPad/i.test(userAgent) ? "iOS" :
+    /Android/i.test(userAgent) ? "Android" :
+    /Linux/i.test(userAgent) ? "Linux" :
+    "Unknown OS";
+
+  return `${browser} on ${os}`;
+}
+
+function getRequestIp(req?: Request) {
+  if (!req) return undefined;
+
+  const forwardedFor = req.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return forwardedFor || req.ip;
+}
+
+async function anonymizeOldSessionIps(userId) {
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const sessions = await Session.find({
+    userId,
+    createdAt: { $lt: cutoff },
+    ipAddress: { $exists: true, $ne: "" },
+    ipAddressAnonymized: { $ne: true },
+  });
+
+  await Promise.all(sessions.map((session) => {
+    session.ipAddress = anonymizeIp(session.ipAddress);
+    session.ipAddressAnonymized = true;
+    return session.save();
+  }));
+}
+
+function anonymizeIp(value?: string) {
+  if (!value) return value;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(value)) {
+    return value.split(".").map((part, index) => index === 3 ? "0" : part).join(".");
+  }
+  if (value.includes(":")) {
+    return `${value.split(":").slice(0, 4).join(":")}::`;
+  }
+  return "Anonymized";
+}
+
+async function logAuthAudit({ req, action, resourceId = req.user?._id, metadata = {} }) {
+  if (!req.user || !req.companyId) return;
+
+  await AuditLog.create({
+    company: req.companyId,
+    actor: req.user._id,
+    action,
+    resourceType: "auth_session",
+    resourceId,
+    metadata,
+    ipAddress: req.ip,
+    userAgent: req.get("user-agent"),
+  });
+}
+
+function signMfaSessionToken(user: IUserDocument) {
+  return jwt.sign(
+    {
+      userId: user._id.toString(),
+      type: "mfa",
+    },
+    env.jwtSecret,
+    { expiresIn: MFA_SESSION_EXPIRES_IN } as SignOptions,
+  );
+}
+
+function verifyMfaSessionToken(mfaSessionToken: string) {
+  let payload: MfaSessionPayload;
+
+  try {
+    payload = jwt.verify(mfaSessionToken, env.jwtSecret) as MfaSessionPayload;
+  } catch {
+    throw new AppError("MFA session expired. Please sign in again.", 401);
+  }
+
+  if (!payload.userId || payload.type !== "mfa") {
+    throw new AppError("MFA session is invalid. Please sign in again.", 401);
+  }
+
+  return payload;
+}
+
+function ensureMfaEncryptionConfigured() {
+  if (!env.mfaEncryptionKey) {
+    throw new AppError("MFA encryption is not configured", 503);
+  }
+}
+
+function getMfaEncryptionKey() {
+  ensureMfaEncryptionConfigured();
+
+  const raw = env.mfaEncryptionKey.trim();
+  const decoded = /^[a-f0-9]{64}$/i.test(raw) ? Buffer.from(raw, "hex") : Buffer.from(raw, "base64");
+  if (decoded.length === 32) return decoded;
+
+  throw new AppError("MFA encryption key must be 32 bytes encoded as base64 or hex", 503);
+}
+
+function encryptMfaSecret(secret: string) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", getMfaEncryptionKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(secret, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+
+  return `v1:${iv.toString("base64")}:${tag.toString("base64")}:${encrypted.toString("base64")}`;
+}
+
+function decryptMfaSecret(value: string) {
+  const [version, ivValue, tagValue, encryptedValue] = value.split(":");
+  if (version !== "v1" || !ivValue || !tagValue || !encryptedValue) {
+    throw new AppError("Stored MFA secret is invalid", 500);
+  }
+
+  const decipher = crypto.createDecipheriv("aes-256-gcm", getMfaEncryptionKey(), Buffer.from(ivValue, "base64"));
+  decipher.setAuthTag(Buffer.from(tagValue, "base64"));
+  return Buffer.concat([decipher.update(Buffer.from(encryptedValue, "base64")), decipher.final()]).toString("utf8");
+}
+
+function verifyTotpCode(code: string, secret: string) {
+  return verifySync({ token: normalizeMfaCode(code), secret });
+}
+
+function normalizeMfaCode(code: string) {
+  return String(code).replace(/\s+/g, "").replace(/-/g, "").toUpperCase();
+}
+
+function generateBackupCodes() {
+  return Array.from({ length: 10 }, () => {
+    const value = crypto.randomBytes(5).toString("hex").toUpperCase();
+    return `${value.slice(0, 5)}-${value.slice(5)}`;
+  });
+}
+
+async function findBackupCodeMatch(code: string, hashes: string[]) {
+  for (let index = 0; index < hashes.length; index += 1) {
+    if (await bcrypt.compare(code, hashes[index])) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+async function logMfaAudit({ req, user, action, metadata = {} }) {
+  // Log all MFA enable, disable, and failure events to the audit log.
+  const companyId = req.companyId ?? user.company?._id ?? user.company;
+  if (!companyId || !user?._id) return;
+
+  await AuditLog.create({
+    company: companyId,
+    actor: user._id,
+    action,
+    resourceType: "auth_mfa",
+    resourceId: user._id,
+    metadata,
+    ipAddress: req.ip,
+    userAgent: req.get("user-agent"),
+  });
 }
 
 function isUserLocked(user: IUserDocument) {
@@ -412,6 +924,7 @@ async function findOrCreateGoogleUser(profile: GoogleProfile, plan: Plan) {
 
   company.createdBy = user._id;
   await company.save();
+  await seedWorkspaceSamples(company._id);
   await user.populate("company");
 
   return { user, company };
@@ -534,6 +1047,14 @@ function cleanPlan(value: unknown): Plan {
 
   const plan = value.trim().toLowerCase() as Plan;
   return allowedPlans.has(plan) ? plan : "free";
+}
+
+async function seedWorkspaceSamples(companyId) {
+  try {
+    await seedSampleVendors(companyId);
+  } catch (error) {
+    console.error("Failed to seed sample vendors", error);
+  }
 }
 
 function createToken(minutesUntilExpiry) {
