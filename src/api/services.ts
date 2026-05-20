@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { ActionItemPriority, ActionItemStatus, ActivityEntityType, ApiActionItem, ApiActivityLog, ApiContactRequest, ApiOnboardingState, ApiRenewal, ApiReport, ApiSavingsEntry, ApiSession, ApiTeamInvite, ApiTeamMember, ApiUser, ApiVendor, AuditSummary, AuthResponse, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta, ReportType, SavingsSummary, SavingsType, TeamRole } from "../types/api";
+import type { ActionItemPriority, ActionItemStatus, ActivityEntityType, AiEmailVerifiedOverrides, ApiActionItem, ApiActivityLog, ApiContactRequest, ApiOnboardingState, ApiRenewal, ApiReport, ApiSavingsEntry, ApiSession, ApiTeamInvite, ApiTeamMember, ApiUrgentRenewalNotification, ApiUser, ApiVendor, AuditSummary, AuthResponse, CreateVendorInput, PaginationMeta, ReportType, SavingsSummary, SavingsType, TeamRole } from "../types/api";
 
 export const authApi = {
   async signup(input: { name: string; email: string; password: string; companyName: string; companyDomain?: string; plan?: string }) {
@@ -87,11 +87,6 @@ export const authApi = {
 };
 
 export const profileApi = {
-  async avatarAccess() {
-    const { data } = await apiClient.get<{ avatar: AvatarAccess }>("/api/profile/avatar-access");
-    return data.avatar;
-  },
-
   async uploadAvatar(imageData: string) {
     const { data } = await apiClient.post<{ user: ApiUser }>("/api/profile/avatar-upload", { imageData });
     return data.user;
@@ -99,16 +94,6 @@ export const profileApi = {
 
   async removeAvatar() {
     const { data } = await apiClient.delete<{ user: ApiUser }>("/api/profile/avatar");
-    return data.user;
-  },
-
-  async generateAvatar(style: AvatarStyle) {
-    const { data } = await apiClient.post<{ generatedUrl: string; avatar: AvatarAccess }>("/api/profile/avatar-generate", { style });
-    return data;
-  },
-
-  async saveGeneratedAvatar(avatarUrl: string) {
-    const { data } = await apiClient.post<{ user: ApiUser }>("/api/profile/avatar-save", { avatarUrl });
     return data.user;
   },
 
@@ -333,15 +318,27 @@ export const renewalApi = {
     const { data } = await apiClient.get<{ renewals: ApiRenewal[]; pagination: PaginationMeta }>("/api/renewals", { params });
     return data;
   },
+
+  async markReviewed(id: string, reviewNotes?: string) {
+    const { data } = await apiClient.patch<{ renewal: ApiRenewal }>(`/api/renewals/${id}/reviewed`, { reviewNotes });
+    return data.renewal;
+  },
+};
+
+export const notificationApi = {
+  async urgentRenewals() {
+    const { data } = await apiClient.get<{ renewals: ApiUrgentRenewalNotification[] }>("/api/notifications/urgent-renewals");
+    return data.renewals;
+  },
 };
 
 export const aiApi = {
-  async cancelEmail(input: { vendorId?: string; vendorName?: string; tone?: string; requestedAction?: string }) {
+  async cancelEmail(input: { vendorId?: string; vendorName?: string; tone?: string; requestedAction?: string; verifiedData?: AiEmailVerifiedOverrides }) {
     const { data } = await apiClient.post<{ draft: string }>("/api/ai/cancel-email", input);
     return data.draft;
   },
 
-  async renegotiateEmail(input: { vendorId?: string; vendorName?: string; renewalId?: string; tone?: string; negotiationGoal?: string }) {
+  async renegotiateEmail(input: { vendorId?: string; vendorName?: string; renewalId?: string; tone?: string; negotiationGoal?: string; verifiedData?: AiEmailVerifiedOverrides }) {
     const { data } = await apiClient.post<{ draft: string }>("/api/ai/renegotiate-email", input);
     return data.draft;
   },

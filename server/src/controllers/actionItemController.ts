@@ -8,6 +8,7 @@ import { AppError } from "../utils/AppError.js";
 import { recordActivity } from "../utils/activityLogger.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { recordAuditLog } from "../utils/auditLogger.js";
+import { trackActivationEvent } from "../services/activationAnalytics.js";
 
 const actionStatuses = new Set<ActionItemStatus>(["open", "in_progress", "done"]);
 const actionPriorities = new Set<ActionItemPriority>(["low", "medium", "high"]);
@@ -84,6 +85,11 @@ export const createActionItem = asyncHandler(async (req: any, res: any) => {
     entityId: action._id,
     entityName: title,
     metadata: { vendorName, signalType, impact, estimatedSavings, priority, approvalStatus },
+  });
+  await trackActivationEvent({
+    req,
+    eventName: "action_item_created",
+    properties: { signalType: signalType ?? "unknown", impact },
   });
 
   const populated = await action.populate("createdBy assignedTo approvedBy comments.author", "name email role avatarUrl avatarSource");

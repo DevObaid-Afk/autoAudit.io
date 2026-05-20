@@ -3,6 +3,7 @@ import { env } from "../config/env.js";
 import { Company } from "../models/Company.js";
 import { AppError } from "../utils/AppError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { trackActivationEvent } from "../services/activationAnalytics.js";
 
 const STRIPE_API_VERSION = "2026-02-25.clover";
 
@@ -56,11 +57,13 @@ export const createCheckoutSession = asyncHandler(async (req, res) => {
     cancel_url: `${env.appUrl}/dashboard/billing?checkout=cancelled`,
     metadata: {
       companyId: String(company._id),
+      userId: String(req.user._id),
       plan,
     },
     subscription_data: {
       metadata: {
         companyId: String(company._id),
+        userId: String(req.user._id),
         plan,
       },
     },
@@ -68,6 +71,18 @@ export const createCheckoutSession = asyncHandler(async (req, res) => {
 
   if (!session.url) {
     throw new AppError("Stripe did not return a checkout URL", 502);
+  }
+  await trackActivationEvent({
+    req,
+    eventName: "checkout_started",
+    properties: { plan },
+  });
+  if (company.plan !== plan) {
+    await trackActivationEvent({
+      req,
+      eventName: "upgrade_requested",
+      properties: { fromPlan: company.plan, toPlan: plan },
+    });
   }
 
   res.json({ url: session.url });
@@ -159,6 +174,15 @@ async function syncCheckoutSession(session: Stripe.Checkout.Session) {
     subscriptionStatus: "active",
     stripeCustomerId: customerId,
     stripeSubscriptionId: subscriptionId,
+  });
+  await trackActivationEvent({
+    eventName: "checkout_completed",
+    userId: session.metadata?.userId,
+    companyId,
+    properties: {
+      plan,
+      amount: Number(session.amount_total ?? 0) / 100,
+    },
   });
 }
 

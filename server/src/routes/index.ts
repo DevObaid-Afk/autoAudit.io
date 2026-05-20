@@ -3,6 +3,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { aiRateLimit } from "../middleware/rateLimit.js";
 import { aiRoutes } from "./aiRoutes.js";
 import { adminRoutes } from "./adminRoutes.js";
+import { adminFunnelRoutes } from "./adminFunnelRoutes.js";
 import { analyticsRoutes } from "./analyticsRoutes.js";
 import { activityRoutes } from "./activityRoutes.js";
 import { actionItemRoutes } from "./actionItemRoutes.js";
@@ -25,6 +26,7 @@ import { workspaceRoutes } from "./workspaceRoutes.js";
 export const apiRouter = Router();
 
 apiRouter.use("/auth", authRoutes);
+apiRouter.use("/admin", adminFunnelRoutes);
 apiRouter.use("/admin", requireAuth, adminRoutes);
 apiRouter.use("/analytics", analyticsRoutes);
 apiRouter.use("/action-items", requireAuth, actionItemRoutes);

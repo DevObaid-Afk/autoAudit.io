@@ -27,8 +27,8 @@ import {
   ChevronRight,
   CircleDollarSign,
   CreditCard,
-  Crown,
   Download,
+  Edit3,
   FileText,
   Filter,
   Image as ImageIcon,
@@ -55,7 +55,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { ChangeEvent, ReactNode } from "react";
-import { actionItemApi, activityApi, aiApi, analyticsApi, auditApi, authApi, billingApi, contactApi, onboardingApi, profileApi, renewalApi, reportApi, savingsApi, teamApi, vendorApi, workspaceApi } from "../api/services";
+import { actionItemApi, activityApi, aiApi, analyticsApi, auditApi, authApi, billingApi, contactApi, notificationApi, onboardingApi, profileApi, renewalApi, reportApi, savingsApi, teamApi, vendorApi, workspaceApi } from "../api/services";
 import { getApiErrorMessage, resolveApiAssetUrl } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { PageMeta } from "../components/PageMeta";
@@ -63,7 +63,7 @@ import { PlanLimitModal } from "../components/PlanLimitModal";
 import { PublicFooter } from "../components/PublicFooter";
 import { useTheme } from "../theme/ThemeContext";
 import { usePlanLimit } from "../hooks/usePlanLimit";
-import type { ActionItemStatus, ActivityEntityType, AiEmailGoal, ApiActionItem, ApiActivityLog, ApiCompany, ApiContactRequest, ApiOnboardingState, ApiRenewal, ApiReport, ApiSavingsEntry, ApiSession, ApiTeamInvite, ApiTeamMember, ApiUser, ApiVendor, AuditSummary, AvatarAccess, AvatarStyle, CreateVendorInput, PaginationMeta, ReportType, SavingsSignalType, SavingsSummary, SavingsType, TeamRole } from "../types/api";
+import type { ActionItemStatus, ActivityEntityType, AiEmailGoal, AiEmailVerifiedOverrides, ApiActionItem, ApiActivityLog, ApiCompany, ApiContactRequest, ApiOnboardingState, ApiRenewal, ApiReport, ApiSavingsEntry, ApiSession, ApiTeamInvite, ApiTeamMember, ApiUrgentRenewalNotification, ApiUser, ApiVendor, AuditSummary, CreateVendorInput, PaginationMeta, ReportType, SavingsSignalType, SavingsSummary, SavingsType, TeamRole } from "../types/api";
 
 type PageId = "overview" | "vendors" | "waste" | "renewals" | "reports" | "savings" | "activity" | "email" | "team" | "billing" | "settings";
 type RiskLevel = "critical" | "high" | "medium" | "low";
@@ -112,9 +112,12 @@ type RenewalRow = {
   id: string;
   vendor: string;
   date: string;
+  renewalDate?: string;
   owner: string;
   amount: number;
   risk: RiskLevel;
+  status?: ApiRenewal["status"];
+  reviewedAt?: string;
 };
 
 type UnusedSeatRow = {
@@ -305,6 +308,8 @@ export function DashboardPage() {
   const [toast, setToast] = useState("");
   const [apiVendors, setApiVendors] = useState<ApiVendor[]>([]);
   const [apiRenewals, setApiRenewals] = useState<ApiRenewal[]>([]);
+  const [urgentRenewals, setUrgentRenewals] = useState<ApiUrgentRenewalNotification[]>([]);
+  const [showUrgentRenewalsOnly, setShowUrgentRenewalsOnly] = useState(false);
   const [apiReports, setApiReports] = useState<ApiReport[]>([]);
   const [savingsEntries, setSavingsEntries] = useState<ApiSavingsEntry[]>([]);
   const [savingsSummary, setSavingsSummary] = useState<SavingsSummary | null>(null);
@@ -467,6 +472,20 @@ export function DashboardPage() {
   useEffect(() => {
     refreshActivityData(activityFilter).catch((error) => setDataError(getApiErrorMessage(error)));
   }, [activityFilter]);
+
+  useEffect(() => {
+    let isCurrent = true;
+    refreshUrgentRenewals().catch(() => undefined);
+    const interval = window.setInterval(() => {
+      if (!isCurrent) return;
+      refreshUrgentRenewals().catch(() => undefined);
+    }, 5 * 60 * 1000);
+
+    return () => {
+      isCurrent = false;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     if (activePage !== "waste" || dashboardWasteSignals.length === 0 || onboarding?.reviewedWaste) return;
@@ -732,6 +751,12 @@ export function DashboardPage() {
     return nextOnboarding;
   };
 
+  const refreshUrgentRenewals = async () => {
+    const renewals = await notificationApi.urgentRenewals();
+    setUrgentRenewals(renewals);
+    return renewals;
+  };
+
   const handleConfirmSaving = async (input: { signal: WasteSignal; savingsType: SavingsType; monthlySavings: number; notes?: string }) => {
     const entry = await savingsApi.create({
       vendorId: input.signal.vendorId,
@@ -837,6 +862,18 @@ export function DashboardPage() {
     navigate("/", { replace: true });
   };
 
+  const openUrgentRenewals = () => {
+    setShowUrgentRenewalsOnly(true);
+    handleNav("renewals");
+  };
+
+  const handleMarkRenewalReviewed = async (renewalId: string) => {
+    const updated = await renewalApi.markReviewed(renewalId);
+    setApiRenewals((current) => current.map((renewal) => (renewal._id === renewalId ? updated : renewal)));
+    await Promise.all([refreshUrgentRenewals(), refreshActivityData()]);
+    showToast("Renewal marked reviewed.");
+  };
+
   return (
     <div className="min-h-screen bg-canvas text-ink">
       <PageMeta title="Dashboard - AutoAudit.ai" description="Signed-in AutoAudit.ai SaaS waste control dashboard." canonicalPath="/dashboard" noindex />
@@ -850,12 +887,15 @@ export function DashboardPage() {
             pageTitle={pageTitle}
             searchValue={vendorSearch}
             userAvatarUrl={user?.avatarUrl}
+            userEmail={user?.email}
             userName={user?.name ?? "User"}
             onGlobalSearch={handleGlobalSearch}
             onLogout={logout}
             onMenu={() => setMobileNavOpen(true)}
             onNavigate={handleNav}
+            onOpenUrgentRenewals={openUrgentRenewals}
             onRefresh={refreshDashboardData}
+            urgentRenewals={urgentRenewals}
           />
 
           <main className="mx-auto max-w-[1480px] overflow-x-hidden px-3 py-4 sm:px-6 lg:px-8">
@@ -866,7 +906,7 @@ export function DashboardPage() {
               {hasSampleVendors && !isSampleBannerDismissed && (
                 <SampleDataBanner onDismiss={dismissSampleBanner} onNavigate={handleNav} />
               )}
-              {activePage === "overview" && <OverviewPage apiVendors={apiVendors} categoryData={dashboardCategorySpend} duplicateTools={duplicateToolRows} renewalRows={renewalRows} reports={apiReports} savingsEntries={savingsEntries} teamMemberCount={teamMemberCount} totals={totals} unusedSeats={unusedSeatRows} wasteSignals={dashboardWasteSignals} company={company} onboarding={onboarding} onDismissOnboarding={async () => { const next = await onboardingApi.dismiss(); setOnboarding(next); }} onNavigate={handleNav} onToast={showToast} />}
+              {activePage === "overview" && <OverviewPage apiVendors={apiVendors} categoryData={dashboardCategorySpend} duplicateTools={duplicateToolRows} renewalRows={renewalRows} reports={apiReports} savingsEntries={savingsEntries} teamMemberCount={teamMemberCount} totals={totals} unusedSeats={unusedSeatRows} urgentRenewals={urgentRenewals} wasteSignals={dashboardWasteSignals} company={company} onboarding={onboarding} onDismissOnboarding={async () => { const next = await onboardingApi.dismiss(); setOnboarding(next); }} onNavigate={handleNav} onOpenUrgentRenewals={openUrgentRenewals} onToast={showToast} />}
               {activePage === "vendors" && <VendorsPage activityEntries={activityEntries} apiVendors={apiVendors} categoryOptions={vendorCategoryOptions} isClearingSampleData={isClearingSampleData} isLoading={isDataLoading || isVendorLoading} isLoadingDemo={isLoadingDemo} pagination={vendorPagination} query={vendorQuery} savingsEntries={savingsEntries} vendors={dashboardVendors} wasteSignals={dashboardWasteSignals} onClearSampleData={handleClearSampleData} onCreateVendor={handleCreateVendor} onDeleteVendor={handleDeleteVendor} onEmailShortcut={(vendorName) => { setEmailVendorName(vendorName); handleNav("email"); }} onImportVendors={handleImportVendors} onLoadDemoData={handleLoadDemoData} onQueryChange={handleVendorQueryChange} onToast={showToast} onUpdateVendor={async (id, input) => { const vendor = await vendorApi.update(id, input); setApiVendors((current) => current.map((item) => item._id === id ? vendor : item)); await refreshDashboardData(); showToast(`${vendor.name} updated.`); }} />}
               {activePage === "waste" && (
                 <WasteDetectionPage
@@ -896,12 +936,13 @@ export function DashboardPage() {
                   teamMembers={teamMembers}
                 />
               )}
-              {activePage === "renewals" && <RenewalsPage hasVendors={dashboardVendors.length > 0} isLoadingDemo={isLoadingDemo} renewalChartData={dashboardRenewalChart} renewalRows={renewalRows} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} onToast={showToast} />}
+              {activePage === "renewals" && <RenewalsPage hasVendors={dashboardVendors.length > 0} isLoadingDemo={isLoadingDemo} renewalChartData={dashboardRenewalChart} renewalRows={renewalRows} showUrgentOnly={showUrgentRenewalsOnly} onClearUrgentFilter={() => setShowUrgentRenewalsOnly(false)} onLoadDemoData={handleLoadDemoData} onMarkReviewed={handleMarkRenewalReviewed} onNavigate={handleNav} onToast={showToast} />}
               {activePage === "reports" && <ReportsPage hasVendors={dashboardVendors.length > 0} isGenerating={isReportGenerating} isLoadingDemo={isLoadingDemo} reports={apiReports} reportDraft={monthlyReportDraft} trialExpired={isTrialExpired} onGenerateReport={handleGenerateMonthlyReport} onLoadDemoData={handleLoadDemoData} onNavigate={handleNav} onToast={showToast} />}
               {activePage === "savings" && <SavingsPage entries={savingsEntries} summary={savingsSummary} currentUser={user} onDelete={async (entry) => { await savingsApi.remove(entry.id); await refreshSavingsData(); showToast("Savings entry removed."); }} onDismiss={handleDismissSaving} onRealize={handleRealizeSaving} />}
               {activePage === "activity" && <ActivityPage activity={activityEntries} filter={activityFilter} pagination={activityPagination} onFilterChange={setActivityFilter} onPageChange={(page) => refreshActivityData(activityFilter, page)} />}
               {activePage === "email" && (
                 <EmailGeneratorPage
+                  apiVendors={apiVendors}
                   vendors={dashboardVendors}
                   initialVendorName={emailVendorName}
                   draft={draft}
@@ -909,7 +950,7 @@ export function DashboardPage() {
                   isLoadingDemo={isLoadingDemo}
                   onCopyDraft={copyDraft}
                   onDraftChange={setDraft}
-                  onGenerate={async (vendorName, tone, goal) => {
+                  onGenerate={async (vendorName, tone, goal, verifiedData) => {
                     if (isTrialExpired) {
                       throw new Error("Trial ended. Choose a plan before generating AI emails.");
                     }
@@ -918,14 +959,20 @@ export function DashboardPage() {
                     const goalConfig = emailGoalOptions.find((item) => item.value === goal) ?? emailGoalOptions[0];
                     const generatedDraft =
                       goal === "cancel"
-                        ? await aiApi.cancelEmail({ vendorId: apiVendor?._id, vendorName, tone: tone.toLowerCase(), requestedAction: goalConfig.actionLabel })
-                        : await aiApi.renegotiateEmail({ vendorId: apiVendor?._id, vendorName, tone: tone.toLowerCase(), negotiationGoal: goalConfig.actionLabel });
+                        ? await aiApi.cancelEmail({ vendorId: apiVendor?._id, vendorName, tone: tone.toLowerCase(), requestedAction: goalConfig.actionLabel, verifiedData })
+                        : await aiApi.renegotiateEmail({ vendorId: apiVendor?._id, vendorName, tone: tone.toLowerCase(), negotiationGoal: goalConfig.actionLabel, verifiedData });
                     setDraft(generatedDraft);
                     await Promise.all([refreshActivityData(), refreshOnboardingData()]);
                     showToast("AI draft refreshed with company context.");
                   }}
                   onLoadDemoData={handleLoadDemoData}
                   onNavigate={handleNav}
+                  onSaveCorrections={async (vendorId, input) => {
+                    const vendor = await vendorApi.update(vendorId, input);
+                    setApiVendors((current) => current.map((item) => (item._id === vendorId ? vendor : item)));
+                    await refreshDashboardData();
+                    showToast(`${vendor.name} corrections saved.`);
+                  }}
                   onToneChange={setEmailTone}
                 />
               )}
@@ -993,6 +1040,26 @@ function PlanUsageWarningBanner({ warning, onDismiss, onNavigate }: { warning: P
             Dismiss
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function UrgentRenewalBanner({ renewals, onReview }: { renewals: ApiUrgentRenewalNotification[]; onReview: () => void }) {
+  const total = renewals.reduce((sum, renewal) => sum + Number(renewal.contractValue ?? 0), 0);
+
+  return (
+    <div className="rounded-lg border border-risk/30 bg-risk-soft p-4 text-risk shadow-sm">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <strong className="block text-sm font-extrabold">
+            You have {renewals.length} vendor renewal{renewals.length === 1 ? "" : "s"} in the next 7 days totaling {currency(total)}.
+          </strong>
+          <p className="mt-1 text-sm font-bold leading-6">Review now before the notice window closes.</p>
+        </div>
+        <button className="inline-flex min-h-10 items-center justify-center rounded-lg bg-risk px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5" type="button" onClick={onReview}>
+          Review now
+        </button>
       </div>
     </div>
   );
@@ -1093,28 +1160,36 @@ function Topbar({
   pageTitle,
   searchValue,
   userAvatarUrl,
+  userEmail,
   userName,
   onGlobalSearch,
   onLogout,
   onMenu,
   onNavigate,
+  onOpenUrgentRenewals,
   onRefresh,
+  urgentRenewals,
 }: {
   checklistItems: OnboardingItem[];
   companyName: string;
   pageTitle: string;
   searchValue: string;
   userAvatarUrl?: string;
+  userEmail?: string;
   userName: string;
   onGlobalSearch: (value: string) => void;
   onLogout: () => void;
   onMenu: () => void;
   onNavigate: (page: PageId) => void;
+  onOpenUrgentRenewals: () => void;
   onRefresh: () => void;
+  urgentRenewals: ApiUrgentRenewalNotification[];
 }) {
   const { theme, toggleTheme } = useTheme();
   const [isChecklistOpen, setChecklistOpen] = useState(false);
+  const [isNotificationOpen, setNotificationOpen] = useState(false);
   const initialsLabel = initials(userName || companyName);
+  const resolvedUserAvatarUrl = userAvatarUrl ? resolveApiAssetUrl(userAvatarUrl) : getGravatarUrl(userEmail);
   const hasOpenItems = checklistItems.some((item) => !item.done);
 
   return (
@@ -1196,14 +1271,42 @@ function Topbar({
           {theme === "dark" ? <Sun aria-hidden="true" size={18} /> : <Moon aria-hidden="true" size={18} />}
         </button>
 
-        <button className="relative grid size-10 shrink-0 place-items-center rounded-lg border border-line/70 bg-panel/78 text-quiet transition hover:-translate-y-0.5 hover:border-brand/60 hover:bg-panel-muted hover:text-brand" type="button" aria-label="Open renewal alerts" onClick={() => onNavigate("renewals")}>
-          <Bell aria-hidden="true" size={18} />
-          <span className="absolute right-2 top-2 size-2 rounded-full bg-risk" />
-        </button>
+        <div className="relative shrink-0">
+          <button className="relative grid size-10 place-items-center rounded-lg border border-line/70 bg-panel/78 text-quiet transition hover:-translate-y-0.5 hover:border-brand/60 hover:bg-panel-muted hover:text-brand" type="button" aria-label="Open renewal alerts" onClick={() => setNotificationOpen((current) => !current)}>
+            <Bell aria-hidden="true" size={18} />
+            {urgentRenewals.length > 0 && <span className="absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full bg-risk px-1 text-[10px] font-extrabold text-white">{urgentRenewals.length}</span>}
+          </button>
+          {isNotificationOpen && (
+            <div className="absolute right-0 top-12 z-50 w-[340px] rounded-lg border border-line/70 bg-panel/95 p-3 shadow-2xl backdrop-blur-xl">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <strong className="text-sm font-extrabold">Urgent renewals</strong>
+                <span className="text-xs font-bold text-risk">{urgentRenewals.length} due soon</span>
+              </div>
+              <div className="grid max-h-[360px] gap-2 overflow-auto">
+                {urgentRenewals.length === 0 && <p className="rounded-lg bg-panel-subtle p-3 text-sm font-bold text-quiet">No renewals due in the next 7 days.</p>}
+                {urgentRenewals.map((renewal) => (
+                  <button
+                    className="rounded-lg border border-risk/20 bg-risk-soft p-3 text-left transition hover:-translate-y-0.5"
+                    key={renewal.id}
+                    type="button"
+                    onClick={() => {
+                      setNotificationOpen(false);
+                      onOpenUrgentRenewals();
+                    }}
+                  >
+                    <strong className="block text-sm font-extrabold text-risk">{renewal.vendorName}</strong>
+                    <span className="mt-1 block text-xs font-bold text-risk">Renews {formatShortDate(renewal.renewalDate)} · {currency(renewal.contractValue)}</span>
+                    <span className="mt-2 inline-flex text-xs font-extrabold text-risk">Review now</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         <button className="flex shrink-0 items-center gap-2 rounded-lg border border-line/70 bg-panel/78 p-1.5 pr-3 transition hover:-translate-y-0.5 hover:border-brand/60 hover:bg-panel-muted" type="button" onClick={() => onNavigate("settings")}>
           <span className="grid size-8 overflow-hidden rounded-md bg-brand-soft text-xs font-extrabold text-brand-strong">
-            {userAvatarUrl ? <img className="size-full object-cover" src={resolveApiAssetUrl(userAvatarUrl)} alt="" /> : <span className="grid size-full place-items-center">{initialsLabel}</span>}
+            {resolvedUserAvatarUrl ? <img className="size-full object-cover" src={resolvedUserAvatarUrl} alt="" /> : <span className="grid size-full place-items-center">{initialsLabel}</span>}
           </span>
           <span className="hidden text-sm font-extrabold sm:block">{companyName}</span>
         </button>
@@ -1233,10 +1336,12 @@ function OverviewPage({
   teamMemberCount,
   totals,
   unusedSeats,
+  urgentRenewals,
   wasteSignals,
   onboarding,
   onDismissOnboarding,
   onNavigate,
+  onOpenUrgentRenewals,
   onToast,
 }: {
   apiVendors: ApiVendor[];
@@ -1249,14 +1354,17 @@ function OverviewPage({
   teamMemberCount: number;
   totals: DashboardTotals;
   unusedSeats: UnusedSeatRow[];
+  urgentRenewals: ApiUrgentRenewalNotification[];
   wasteSignals: WasteSignal[];
   onboarding: ApiOnboardingState | null;
   onDismissOnboarding: () => Promise<void>;
   onNavigate: (page: PageId) => void;
+  onOpenUrgentRenewals: () => void;
   onToast: (message: string) => void;
 }) {
   return (
     <div className="grid min-w-0 gap-5 overflow-hidden">
+      {urgentRenewals.length > 0 && <UrgentRenewalBanner renewals={urgentRenewals} onReview={onOpenUrgentRenewals} />}
       <HeroBand totals={totals} wasteSignals={wasteSignals} onNavigate={onNavigate} />
       <SummaryGrid totals={totals} />
       <OnboardingChecklist apiVendors={apiVendors} company={company} onboarding={onboarding} reports={reports} savingsEntries={savingsEntries} teamMemberCount={teamMemberCount} totals={totals} wasteSignals={wasteSignals} onDismiss={onDismissOnboarding} onNavigate={onNavigate} onToast={onToast} />
@@ -2388,7 +2496,10 @@ function RenewalsPage({
   isLoadingDemo,
   renewalChartData,
   renewalRows,
+  showUrgentOnly,
+  onClearUrgentFilter,
   onLoadDemoData,
+  onMarkReviewed,
   onNavigate,
   onToast,
 }: {
@@ -2396,17 +2507,21 @@ function RenewalsPage({
   isLoadingDemo: boolean;
   renewalChartData: typeof renewalChart;
   renewalRows: RenewalRow[];
+  showUrgentOnly: boolean;
+  onClearUrgentFilter: () => void;
   onLoadDemoData: () => Promise<void>;
+  onMarkReviewed: (renewalId: string) => Promise<void>;
   onNavigate: (page: PageId) => void;
   onToast: (message: string) => void;
 }) {
-  const [selectedRenewal, setSelectedRenewal] = useState<RenewalRow | null>(renewalRows[0] ?? null);
+  const visibleRenewalRows = showUrgentOnly ? renewalRows.filter((renewal) => isRenewalWithinDays(renewal.renewalDate, 7) && renewal.status !== "reviewed") : renewalRows;
+  const [selectedRenewal, setSelectedRenewal] = useState<RenewalRow | null>(visibleRenewalRows[0] ?? null);
 
   useEffect(() => {
-    if (!selectedRenewal && renewalRows[0]) {
-      setSelectedRenewal(renewalRows[0]);
+    if (!selectedRenewal && visibleRenewalRows[0]) {
+      setSelectedRenewal(visibleRenewalRows[0]);
     }
-  }, [renewalRows, selectedRenewal]);
+  }, [visibleRenewalRows, selectedRenewal]);
 
   return (
     <div className="grid gap-4">
@@ -2416,6 +2531,14 @@ function RenewalsPage({
         detail="Prioritize notice windows, contract owners, benchmark gaps, and savings opportunities before vendors auto-renew."
         action={<PrimaryButton onClick={() => exportRenewalCalendar(renewalRows, onToast)}>Export calendar</PrimaryButton>}
       />
+      {showUrgentOnly && (
+        <div className="flex flex-col gap-3 rounded-lg border border-risk/20 bg-risk-soft p-4 text-risk sm:flex-row sm:items-center sm:justify-between">
+          <strong className="text-sm font-extrabold">Showing only renewals due in the next 7 days.</strong>
+          <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-risk/20 bg-panel px-4 text-sm font-extrabold text-risk" type="button" onClick={onClearUrgentFilter}>
+            Show all renewals
+          </button>
+        </div>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
         <Panel title="Renewal exposure" eyebrow="Next 90 days">
@@ -2434,14 +2557,14 @@ function RenewalsPage({
 
         <Panel title="Notice windows" eyebrow="Action required">
           <div className="grid gap-3">
-            {renewalRows.length === 0 && (
+            {visibleRenewalRows.length === 0 && (
               <EmptyState
                 title={hasVendors ? "No upcoming renewals" : "No renewal data yet"}
                 detail={hasVendors ? "Renewals appear here when vendors include renewal dates. Add dates to build an owner review queue before notice windows close." : "Load sample data or import a CSV with renewal dates to see contract exposure and calendar export."}
                 action={<EmptySetupActions isLoadingDemo={isLoadingDemo} onLoadDemoData={onLoadDemoData} onNavigate={onNavigate} />}
               />
             )}
-            {renewalRows.map((renewal) => (
+            {visibleRenewalRows.map((renewal) => (
               <article className="rounded-lg border border-line bg-panel-subtle p-4" key={renewal.id}>
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -2476,6 +2599,13 @@ function RenewalsPage({
           <p className="mt-4 rounded-lg border border-line bg-panel-subtle p-4 text-sm leading-6 text-quiet">
             Confirm usage, owner need, and cancellation notice window before approving renewal. Use the AI email generator if cancellation or renegotiation is the recommended path.
           </p>
+          {selectedRenewal.status !== "reviewed" ? (
+            <div className="mt-4">
+              <PrimaryButton onClick={() => onMarkReviewed(selectedRenewal.id)}>Mark as reviewed</PrimaryButton>
+            </div>
+          ) : (
+            <p className="mt-4 rounded-lg border border-good/20 bg-good-soft p-4 text-sm font-extrabold text-good">Reviewed {formatShortDate(selectedRenewal.reviewedAt)}.</p>
+          )}
         </Panel>
       )}
     </div>
@@ -2647,6 +2777,7 @@ function ReportsPage({
 }
 
 function EmailGeneratorPage({
+  apiVendors,
   draft,
   emailTone,
   initialVendorName,
@@ -2657,8 +2788,10 @@ function EmailGeneratorPage({
   onGenerate,
   onLoadDemoData,
   onNavigate,
+  onSaveCorrections,
   onToneChange,
 }: {
+  apiVendors: ApiVendor[];
   draft: string;
   emailTone: string;
   initialVendorName: string;
@@ -2666,16 +2799,29 @@ function EmailGeneratorPage({
   vendors: Vendor[];
   onCopyDraft: () => void;
   onDraftChange: (draft: string) => void;
-  onGenerate: (vendorName: string, tone: string, goal: AiEmailGoal) => Promise<void>;
+  onGenerate: (vendorName: string, tone: string, goal: AiEmailGoal, verifiedData: AiEmailVerifiedOverrides) => Promise<void>;
   onLoadDemoData: () => Promise<void>;
   onNavigate: (page: PageId) => void;
+  onSaveCorrections: (vendorId: string, input: Partial<CreateVendorInput>) => Promise<void>;
   onToneChange: (tone: string) => void;
 }) {
   const [selectedVendor, setSelectedVendor] = useState(initialVendorName || vendors[0]?.name || "Clearbit");
   const [selectedGoal, setSelectedGoal] = useState<AiEmailGoal>("cancel");
   const [isGenerating, setGenerating] = useState(false);
+  const [isSavingCorrections, setSavingCorrections] = useState(false);
   const [error, setError] = useState("");
+  const [editingField, setEditingField] = useState("");
+  const [hasGeneratedDraft, setHasGeneratedDraft] = useState(false);
+  const [copyChecklist, setCopyChecklist] = useState({
+    spend: false,
+    seats: false,
+    renewal: false,
+  });
   const selectedVendorRecord = vendors.find((vendor) => vendor.name === selectedVendor);
+  const selectedApiVendor = apiVendors.find((vendor) => vendor.name === selectedVendor);
+  const [verification, setVerification] = useState(() => buildEmailVerificationForm(selectedApiVendor, selectedVendor));
+  const allCopyChecksComplete = copyChecklist.spend && copyChecklist.seats && copyChecklist.renewal;
+  const hasCorrections = selectedApiVendor ? hasEmailVerificationChanges(selectedApiVendor, verification) : false;
 
   useEffect(() => {
     if (initialVendorName) {
@@ -2685,16 +2831,56 @@ function EmailGeneratorPage({
     }
   }, [initialVendorName, selectedVendor, vendors]);
 
+  useEffect(() => {
+    setVerification(buildEmailVerificationForm(selectedApiVendor, selectedVendor));
+    setEditingField("");
+    setHasGeneratedDraft(false);
+    setCopyChecklist({ spend: false, seats: false, renewal: false });
+  }, [selectedApiVendor?._id, selectedApiVendor?.updatedAt, selectedVendor, selectedGoal]);
+
   async function handleGenerate() {
     setGenerating(true);
     setError("");
 
     try {
-      await onGenerate(selectedVendor || vendors[0]?.name || "Vendor", emailTone, selectedGoal);
+      await onGenerate(selectedVendor || vendors[0]?.name || "Vendor", emailTone, selectedGoal, {
+        vendorName: verification.vendorName || selectedVendor || vendors[0]?.name || "Vendor",
+        monthlySpend: Number(verification.monthlySpend || 0),
+        seatsPurchased: Number(verification.seatsPurchased || 0),
+        activeSeats: Number(verification.activeSeats || 0),
+        lastUsedAt: verification.lastUsedAt || undefined,
+        renewalDate: verification.renewalDate || undefined,
+        emailGoal: selectedGoal,
+        verifiedAt: new Date().toISOString(),
+      });
+      setHasGeneratedDraft(true);
+      setCopyChecklist({ spend: false, seats: false, renewal: false });
     } catch (err) {
       setError(getAiUnavailableMessage(err));
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function handleSaveCorrections() {
+    if (!selectedApiVendor || !hasCorrections) return;
+
+    setSavingCorrections(true);
+    setError("");
+
+    try {
+      await onSaveCorrections(selectedApiVendor._id, {
+        name: verification.vendorName || selectedApiVendor.name,
+        monthlySpend: Number(verification.monthlySpend || 0),
+        seatsPurchased: Number(verification.seatsPurchased || 0),
+        activeSeats: Number(verification.activeSeats || 0),
+        lastUsedAt: verification.lastUsedAt || undefined,
+        renewalDate: verification.renewalDate || undefined,
+      });
+    } catch (err) {
+      setError(getApiErrorMessage(err));
+    } finally {
+      setSavingCorrections(false);
     }
   }
 
@@ -2757,6 +2943,20 @@ function EmailGeneratorPage({
                 ))}
               </div>
             </Field>
+            <EmailVerificationCard
+              editingField={editingField}
+              form={verification}
+              goal={selectedGoal}
+              hasCorrections={hasCorrections}
+              isGenerating={isGenerating}
+              isSavingCorrections={isSavingCorrections}
+              vendor={selectedApiVendor}
+              onEditField={setEditingField}
+              onGenerate={handleGenerate}
+              onNavigateToVendor={() => onNavigate("vendors")}
+              onSaveCorrections={handleSaveCorrections}
+              onUpdate={(update) => setVerification((current) => ({ ...current, ...update }))}
+            />
             <div className="rounded-lg border border-brand/30 bg-brand-soft p-4">
               <div className="flex items-center gap-2 text-brand-strong">
                 <Sparkles aria-hidden="true" size={18} />
@@ -2774,7 +2974,41 @@ function EmailGeneratorPage({
           </div>
         </Panel>
 
-        <Panel title="Vendor email draft" eyebrow="Editable output" action={<PanelAction label="Copy" onClick={onCopyDraft} />}>
+        <Panel
+          title="Vendor email draft"
+          eyebrow="Editable output"
+          action={
+            <button
+              className="inline-flex min-h-9 items-center justify-center rounded-lg border border-line/60 bg-panel-subtle/72 px-3 text-sm font-extrabold text-ink shadow-sm transition hover:-translate-y-0.5 hover:border-brand/60 hover:bg-panel-muted hover:text-brand hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+              type="button"
+              disabled={hasGeneratedDraft && !allCopyChecksComplete}
+              onClick={onCopyDraft}
+            >
+              Copy draft
+            </button>
+          }
+        >
+          {hasGeneratedDraft && (
+            <div className="mb-4 grid gap-3 rounded-lg border border-warning/25 bg-warning-soft p-4 text-warning">
+              <p className="text-sm font-bold leading-6">
+                Review before sending: Verify the spend amounts and dates in this draft match your records. AutoAudit generates drafts based on the data you provided. Always confirm with your accounting system before sending.
+              </p>
+              <div className="grid gap-2 text-sm font-bold text-ink">
+                <label className="flex items-start gap-2">
+                  <input className="mt-1" type="checkbox" checked={copyChecklist.spend} onChange={(event) => setCopyChecklist((current) => ({ ...current, spend: event.target.checked }))} />
+                  I verified the monthly spend amount ({currency(Number(verification.monthlySpend || 0))}/month)
+                </label>
+                <label className="flex items-start gap-2">
+                  <input className="mt-1" type="checkbox" checked={copyChecklist.seats} onChange={(event) => setCopyChecklist((current) => ({ ...current, seats: event.target.checked }))} />
+                  I verified the seat count ({Number(verification.seatsPurchased || 0)} purchased, {Number(verification.activeSeats || 0)} active)
+                </label>
+                <label className="flex items-start gap-2">
+                  <input className="mt-1" type="checkbox" checked={copyChecklist.renewal} onChange={(event) => setCopyChecklist((current) => ({ ...current, renewal: event.target.checked }))} />
+                  I verified the renewal date ({formatLongDate(verification.renewalDate)})
+                </label>
+              </div>
+            </div>
+          )}
           <textarea
             className="min-h-[420px] w-full resize-y rounded-lg border border-line bg-panel-subtle p-4 leading-7 text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand-soft"
             value={draft}
@@ -2783,6 +3017,210 @@ function EmailGeneratorPage({
           />
         </Panel>
       </div>}
+    </div>
+  );
+}
+
+type EmailVerificationForm = {
+  vendorName: string;
+  monthlySpend: string;
+  seatsPurchased: string;
+  activeSeats: string;
+  lastUsedAt: string;
+  renewalDate: string;
+};
+
+function EmailVerificationCard({
+  editingField,
+  form,
+  goal,
+  hasCorrections,
+  isGenerating,
+  isSavingCorrections,
+  vendor,
+  onEditField,
+  onGenerate,
+  onNavigateToVendor,
+  onSaveCorrections,
+  onUpdate,
+}: {
+  editingField: string;
+  form: EmailVerificationForm;
+  goal: AiEmailGoal;
+  hasCorrections: boolean;
+  isGenerating: boolean;
+  isSavingCorrections: boolean;
+  vendor?: ApiVendor;
+  onEditField: (field: string) => void;
+  onGenerate: () => void;
+  onNavigateToVendor: () => void;
+  onSaveCorrections: () => void;
+  onUpdate: (update: Partial<EmailVerificationForm>) => void;
+}) {
+  const daysSinceUpdate = vendor?.updatedAt ? daysSinceIso(vendor.updatedAt) : null;
+  const isStale = daysSinceUpdate !== null && daysSinceUpdate > 60;
+  const verifiedLabel = daysSinceUpdate === null ? "Last verified unknown" : `Last verified ${daysSinceUpdate} days ago`;
+
+  return (
+    <div className="rounded-lg border border-line bg-panel-subtle p-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-bold text-brand-strong">Verify before AI draft</p>
+          <h3 className="mt-1 text-base font-extrabold">Confirm the data AutoAudit will use</h3>
+          <p className="mt-1 text-sm leading-6 text-quiet">Edits here are sent only to this AI draft unless you explicitly save them to the vendor record.</p>
+        </div>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-extrabold ${isStale ? "bg-warning-soft text-warning" : "bg-good-soft text-good"}`}>
+          {verifiedLabel}
+        </span>
+      </div>
+
+      {isStale && (
+        <div className="mt-3 rounded-lg border border-warning/25 bg-warning-soft px-3 py-2 text-sm font-bold leading-6 text-warning">
+          This data hasn't been updated in {daysSinceUpdate} days. Verify before sending.
+        </div>
+      )}
+
+      <div className="mt-4 grid gap-3">
+        <VerifiedDataField
+          currentValue={vendor?.name ?? "Not set"}
+          displayValue={form.vendorName || "Not set"}
+          editing={editingField === "vendorName"}
+          label="Vendor name"
+          updatedAt={vendor?.updatedAt}
+          value={form.vendorName}
+          onChange={(value) => onUpdate({ vendorName: value })}
+          onEdit={() => onEditField(editingField === "vendorName" ? "" : "vendorName")}
+        />
+        <VerifiedDataField
+          currentValue={currency(Number(vendor?.monthlySpend ?? 0))}
+          displayValue={`${currency(Number(form.monthlySpend || 0))}/month`}
+          editing={editingField === "monthlySpend"}
+          inputMode="decimal"
+          label="Monthly spend"
+          type="number"
+          updatedAt={vendor?.updatedAt}
+          value={form.monthlySpend}
+          onChange={(value) => onUpdate({ monthlySpend: value })}
+          onEdit={() => onEditField(editingField === "monthlySpend" ? "" : "monthlySpend")}
+        />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <VerifiedDataField
+            currentValue={String(vendor?.seatsPurchased ?? 0)}
+            displayValue={`${Number(form.seatsPurchased || 0)} purchased`}
+            editing={editingField === "seatsPurchased"}
+            inputMode="numeric"
+            label="Seats purchased"
+            type="number"
+            updatedAt={vendor?.updatedAt}
+            value={form.seatsPurchased}
+            onChange={(value) => onUpdate({ seatsPurchased: value })}
+            onEdit={() => onEditField(editingField === "seatsPurchased" ? "" : "seatsPurchased")}
+          />
+          <VerifiedDataField
+            currentValue={String(vendor?.activeSeats ?? 0)}
+            displayValue={`${Number(form.activeSeats || 0)} active`}
+            editing={editingField === "activeSeats"}
+            inputMode="numeric"
+            label="Active seats"
+            type="number"
+            updatedAt={vendor?.updatedAt}
+            value={form.activeSeats}
+            onChange={(value) => onUpdate({ activeSeats: value })}
+            onEdit={() => onEditField(editingField === "activeSeats" ? "" : "activeSeats")}
+          />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <VerifiedDataField
+            currentValue={formatLongDate(vendor?.lastUsedAt)}
+            displayValue={formatLongDate(form.lastUsedAt)}
+            editing={editingField === "lastUsedAt"}
+            label="Last used date"
+            type="date"
+            updatedAt={vendor?.updatedAt}
+            value={form.lastUsedAt}
+            onChange={(value) => onUpdate({ lastUsedAt: value })}
+            onEdit={() => onEditField(editingField === "lastUsedAt" ? "" : "lastUsedAt")}
+          />
+          <VerifiedDataField
+            currentValue={formatLongDate(vendor?.renewalDate)}
+            displayValue={formatLongDate(form.renewalDate)}
+            editing={editingField === "renewalDate"}
+            label="Renewal date"
+            type="date"
+            updatedAt={vendor?.updatedAt}
+            value={form.renewalDate}
+            onChange={(value) => onUpdate({ renewalDate: value })}
+            onEdit={() => onEditField(editingField === "renewalDate" ? "" : "renewalDate")}
+          />
+        </div>
+        <div className="rounded-lg border border-line bg-panel px-3 py-2">
+          <span className="text-xs font-bold uppercase text-quiet">Email goal</span>
+          <strong className="mt-1 block text-sm font-extrabold">{emailGoalOptions.find((item) => item.value === goal)?.label ?? "Cancel subscription"}</strong>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+        <PrimaryButton onClick={onGenerate}>
+          {isGenerating ? "Generating..." : "This data looks correct - generate my draft"}
+        </PrimaryButton>
+        <SecondaryButton onClick={onNavigateToVendor}>Update vendor record first</SecondaryButton>
+        {vendor && hasCorrections && (
+          <SecondaryButton onClick={onSaveCorrections}>
+            {isSavingCorrections ? "Saving..." : "Save these corrections"}
+          </SecondaryButton>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function VerifiedDataField({
+  currentValue,
+  displayValue,
+  editing,
+  inputMode,
+  label,
+  type = "text",
+  updatedAt,
+  value,
+  onChange,
+  onEdit,
+}: {
+  currentValue: string;
+  displayValue: string;
+  editing: boolean;
+  inputMode?: "decimal" | "numeric";
+  label: string;
+  type?: string;
+  updatedAt?: string;
+  value: string;
+  onChange: (value: string) => void;
+  onEdit: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-line bg-panel px-3 py-2">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <span className="text-xs font-bold uppercase text-quiet">{label}</span>
+          <p className="mt-1 text-[11px] font-bold text-quiet">Database: {currentValue}</p>
+        </div>
+        <IconButton label={`Edit ${label}`} onClick={onEdit}>
+          <Edit3 aria-hidden="true" size={15} />
+        </IconButton>
+      </div>
+      {editing ? (
+        <input
+          className="mt-2 min-h-10 w-full rounded-lg border border-line bg-panel-subtle px-3 text-sm font-bold text-ink outline-none focus:border-brand"
+          inputMode={inputMode}
+          min={type === "number" ? "0" : undefined}
+          type={type}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      ) : (
+        <strong className="mt-2 block truncate text-sm font-extrabold">{displayValue}</strong>
+      )}
+      <span className="mt-2 block text-[11px] font-bold text-quiet">{updatedAt ? `Last verified ${daysSinceIso(updatedAt)} days ago` : "Last verified unknown"}</span>
     </div>
   );
 }
@@ -3025,41 +3463,13 @@ function EmailVerificationBanner({ email, onResend }: { email: string; onResend:
   );
 }
 
-const avatarStyleOptions: Array<{ value: AvatarStyle; label: string; detail: string }> = [
-  { value: "professional_executive", label: "Professional Executive", detail: "Board-ready portrait with refined corporate lighting." },
-  { value: "minimal_3d", label: "Minimal 3D", detail: "Dimensional but restrained, built for small UI surfaces." },
-  { value: "modern_gradient_portrait", label: "Modern Gradient Portrait", detail: "Realistic portrait with subtle fintech color depth." },
-  { value: "abstract_corporate", label: "Abstract Corporate", detail: "Clean executive silhouette with a polished abstract finish." },
-  { value: "founder_style", label: "Founder Style", detail: "Approachable operator profile with smart casual presence." },
-  { value: "cyber_minimal", label: "Cyber Minimal", detail: "Technical, minimal, and understated without security theatrics." },
-  { value: "clean_illustrated", label: "Clean Illustrated", detail: "Mature editorial illustration for crisp dashboard use." },
-  { value: "finance_ops", label: "Finance & Ops", detail: "Composed finance-operations leader in premium SaaS tones." },
-];
-
 function ProfileAvatarPanel({ company, user, onToast, onUserUpdate }: { company: ApiCompany; user: ApiUser; onToast: (message: string) => void; onUserUpdate: (user: ApiUser) => void }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [avatarAccess, setAvatarAccess] = useState<AvatarAccess | null>(null);
-  const [isMenuOpen, setMenuOpen] = useState(false);
   const [isUploading, setUploading] = useState(false);
-  const [isAvatarModalOpen, setAvatarModalOpen] = useState(false);
-  const [isUpgradeModalOpen, setUpgradeModalOpen] = useState(false);
-  const avatarUrl = resolveApiAssetUrl(user.avatarUrl);
-
-  useEffect(() => {
-    let isMounted = true;
-    profileApi
-      .avatarAccess()
-      .then((access) => {
-        if (isMounted) setAvatarAccess(access);
-      })
-      .catch(() => {
-        if (isMounted) setAvatarAccess(null);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [user.avatarGenerationUsage?.count, company.plan]);
+  const uploadedAvatarUrl = user.avatarUrl ? resolveApiAssetUrl(user.avatarUrl) : "";
+  const gravatarUrl = getGravatarUrl(user.email);
+  const avatarUrl = uploadedAvatarUrl || gravatarUrl;
+  const isUsingGravatar = !uploadedAvatarUrl;
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -3071,8 +3481,8 @@ function ProfileAvatarPanel({ company, user, onToast, onUserUpdate }: { company:
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      onToast("Avatar image must be 5MB or smaller.");
+    if (file.size > 2 * 1024 * 1024) {
+      onToast("Avatar image must be 2MB or smaller.");
       return;
     }
 
@@ -3090,7 +3500,6 @@ function ProfileAvatarPanel({ company, user, onToast, onUserUpdate }: { company:
   }
 
   async function handleRemoveAvatar() {
-    setMenuOpen(false);
     setUploading(true);
     try {
       const nextUser = await profileApi.removeAvatar();
@@ -3103,15 +3512,6 @@ function ProfileAvatarPanel({ company, user, onToast, onUserUpdate }: { company:
     }
   }
 
-  function openGenerationFlow() {
-    setMenuOpen(false);
-    if (!avatarAccess || avatarAccess.limit === 0 || !avatarAccess.canGenerate) {
-      setUpgradeModalOpen(true);
-      return;
-    }
-    setAvatarModalOpen(true);
-  }
-
   return (
     <Panel title="Profile" eyebrow="Account identity">
       <div className="mb-5 flex items-center gap-3 rounded-lg border border-line/55 bg-panel-subtle/60 p-3">
@@ -3120,7 +3520,7 @@ function ProfileAvatarPanel({ company, user, onToast, onUserUpdate }: { company:
         </span>
         <div>
           <strong className="block text-sm font-extrabold">Profile identity</strong>
-          <span className="mt-0.5 block text-xs font-bold text-quiet">Personal avatar, account image, and AI profile generation.</span>
+          <span className="mt-0.5 block text-xs font-bold text-quiet">Profile photo with upload and Gravatar fallback.</span>
         </div>
       </div>
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.7fr)] lg:items-center">
@@ -3133,30 +3533,6 @@ function ProfileAvatarPanel({ company, user, onToast, onUserUpdate }: { company:
                 <span className="grid size-full place-items-center text-3xl font-extrabold text-brand-strong">{initials(user.name)}</span>
               )}
             </div>
-            <button
-              className="absolute bottom-1 right-1 grid size-9 place-items-center rounded-full border border-line/70 bg-panel/95 text-quiet shadow-xl transition hover:-translate-y-0.5 hover:border-brand hover:text-brand"
-              type="button"
-              aria-label="Edit profile image"
-              onClick={() => setMenuOpen((current) => !current)}
-            >
-              <Camera aria-hidden="true" size={16} />
-            </button>
-            {isMenuOpen && (
-              <div className="absolute left-0 top-[calc(100%+10px)] z-40 w-56 rounded-xl border border-line/70 bg-panel/95 p-2 shadow-2xl backdrop-blur-xl">
-                <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-bold text-ink transition hover:bg-panel-muted" type="button" onClick={() => fileInputRef.current?.click()}>
-                  <ImageIcon aria-hidden="true" size={16} />
-                  Upload image
-                </button>
-                <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-bold text-ink transition hover:bg-panel-muted" type="button" onClick={openGenerationFlow}>
-                  <Sparkles aria-hidden="true" size={16} />
-                  Generate AI avatar
-                </button>
-                <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-bold text-risk transition hover:bg-risk-soft" type="button" onClick={handleRemoveAvatar}>
-                  <Trash2 aria-hidden="true" size={16} />
-                  Remove image
-                </button>
-              </div>
-            )}
             <input className="hidden" ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleUpload} />
           </div>
 
@@ -3165,205 +3541,40 @@ function ProfileAvatarPanel({ company, user, onToast, onUserUpdate }: { company:
             <p className="mt-1 text-sm text-quiet">{user.email}</p>
             <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
               <span className="rounded-full bg-brand-soft px-2.5 py-1 text-brand-strong">{formatPlanLabel(company.plan)}</span>
-              <span className="rounded-full bg-panel-subtle px-2.5 py-1 text-quiet">{user.avatarSource === "ai" ? "AI avatar" : user.avatarSource === "upload" ? "Uploaded image" : "Initials avatar"}</span>
+              <span className="rounded-full bg-panel-subtle px-2.5 py-1 text-quiet">{isUsingGravatar ? "Using Gravatar" : "Uploaded photo"}</span>
             </div>
+            {isUsingGravatar && (
+              <p className="mt-3 text-xs font-bold leading-5 text-quiet">
+                Using Gravatar from your email hash. Manage it at{" "}
+                <a className="text-brand-strong underline-offset-4 hover:underline" href="https://gravatar.com" target="_blank" rel="noreferrer">
+                  gravatar.com
+                </a>.
+              </p>
+            )}
           </div>
         </div>
 
         <div className="rounded-lg border border-line/55 bg-panel-subtle/72 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs font-bold text-quiet">AI avatar generations</span>
-            <span className="rounded-full bg-inverse px-2.5 py-1 text-xs font-extrabold text-inverse-ink">{avatarAccess ? formatGenerationLimit(avatarAccess) : "Loading"}</span>
+          <div className="flex items-center gap-2 text-brand-strong">
+            <Camera aria-hidden="true" size={18} />
+            <strong className="text-sm">Profile photo</strong>
           </div>
           <p className="mt-3 text-sm leading-6 text-quiet">
-            Create a professional dashboard-ready avatar with OpenAI image generation. Available on paid plans only.
+            Upload a JPEG, PNG, or WebP image up to 2MB. AutoAudit resizes it to a clean 200x200 profile image. Removing your photo falls back to Gravatar.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <SecondaryButton onClick={() => fileInputRef.current?.click()}>{isUploading ? "Uploading..." : "Upload"}</SecondaryButton>
-            <PrimaryButton onClick={openGenerationFlow}>Generate AI avatar</PrimaryButton>
+            <PrimaryButton onClick={() => fileInputRef.current?.click()}>
+              <ImageIcon aria-hidden="true" size={16} />
+              {isUploading ? "Uploading..." : "Upload photo"}
+            </PrimaryButton>
+            <SecondaryButton onClick={handleRemoveAvatar}>
+              <Trash2 aria-hidden="true" size={16} />
+              Remove photo
+            </SecondaryButton>
           </div>
         </div>
       </div>
-
-      {isAvatarModalOpen && avatarAccess && (
-        <AiAvatarModal
-          access={avatarAccess}
-          user={user}
-          onClose={() => setAvatarModalOpen(false)}
-          onToast={onToast}
-          onUserUpdate={onUserUpdate}
-          onAccessChange={setAvatarAccess}
-        />
-      )}
-      {isUpgradeModalOpen && <AvatarUpgradeModal company={company} onClose={() => setUpgradeModalOpen(false)} />}
     </Panel>
-  );
-}
-
-function AiAvatarModal({
-  access,
-  user,
-  onAccessChange,
-  onClose,
-  onToast,
-  onUserUpdate,
-}: {
-  access: AvatarAccess;
-  user: ApiUser;
-  onAccessChange: (access: AvatarAccess) => void;
-  onClose: () => void;
-  onToast: (message: string) => void;
-  onUserUpdate: (user: ApiUser) => void;
-}) {
-  const [selectedStyle, setSelectedStyle] = useState<AvatarStyle>("professional_executive");
-  const [generatedUrl, setGeneratedUrl] = useState("");
-  const [isGenerating, setGenerating] = useState(false);
-  const [isSaving, setSaving] = useState(false);
-
-  async function generate() {
-    setGenerating(true);
-    try {
-      const result = await profileApi.generateAvatar(selectedStyle);
-      setGeneratedUrl(result.generatedUrl);
-      onAccessChange(result.avatar);
-    } catch (error) {
-      onToast(getApiErrorMessage(error));
-    } finally {
-      setGenerating(false);
-    }
-  }
-
-  async function save() {
-    if (!generatedUrl) return;
-    setSaving(true);
-    try {
-      const nextUser = await profileApi.saveGeneratedAvatar(generatedUrl);
-      onUserUpdate(nextUser);
-      onToast("AI avatar saved.");
-      onClose();
-    } catch (error) {
-      onToast(getApiErrorMessage(error));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <ModalFrame title="Generate AI avatar" eyebrow="Premium personalization" onClose={onClose}>
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
-        <div className="grid gap-4">
-          <div className="rounded-lg border border-line/55 bg-panel-subtle/72 p-4">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-extrabold">Choose a professional style</span>
-              <span className="rounded-full bg-brand-soft px-2.5 py-1 text-xs font-extrabold text-brand-strong">{formatGenerationLimit(access)} left</span>
-            </div>
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
-              {avatarStyleOptions.map((style) => (
-                <button
-                  className={`rounded-lg border p-3 text-left transition hover:-translate-y-0.5 ${selectedStyle === style.value ? "border-brand bg-brand-soft shadow-[0_14px_34px_rgb(var(--color-brand)/0.16)]" : "border-line/55 bg-panel/70 hover:border-brand/50"}`}
-                  type="button"
-                  key={style.value}
-                  onClick={() => setSelectedStyle(style.value)}
-                >
-                  <strong className="block text-sm font-extrabold">{style.label}</strong>
-                  <span className="mt-1 block text-xs leading-5 text-quiet">{style.detail}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-line/55 bg-panel-subtle/72 p-4">
-            <span className="text-sm font-extrabold">Preview direction</span>
-            <div className="mt-4 grid grid-cols-4 gap-2">
-              {avatarStyleOptions.slice(0, 4).map((style) => (
-                <div className={`aspect-square rounded-lg border ${selectedStyle === style.value ? "border-brand bg-brand-soft" : "border-line/55 bg-panel-muted/60"}`} key={style.value}>
-                  <div className="grid size-full place-items-center text-brand-strong">
-                    <ImageIcon aria-hidden="true" size={22} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-line/55 bg-inverse p-4 text-inverse-ink shadow-2xl">
-          <div className="aspect-square overflow-hidden rounded-xl border border-inverse-ink/10 bg-inverse-ink/[0.06]">
-            {isGenerating ? (
-              <div className="grid size-full place-items-center p-5 text-center">
-                <span className="size-11 animate-spin rounded-full border-2 border-inverse-ink/20 border-t-brand" />
-                <span className="mt-4 block text-sm font-extrabold">Generating your avatar...</span>
-                <span className="mt-1 block text-xs leading-5 text-inverse-ink/60">OpenAI is creating a square dashboard-ready portrait.</span>
-              </div>
-            ) : generatedUrl ? (
-              <img className="size-full object-cover animate-[fadeIn_420ms_ease-out]" src={resolveApiAssetUrl(generatedUrl)} alt="Generated AI avatar preview" />
-            ) : (
-              <div className="grid size-full place-items-center p-5 text-center">
-                <span className="grid size-16 place-items-center rounded-full bg-brand-soft text-brand-strong">
-                  <Sparkles aria-hidden="true" size={28} />
-                </span>
-                <span className="mt-4 block text-sm font-extrabold">Ready to generate</span>
-                <span className="mt-1 block text-xs leading-5 text-inverse-ink/60">Square, clean, and optimized for the dashboard.</span>
-              </div>
-            )}
-          </div>
-          <div className="mt-4 grid gap-2">
-            <PrimaryButton onClick={generate}>{generatedUrl ? "Regenerate" : "Generate"}</PrimaryButton>
-            {generatedUrl && (
-              <>
-                <SecondaryButton onClick={save}>{isSaving ? "Saving..." : "Save avatar"}</SecondaryButton>
-                <a className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-inverse-ink/15 px-4 text-sm font-extrabold text-inverse-ink transition hover:-translate-y-0.5 hover:bg-inverse-ink/10" href={resolveApiAssetUrl(generatedUrl)} download>
-                  <Download aria-hidden="true" size={16} />
-                  Download
-                </a>
-              </>
-            )}
-            <button className="min-h-10 rounded-lg text-sm font-extrabold text-inverse-ink/70 transition hover:text-inverse-ink" type="button" onClick={onClose}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      </div>
-      <p className="mt-4 text-xs leading-5 text-quiet">Generated images are stored as avatar files and only the image URL is saved to your account record.</p>
-    </ModalFrame>
-  );
-}
-
-function AvatarUpgradeModal({ company, onClose }: { company: ApiCompany; onClose: () => void }) {
-  return (
-    <ModalFrame title="AI avatars are a paid personalization feature" eyebrow="Premium" onClose={onClose}>
-      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_260px]">
-        <div>
-          <div className="inline-flex items-center gap-2 rounded-full bg-brand-soft px-3 py-1.5 text-xs font-extrabold text-brand-strong">
-            <Crown aria-hidden="true" size={15} />
-            Premium profile system
-          </div>
-          <p className="mt-4 text-sm leading-6 text-quiet">
-            Uploading and removing profile images is included on every plan. AI avatar generation uses OpenAI image generation and is reserved for paid workspaces with monthly limits.
-          </p>
-          <div className="mt-5 grid gap-2">
-            <a className="inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-brand-strong hover:text-inverse-action-ink" href="/pricing">
-              View plans
-            </a>
-            <button className="min-h-10 rounded-lg border border-line/60 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-brand hover:text-brand" type="button" onClick={onClose}>
-              Keep current plan
-            </button>
-          </div>
-        </div>
-        <div className="grid gap-2">
-          {[
-            { plan: "Free", detail: "Upload, remove, initials avatar" },
-            { plan: "Starter", detail: "3 AI generations/month" },
-            { plan: "Pro", detail: "20 AI generations/month" },
-            { plan: "Enterprise", detail: "Custom generation limits" },
-          ].map((item) => (
-            <div className={`rounded-lg border p-3 ${formatPlanLabel(company.plan).startsWith(item.plan) ? "border-brand bg-brand-soft" : "border-line/55 bg-panel-subtle/72"}`} key={item.plan}>
-              <strong className="block text-sm font-extrabold">{item.plan}</strong>
-              <span className="mt-1 block text-xs leading-5 text-quiet">{item.detail}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </ModalFrame>
   );
 }
 
@@ -3386,11 +3597,6 @@ function ModalFrame({ children, eyebrow, title, onClose }: { children: ReactNode
   );
 }
 
-function formatGenerationLimit(access: AvatarAccess) {
-  if (access.limit === null) return "Unlimited";
-  return `${access.remaining} / ${access.limit}`;
-}
-
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -3398,6 +3604,114 @@ function readFileAsDataUrl(file: File) {
     reader.onerror = () => reject(new Error("Could not read image file"));
     reader.readAsDataURL(file);
   });
+}
+
+function getGravatarUrl(email?: string) {
+  const normalizedEmail = email?.trim().toLowerCase();
+  if (!normalizedEmail) return "";
+
+  return `https://www.gravatar.com/avatar/${md5(normalizedEmail)}?d=identicon`;
+}
+
+function md5(value: string) {
+  function rotateLeft(input: number, shift: number) {
+    return (input << shift) | (input >>> (32 - shift));
+  }
+
+  function addUnsigned(first: number, second: number) {
+    const firstHigh = first & 0x80000000;
+    const secondHigh = second & 0x80000000;
+    const firstLow = first & 0x40000000;
+    const secondLow = second & 0x40000000;
+    const result = (first & 0x3fffffff) + (second & 0x3fffffff);
+
+    if (firstLow & secondLow) return result ^ 0x80000000 ^ firstHigh ^ secondHigh;
+    if (firstLow | secondLow) return result & 0x40000000 ? result ^ 0xc0000000 ^ firstHigh ^ secondHigh : result ^ 0x40000000 ^ firstHigh ^ secondHigh;
+    return result ^ firstHigh ^ secondHigh;
+  }
+
+  function transformF(x: number, y: number, z: number) { return (x & y) | (~x & z); }
+  function transformG(x: number, y: number, z: number) { return (x & z) | (y & ~z); }
+  function transformH(x: number, y: number, z: number) { return x ^ y ^ z; }
+  function transformI(x: number, y: number, z: number) { return y ^ (x | ~z); }
+
+  function roundF(a: number, b: number, c: number, d: number, x: number, s: number, ac: number) {
+    return addUnsigned(rotateLeft(addUnsigned(addUnsigned(a, transformF(b, c, d)), addUnsigned(x, ac)), s), b);
+  }
+
+  function roundG(a: number, b: number, c: number, d: number, x: number, s: number, ac: number) {
+    return addUnsigned(rotateLeft(addUnsigned(addUnsigned(a, transformG(b, c, d)), addUnsigned(x, ac)), s), b);
+  }
+
+  function roundH(a: number, b: number, c: number, d: number, x: number, s: number, ac: number) {
+    return addUnsigned(rotateLeft(addUnsigned(addUnsigned(a, transformH(b, c, d)), addUnsigned(x, ac)), s), b);
+  }
+
+  function roundI(a: number, b: number, c: number, d: number, x: number, s: number, ac: number) {
+    return addUnsigned(rotateLeft(addUnsigned(addUnsigned(a, transformI(b, c, d)), addUnsigned(x, ac)), s), b);
+  }
+
+  function toWords(input: string) {
+    const wordArray: number[] = [];
+    const length = input.length;
+    const wordCount = (((length + 8) - ((length + 8) % 64)) / 64 + 1) * 16;
+    for (let index = 0; index < wordCount; index += 1) wordArray[index] = 0;
+    for (let index = 0; index < length; index += 1) {
+      wordArray[index >> 2] |= input.charCodeAt(index) << ((index % 4) * 8);
+    }
+    wordArray[length >> 2] |= 0x80 << ((length % 4) * 8);
+    wordArray[wordCount - 2] = length << 3;
+    wordArray[wordCount - 1] = length >>> 29;
+    return wordArray;
+  }
+
+  function toHex(input: number) {
+    let output = "";
+    for (let index = 0; index <= 3; index += 1) {
+      output += (`0${((input >>> (index * 8)) & 255).toString(16)}`).slice(-2);
+    }
+    return output;
+  }
+
+  const words = toWords(unescape(encodeURIComponent(value)));
+  let a = 0x67452301;
+  let b = 0xefcdab89;
+  let c = 0x98badcfe;
+  let d = 0x10325476;
+
+  for (let k = 0; k < words.length; k += 16) {
+    const aa = a;
+    const bb = b;
+    const cc = c;
+    const dd = d;
+
+    a = roundF(a, b, c, d, words[k + 0], 7, 0xd76aa478); d = roundF(d, a, b, c, words[k + 1], 12, 0xe8c7b756); c = roundF(c, d, a, b, words[k + 2], 17, 0x242070db); b = roundF(b, c, d, a, words[k + 3], 22, 0xc1bdceee);
+    a = roundF(a, b, c, d, words[k + 4], 7, 0xf57c0faf); d = roundF(d, a, b, c, words[k + 5], 12, 0x4787c62a); c = roundF(c, d, a, b, words[k + 6], 17, 0xa8304613); b = roundF(b, c, d, a, words[k + 7], 22, 0xfd469501);
+    a = roundF(a, b, c, d, words[k + 8], 7, 0x698098d8); d = roundF(d, a, b, c, words[k + 9], 12, 0x8b44f7af); c = roundF(c, d, a, b, words[k + 10], 17, 0xffff5bb1); b = roundF(b, c, d, a, words[k + 11], 22, 0x895cd7be);
+    a = roundF(a, b, c, d, words[k + 12], 7, 0x6b901122); d = roundF(d, a, b, c, words[k + 13], 12, 0xfd987193); c = roundF(c, d, a, b, words[k + 14], 17, 0xa679438e); b = roundF(b, c, d, a, words[k + 15], 22, 0x49b40821);
+
+    a = roundG(a, b, c, d, words[k + 1], 5, 0xf61e2562); d = roundG(d, a, b, c, words[k + 6], 9, 0xc040b340); c = roundG(c, d, a, b, words[k + 11], 14, 0x265e5a51); b = roundG(b, c, d, a, words[k + 0], 20, 0xe9b6c7aa);
+    a = roundG(a, b, c, d, words[k + 5], 5, 0xd62f105d); d = roundG(d, a, b, c, words[k + 10], 9, 0x02441453); c = roundG(c, d, a, b, words[k + 15], 14, 0xd8a1e681); b = roundG(b, c, d, a, words[k + 4], 20, 0xe7d3fbc8);
+    a = roundG(a, b, c, d, words[k + 9], 5, 0x21e1cde6); d = roundG(d, a, b, c, words[k + 14], 9, 0xc33707d6); c = roundG(c, d, a, b, words[k + 3], 14, 0xf4d50d87); b = roundG(b, c, d, a, words[k + 8], 20, 0x455a14ed);
+    a = roundG(a, b, c, d, words[k + 13], 5, 0xa9e3e905); d = roundG(d, a, b, c, words[k + 2], 9, 0xfcefa3f8); c = roundG(c, d, a, b, words[k + 7], 14, 0x676f02d9); b = roundG(b, c, d, a, words[k + 12], 20, 0x8d2a4c8a);
+
+    a = roundH(a, b, c, d, words[k + 5], 4, 0xfffa3942); d = roundH(d, a, b, c, words[k + 8], 11, 0x8771f681); c = roundH(c, d, a, b, words[k + 11], 16, 0x6d9d6122); b = roundH(b, c, d, a, words[k + 14], 23, 0xfde5380c);
+    a = roundH(a, b, c, d, words[k + 1], 4, 0xa4beea44); d = roundH(d, a, b, c, words[k + 4], 11, 0x4bdecfa9); c = roundH(c, d, a, b, words[k + 7], 16, 0xf6bb4b60); b = roundH(b, c, d, a, words[k + 10], 23, 0xbebfbc70);
+    a = roundH(a, b, c, d, words[k + 13], 4, 0x289b7ec6); d = roundH(d, a, b, c, words[k + 0], 11, 0xeaa127fa); c = roundH(c, d, a, b, words[k + 3], 16, 0xd4ef3085); b = roundH(b, c, d, a, words[k + 6], 23, 0x04881d05);
+    a = roundH(a, b, c, d, words[k + 9], 4, 0xd9d4d039); d = roundH(d, a, b, c, words[k + 12], 11, 0xe6db99e5); c = roundH(c, d, a, b, words[k + 15], 16, 0x1fa27cf8); b = roundH(b, c, d, a, words[k + 2], 23, 0xc4ac5665);
+
+    a = roundI(a, b, c, d, words[k + 0], 6, 0xf4292244); d = roundI(d, a, b, c, words[k + 7], 10, 0x432aff97); c = roundI(c, d, a, b, words[k + 14], 15, 0xab9423a7); b = roundI(b, c, d, a, words[k + 5], 21, 0xfc93a039);
+    a = roundI(a, b, c, d, words[k + 12], 6, 0x655b59c3); d = roundI(d, a, b, c, words[k + 3], 10, 0x8f0ccc92); c = roundI(c, d, a, b, words[k + 10], 15, 0xffeff47d); b = roundI(b, c, d, a, words[k + 1], 21, 0x85845dd1);
+    a = roundI(a, b, c, d, words[k + 8], 6, 0x6fa87e4f); d = roundI(d, a, b, c, words[k + 15], 10, 0xfe2ce6e0); c = roundI(c, d, a, b, words[k + 6], 15, 0xa3014314); b = roundI(b, c, d, a, words[k + 13], 21, 0x4e0811a1);
+    a = roundI(a, b, c, d, words[k + 4], 6, 0xf7537e82); d = roundI(d, a, b, c, words[k + 11], 10, 0xbd3af235); c = roundI(c, d, a, b, words[k + 2], 15, 0x2ad7d2bb); b = roundI(b, c, d, a, words[k + 9], 21, 0xeb86d391);
+
+    a = addUnsigned(a, aa);
+    b = addUnsigned(b, bb);
+    c = addUnsigned(c, cc);
+    d = addUnsigned(d, dd);
+  }
+
+  return `${toHex(a)}${toHex(b)}${toHex(c)}${toHex(d)}`.toLowerCase();
 }
 
 function TeamPage({ currentUser, onActivityRefresh, onToast }: { currentUser: ApiUser | null; onActivityRefresh: () => Promise<void>; onToast: (message: string) => void }) {
@@ -5741,9 +6055,12 @@ function buildRenewalRows({ renewals, auditSummary }: { renewals: ApiRenewal[]; 
     id: renewal._id,
     vendor: renewal.vendor?.name ?? "Vendor",
     date: formatShortDate(renewal.renewalDate),
+    renewalDate: renewal.renewalDate,
     owner: renewal.vendor?.ownerName ?? "Unassigned",
     amount: Number(renewal.contractValue ?? 0),
     risk: renewal.riskLevel,
+    status: renewal.status,
+    reviewedAt: renewal.reviewedAt,
   }));
 
   if (renewalRowsFromApi.length > 0) {
@@ -5754,10 +6071,20 @@ function buildRenewalRows({ renewals, auditSummary }: { renewals: ApiRenewal[]; 
     id: renewal.id,
     vendor: renewal.vendorName ?? "Vendor",
     date: formatShortDate(renewal.renewalDate),
+    renewalDate: renewal.renewalDate,
     owner: "Unassigned",
     amount: Number(renewal.contractValue ?? 0),
     risk: renewal.riskLevel,
+    status: "upcoming" as const,
   }));
+}
+
+function isRenewalWithinDays(value: string | undefined, days: number) {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const diffDays = Math.ceil((date.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+  return diffDays >= 0 && diffDays <= days;
 }
 
 function buildCategorySpend(vendors: ApiVendor[]) {
@@ -5864,6 +6191,44 @@ function formatShortDate(value?: string) {
   if (!value) return "No date";
 
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit" }).format(new Date(value));
+}
+
+function formatLongDate(value?: string) {
+  if (!value) return "No date";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "No date";
+
+  return new Intl.DateTimeFormat("en-US", { month: "long", day: "2-digit", year: "numeric" }).format(date);
+}
+
+function daysSinceIso(value?: string) {
+  if (!value) return 0;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 0;
+
+  return Math.max(0, Math.floor((Date.now() - date.getTime()) / (24 * 60 * 60 * 1000)));
+}
+
+function buildEmailVerificationForm(vendor: ApiVendor | undefined, fallbackVendorName: string): EmailVerificationForm {
+  return {
+    vendorName: vendor?.name ?? fallbackVendorName,
+    monthlySpend: String(vendor?.monthlySpend ?? 0),
+    seatsPurchased: String(vendor?.seatsPurchased ?? 0),
+    activeSeats: String(vendor?.activeSeats ?? 0),
+    lastUsedAt: vendor?.lastUsedAt ? vendor.lastUsedAt.slice(0, 10) : "",
+    renewalDate: vendor?.renewalDate ? vendor.renewalDate.slice(0, 10) : "",
+  };
+}
+
+function hasEmailVerificationChanges(vendor: ApiVendor, form: EmailVerificationForm) {
+  return (
+    (form.vendorName || "") !== (vendor.name || "") ||
+    Number(form.monthlySpend || 0) !== Number(vendor.monthlySpend ?? 0) ||
+    Number(form.seatsPurchased || 0) !== Number(vendor.seatsPurchased ?? 0) ||
+    Number(form.activeSeats || 0) !== Number(vendor.activeSeats ?? 0) ||
+    (form.lastUsedAt || "") !== (vendor.lastUsedAt ? vendor.lastUsedAt.slice(0, 10) : "") ||
+    (form.renewalDate || "") !== (vendor.renewalDate ? vendor.renewalDate.slice(0, 10) : "")
+  );
 }
 
 function formatRelativeDate(value?: string) {

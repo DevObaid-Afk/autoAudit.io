@@ -13,12 +13,8 @@ export interface IUser {
   company: Types.ObjectId;
   emailVerifiedAt?: Date;
   avatarUrl?: string;
-  avatarSource: "initials" | "upload" | "ai";
+  avatarSource: "gravatar" | "upload" | "initials";
   avatarUpdatedAt?: Date;
-  avatarGenerationUsage?: {
-    periodStart?: Date;
-    count?: number;
-  };
   failedLoginAttempts?: number;
   lockoutUntil?: Date | null;
   passwordChangedAt?: Date | null;
@@ -93,21 +89,11 @@ const userSchema = new mongoose.Schema<IUser, UserModel, IUserMethods>(
     },
     avatarSource: {
       type: String,
-      enum: ["initials", "upload", "ai"],
-      default: "initials",
+      enum: ["gravatar", "upload", "initials"],
+      default: "gravatar",
     },
     avatarUpdatedAt: {
       type: Date,
-    },
-    avatarGenerationUsage: {
-      periodStart: {
-        type: Date,
-      },
-      count: {
-        type: Number,
-        default: 0,
-        min: 0,
-      },
     },
     failedLoginAttempts: {
       type: Number,

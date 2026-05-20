@@ -10,6 +10,7 @@ import { completeOnboardingStep } from "../utils/onboarding.js";
 import { buildPagination, parsePagination } from "../utils/query.js";
 import { assertCanCreateVendors } from "../services/planLimits.js";
 import { markAuditSummaryStale } from "../services/auditSummaryCache.js";
+import { trackActivationEvent } from "../services/activationAnalytics.js";
 
 export const listVendors = asyncHandler(async (req, res) => {
   const { page, limit, skip } = parsePagination(req.query);
@@ -63,6 +64,12 @@ export const createVendor = asyncHandler(async (req, res) => {
   });
   await completeOnboardingStep(req.companyId, "addedFirstVendor");
   await markAuditSummaryStale(req.companyId);
+  const vendorCount = await Vendor.countDocuments({ company: req.companyId });
+  await trackActivationEvent({
+    req,
+    eventName: "vendor_added",
+    properties: { source: "manual", vendorCount },
+  });
 
   res.status(201).json({ vendor });
 });
@@ -103,6 +110,21 @@ export const importVendors = asyncHandler(async (req, res) => {
   await completeOnboardingStep(req.companyId, "addedFirstVendor");
   await completeOnboardingStep(req.companyId, "importedCsv");
   await markAuditSummaryStale(req.companyId);
+  const totalVendorCount = await Vendor.countDocuments({ company: req.companyId });
+  await trackActivationEvent({
+    req,
+    eventName: "csv_imported",
+    properties: {
+      vendorCount: vendors.length,
+      successCount: vendors.length,
+      failCount: rawVendors.length - vendors.length,
+    },
+  });
+  await trackActivationEvent({
+    req,
+    eventName: "vendor_added",
+    properties: { source: "csv", vendorCount: totalVendorCount },
+  });
 
   res.status(201).json({ vendors, count: vendors.length });
 });

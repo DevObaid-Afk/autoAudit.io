@@ -9,32 +9,8 @@ export type ApiUser = {
   storeIpAddresses?: boolean;
   mfaEnabled?: boolean;
   avatarUrl?: string;
-  avatarSource?: "initials" | "upload" | "ai";
+  avatarSource?: "gravatar" | "upload" | "initials";
   avatarUpdatedAt?: string;
-  avatarGenerationUsage?: {
-    periodStart?: string;
-    count?: number;
-  };
-};
-
-export type AvatarStyle =
-  | "professional_executive"
-  | "minimal_3d"
-  | "modern_gradient_portrait"
-  | "abstract_corporate"
-  | "founder_style"
-  | "cyber_minimal"
-  | "clean_illustrated"
-  | "finance_ops";
-
-export type AvatarAccess = {
-  plan: ApiCompany["plan"];
-  canGenerate: boolean;
-  limit: number | null;
-  used: number;
-  remaining: number | null;
-  resetDate: string;
-  styles: AvatarStyle[];
 };
 
 export type ApiCompany = {
@@ -319,9 +295,25 @@ export type ApiRenewal = {
   renewalDate: string;
   noticeDeadline?: string;
   contractValue: number;
-  status: "upcoming" | "in_review" | "negotiating" | "cancelled" | "renewed";
+  status: "upcoming" | "in_review" | "negotiating" | "cancelled" | "renewed" | "reviewed";
   riskLevel: "low" | "medium" | "high" | "critical";
   recommendation?: string;
+  reviewedAt?: string;
+  reviewedBy?: ApiUser;
+  reviewNotes?: string;
+  urgentEmailSentAt?: string;
+};
+
+export type ApiUrgentRenewalNotification = {
+  id: string;
+  vendorId?: string;
+  vendorName: string;
+  renewalDate: string;
+  noticeDeadline?: string;
+  contractValue: number;
+  status: ApiRenewal["status"];
+  riskLevel: ApiRenewal["riskLevel"];
+  daysUntilRenewal: number;
 };
 
 export type AuditSummary = {
@@ -373,6 +365,17 @@ export type AuditSummary = {
 
 export type AiEmailGoal = "cancel" | "renegotiate" | "reduce_seats";
 export type ReportType = "cfo_summary" | "board_summary" | "owner_action_list" | "full_audit";
+
+export type AiEmailVerifiedOverrides = {
+  vendorName?: string;
+  monthlySpend?: number;
+  seatsPurchased?: number;
+  activeSeats?: number;
+  lastUsedAt?: string;
+  renewalDate?: string;
+  emailGoal?: AiEmailGoal;
+  verifiedAt?: string;
+};
 
 export type AiTextMetadata = {
   mode?: string;

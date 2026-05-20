@@ -1,13 +1,13 @@
 import mongoose from "mongoose";
 
-export type EmailLogType = "verification" | "reset" | "digest" | "invite" | "contact";
+export type EmailLogType = "verification" | "reset" | "digest" | "urgent_renewal" | "invite" | "contact";
 export type EmailLogStatus = "sent" | "failed";
 
 const emailLogSchema = new mongoose.Schema(
   {
     type: {
       type: String,
-      enum: ["verification", "reset", "digest", "invite", "contact"],
+      enum: ["verification", "reset", "digest", "urgent_renewal", "invite", "contact"],
       required: true,
       index: true,
     },

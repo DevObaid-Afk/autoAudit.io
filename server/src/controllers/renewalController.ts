@@ -3,6 +3,7 @@ import { cleanDate, cleanEnum, cleanNumber, cleanString } from "../middleware/va
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { buildPagination, parsePagination } from "../utils/query.js";
 import { markAuditSummaryStale } from "../services/auditSummaryCache.js";
+import { recordActivity } from "../utils/activityLogger.js";
 
 export const listRenewals = asyncHandler(async (req: any, res: any) => {
   const { page, limit, skip } = parsePagination(req.query);
@@ -39,12 +40,44 @@ export const updateRenewal = asyncHandler(async (req: any, res: any) => {
   res.json({ renewal });
 });
 
+export const markRenewalReviewed = asyncHandler(async (req: any, res: any) => {
+  const reviewNotes = cleanString(req.body.reviewNotes, { field: "Review notes", max: 1000 });
+  const renewal = await Renewal.findOneAndUpdate(
+    { _id: req.params.id, company: req.companyId },
+    {
+      $set: {
+        status: "reviewed",
+        reviewedAt: new Date(),
+        reviewedBy: req.user?._id,
+        ...(reviewNotes ? { reviewNotes } : {}),
+      },
+    },
+    { new: true, runValidators: true },
+  ).populate("vendor subscription reviewedBy");
+
+  if (!renewal) {
+    res.status(404).json({ error: { message: "Renewal not found" } });
+    return;
+  }
+
+  await markAuditSummaryStale(req.companyId);
+  await recordActivity(req, {
+    action: "renewal.reviewed",
+    entityType: "settings",
+    entityId: renewal._id,
+    entityName: (renewal.vendor as any)?.name ?? "Renewal",
+    metadata: { renewalDate: renewal.renewalDate, reviewNotes },
+  });
+
+  res.json({ renewal });
+});
+
 function sanitizeRenewalInput(body: any) {
   const input = {
     renewalDate: cleanDate(body.renewalDate, { field: "Renewal date" }),
     noticeDeadline: cleanDate(body.noticeDeadline, { field: "Notice deadline" }),
     contractValue: cleanNumber(body.contractValue, { field: "Contract value", min: 0, max: 100000000 }),
-    status: cleanEnum(body.status, ["upcoming", "in_review", "negotiating", "cancelled", "renewed"], { field: "Status" }),
+    status: cleanEnum(body.status, ["upcoming", "in_review", "negotiating", "cancelled", "renewed", "reviewed"], { field: "Status" }),
     riskLevel: cleanEnum(body.riskLevel, ["low", "medium", "high", "critical"], { field: "Risk level" }),
     recommendation: cleanString(body.recommendation, { field: "Recommendation", max: 1000 }),
   };

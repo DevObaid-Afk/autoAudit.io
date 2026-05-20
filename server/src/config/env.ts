@@ -11,7 +11,6 @@ type Env = {
   mfaEncryptionKey?: string;
   openaiApiKey?: string;
   openaiModel: string;
-  openaiImageModel: string;
   appUrl: string;
   resendApiKey?: string;
   emailFrom: string;
@@ -24,6 +23,7 @@ type Env = {
   stripeWebhookSecret?: string;
   stripeStarterPriceId?: string;
   stripeStandardPriceId?: string;
+  internalAnalyticsToken?: string;
   googleClientId?: string;
   googleClientSecret?: string;
   googleOAuthRedirectUrl: string;
@@ -45,7 +45,6 @@ export const env: Env = {
   mfaEncryptionKey: process.env.MFA_ENCRYPTION_KEY,
   openaiApiKey: process.env.OPENAI_API_KEY,
   openaiModel: process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
-  openaiImageModel: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1.5",
   appUrl: normalizeUrl(process.env.APP_URL ?? process.env.FRONTEND_URL ?? "http://127.0.0.1:5173"),
   resendApiKey: process.env.RESEND_API_KEY,
   emailFrom: process.env.EMAIL_FROM || "AutoAudit.ai <noreply@yourdomain.com>",
@@ -58,6 +57,7 @@ export const env: Env = {
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
   stripeStarterPriceId: process.env.STRIPE_STARTER_PRICE_ID,
   stripeStandardPriceId: process.env.STRIPE_STANDARD_PRICE_ID,
+  internalAnalyticsToken: process.env.INTERNAL_ANALYTICS_TOKEN,
   googleClientId: process.env.GOOGLE_CLIENT_ID,
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
   googleOAuthRedirectUrl: normalizeUrl(process.env.GOOGLE_OAUTH_REDIRECT_URL ?? `http://127.0.0.1:${process.env.PORT ?? 5000}/api/auth/google/callback`),

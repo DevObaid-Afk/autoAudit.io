@@ -11,6 +11,7 @@ import { recordActivity } from "../utils/activityLogger.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { completeOnboardingStep } from "../utils/onboarding.js";
 import { buildPagination, parsePagination } from "../utils/query.js";
+import { trackActivationEvent } from "../services/activationAnalytics.js";
 
 export const listReports = asyncHandler(async (req: any, res: any) => {
   const { page, limit, skip } = parsePagination(req.query);
@@ -55,6 +56,11 @@ export const generateReport = asyncHandler(async (req: any, res: any) => {
     metadata: { type: report.type },
   });
   await completeOnboardingStep(req.companyId, "generatedReport");
+  await trackActivationEvent({
+    req,
+    eventName: "report_generated",
+    properties: { reportType: "manual" },
+  });
 
   res.status(201).json({ report });
 });

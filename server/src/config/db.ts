@@ -5,7 +5,7 @@ export async function connectDatabase() {
   mongoose.set("strictQuery", true);
 
   await mongoose.connect(env.mongoUri, {
-    autoIndex: env.nodeEnv !== "production",
+    autoIndex: env.nodeEnv !== "production",  
   });
 
   console.log("MongoDB connected");

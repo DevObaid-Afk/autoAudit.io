@@ -6,6 +6,7 @@ import { recordActivity } from "../utils/activityLogger.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { recordAuditLog } from "../utils/auditLogger.js";
 import { cleanDate, cleanNumber, cleanString } from "../middleware/validate.js";
+import { trackActivationEvent } from "../services/activationAnalytics.js";
 
 const signalTypes = new Set<SavingsSignalType>(["zombie", "unused_seats", "duplicate_tool", "negotiated_rate"]);
 const statuses = new Set<SavingsStatus>(["identified", "in_progress", "realized", "dismissed"]);
@@ -81,6 +82,13 @@ export const createSavingsEntry = asyncHandler(async (req: any, res: any) => {
       status,
     },
   });
+  if (status === "realized") {
+    await trackActivationEvent({
+      req,
+      eventName: "savings_confirmed",
+      properties: { amount: realizedMonthlySavings, vendorId },
+    });
+  }
 
   const populated = await entry.populate("createdBy confirmedBy", "name email role");
   res.status(201).json({ entry: serializeEntry(populated) });
@@ -127,6 +135,11 @@ export const realizeSavingsEntry = asyncHandler(async (req: any, res: any) => {
     entityId: entry._id,
     entityName: entry.vendorName,
     metadata: { realizedMonthlySavings, realizedAnnualSavings: realizedMonthlySavings * 12 },
+  });
+  await trackActivationEvent({
+    req,
+    eventName: "savings_confirmed",
+    properties: { amount: realizedMonthlySavings, vendorId: entry.vendorId },
   });
 
   res.json({ entry: serializeEntry(entry) });

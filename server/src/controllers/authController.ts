@@ -16,6 +16,7 @@ import { REFRESH_TOKEN_TTL_MS, signAccessToken, signRefreshToken } from "../util
 import { cleanString } from "../middleware/validate.js";
 import { sendPasswordResetEmail, sendVerificationEmail } from "../services/emailService.js";
 import { seedSampleVendors } from "../services/sampleVendors.js";
+import { trackActivationEvent } from "../services/activationAnalytics.js";
 
 const VERIFICATION_TOKEN_MINUTES = 24 * 60;
 const PASSWORD_RESET_TOKEN_MINUTES = 30;
@@ -113,6 +114,13 @@ export const signup = asyncHandler(async (req, res) => {
 
   const tokens = await issueAuthTokens(user, req);
   await sendVerificationEmail({ email: user.email, name: user.name, token: verification.token, companyId: company._id });
+  await trackActivationEvent({
+    req,
+    eventName: "user_signed_up",
+    userId: user._id,
+    companyId: company._id,
+    properties: { plan, authMethod: "email" },
+  });
 
   res.status(201).json({
     token: tokens.accessToken,
@@ -531,7 +539,7 @@ export const handleGoogleOAuthCallback = asyncHandler(async (req, res) => {
   const statePayload = verifyOAuthState(state);
   const googleTokens = await exchangeGoogleCode(code);
   const googleProfile = await verifyGoogleIdToken(googleTokens.id_token);
-  const { user, company } = await findOrCreateGoogleUser(googleProfile, statePayload.plan);
+  const { user, company, created } = await findOrCreateGoogleUser(googleProfile, statePayload.plan);
   const callbackUrl = new URL("/oauth/google", env.appUrl);
   let callbackParams: URLSearchParams;
 
@@ -556,6 +564,15 @@ export const handleGoogleOAuthCallback = asyncHandler(async (req, res) => {
 
   callbackUrl.hash = callbackParams.toString();
   res.clearCookie(OAUTH_STATE_COOKIE);
+  if (created) {
+    await trackActivationEvent({
+      req,
+      eventName: "user_signed_up",
+      userId: user._id,
+      companyId: company?._id ?? user.company,
+      properties: { plan: statePayload.plan, authMethod: "google" },
+    });
+  }
   res.redirect(callbackUrl.toString());
 });
 
@@ -882,13 +899,6 @@ async function findOrCreateGoogleUser(profile: GoogleProfile, plan: Plan) {
       changed = true;
     }
 
-    if (!user.avatarUrl && profile.picture) {
-      user.avatarUrl = profile.picture;
-      user.avatarSource = "upload";
-      user.avatarUpdatedAt = new Date();
-      changed = true;
-    }
-
     if (user.authProvider !== "google" && !user.passwordHash) {
       user.authProvider = "google";
       changed = true;
@@ -899,7 +909,7 @@ async function findOrCreateGoogleUser(profile: GoogleProfile, plan: Plan) {
       user = await User.findById(user._id).populate("company");
     }
 
-    return { user, company: user.company };
+    return { user, company: user.company, created: false };
   }
 
   const companyDomain = profile.hd ?? getEmailDomain(profile.email);
@@ -917,9 +927,7 @@ async function findOrCreateGoogleUser(profile: GoogleProfile, plan: Plan) {
     company: company._id,
     role: "owner",
     emailVerifiedAt: profile.email_verified ? new Date() : undefined,
-    avatarUrl: profile.picture,
-    avatarSource: profile.picture ? "upload" : "initials",
-    avatarUpdatedAt: profile.picture ? new Date() : undefined,
+    avatarSource: "gravatar",
   });
 
   company.createdBy = user._id;
@@ -927,7 +935,7 @@ async function findOrCreateGoogleUser(profile: GoogleProfile, plan: Plan) {
   await seedWorkspaceSamples(company._id);
   await user.populate("company");
 
-  return { user, company };
+  return { user, company, created: true };
 }
 
 function ensureGoogleOAuthConfigured() {

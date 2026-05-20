@@ -8,6 +8,7 @@ import { recordAuditLog } from "../utils/auditLogger.js";
 import { completeOnboardingStep } from "../utils/onboarding.js";
 import { cleanString } from "../middleware/validate.js";
 import { sendTeamInviteEmail } from "../services/emailService.js";
+import { trackActivationEvent } from "../services/activationAnalytics.js";
 
 const INVITE_DAYS = 7;
 const inviteRoles = new Set<InviteRole>(["viewer", "member", "admin"]);
@@ -69,6 +70,11 @@ export const inviteTeamMember = asyncHandler(async (req, res) => {
     metadata: { role },
   });
   await completeOnboardingStep(req.companyId, "invitedTeammate");
+  await trackActivationEvent({
+    req,
+    eventName: "teammate_invited",
+    properties: { invitedRole: role },
+  });
 
   res.status(201).json({ invite: serializeInvite(invite) });
 });

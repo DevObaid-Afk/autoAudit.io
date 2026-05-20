@@ -35,6 +35,19 @@ type RenewalDigestVendor = {
   monthlySpend: number;
 };
 
+type UrgentRenewalEmail = {
+  to: string;
+  companyName: string;
+  vendorName: string;
+  renewalDate: Date;
+  contractValue: number;
+  estimatedAnnualCost: number;
+  noticeDeadline: Date;
+  dashboardUrl: string;
+  daysUntilRenewal: number;
+  companyId?: unknown;
+};
+
 type TeamInviteEmail = {
   email: string;
   role: string;
@@ -160,6 +173,43 @@ export async function sendRenewalDigestEmail({ to, companyName, dashboardUrl, ur
       "",
       "Open your renewals dashboard:",
       dashboardUrl,
+      "",
+      "AutoAudit.ai",
+    ].join("\n"),
+  });
+}
+
+export async function sendUrgentRenewalEmail({
+  to,
+  companyName,
+  vendorName,
+  renewalDate,
+  contractValue,
+  estimatedAnnualCost,
+  noticeDeadline,
+  dashboardUrl,
+  daysUntilRenewal,
+  companyId,
+}: UrgentRenewalEmail) {
+  return sendEmail({
+    type: "urgent_renewal",
+    to: [to],
+    companyId,
+    subject: `Action required: ${vendorName} renews in ${daysUntilRenewal} days — ${formatCurrency(contractValue)} contract`,
+    text: [
+      `Urgent renewal alert for ${companyName}`,
+      "",
+      `${vendorName} renews in ${daysUntilRenewal} day${daysUntilRenewal === 1 ? "" : "s"}.`,
+      "",
+      `Renewal date: ${formatDate(renewalDate)}`,
+      `Contract value: ${formatCurrency(contractValue)}`,
+      `Estimated annual cost: ${formatCurrency(estimatedAnnualCost)}`,
+      `Cancellation notice deadline: ${formatDate(noticeDeadline)}`,
+      "",
+      "Review this renewal now:",
+      dashboardUrl,
+      "",
+      "AutoAudit.ai will not cancel or contact this vendor automatically. Please review before the notice window closes.",
       "",
       "AutoAudit.ai",
     ].join("\n"),

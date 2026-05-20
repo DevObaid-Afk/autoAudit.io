@@ -1,5 +1,5 @@
 AutoAudit.ai Updated SaaS Documentation
-Last updated: 2026-05-17
+Last updated: 2026-05-20
 
 ============================================================
 1. PRODUCT SUMMARY
@@ -21,11 +21,12 @@ The product helps a company:
 - Send weekly renewal digest emails to workspace owners.
 - Export reports and renewal calendars.
 - Prepare for paid subscription activation through Stripe Checkout.
+- Measure activation, checkout, and retention through server-side analytics.
 
 The current product is an MVP/early-access SaaS with a real frontend, protected
 dashboard, Express API, MongoDB data models, JWT authentication, role-based
 permissions, audit logs, activity logs, OpenAI-assisted workflows, Resend-backed
-email workflows, and Stripe-ready billing.
+email workflows, Stripe-ready billing, and internal activation analytics.
 
 The core trust promise is:
 
@@ -170,8 +171,16 @@ Payments:
 - Stripe-ready Checkout Sessions
 - Stripe Customers
 - Stripe subscription mode
+- Stripe webhook handling for checkout completion and subscription status sync
 - Requires STRIPE_SECRET_KEY, STRIPE_STARTER_PRICE_ID, and
   STRIPE_STANDARD_PRICE_ID to activate live checkout
+
+Internal analytics:
+
+- AnalyticsEvent model for product and activation events
+- Server-side activation event tracking in backend controllers
+- Token-protected internal funnel API
+- Internal analytics HTML dashboard with Chart.js
 
 Monitoring:
 
@@ -1007,6 +1016,20 @@ Functions:
 Purpose:
 
 - Sends analytics events without blocking core product flows.
+- Frontend analytics remains lightweight, but core activation tracking is now
+  recorded server-side so funnel metrics are not dependent on browser events.
+
+Internal analytics API:
+
+- GET /api/admin/funnel
+
+Purpose:
+
+- Returns signup cohort funnel metrics, median activation timing, week-1,
+  week-2, and week-4 retention, total paying workspaces, and MRR.
+- Requires INTERNAL_ANALYTICS_TOKEN through query parameter token or
+  x-admin-token header.
+- Does not use a regular workspace JWT.
 
 12. activityApi
 
@@ -1049,6 +1072,14 @@ Mounted routes:
 - /api/team
 - /api/workspace
 - /api/savings
+
+Internal non-user-facing route:
+
+- GET /internal/analytics?token=INTERNAL_ANALYTICS_TOKEN
+
+Internal token-protected API route:
+
+- GET /api/admin/funnel?token=INTERNAL_ANALYTICS_TOKEN
 
 Public API routes:
 
@@ -1261,6 +1292,7 @@ File:
 Functions:
 
 - createCheckoutSession
+- handleStripeWebhook
 
 Responsibilities:
 
@@ -1272,11 +1304,17 @@ Responsibilities:
 - Create Stripe Checkout Session in subscription mode.
 - Return checkout URL.
 - Return safe 503 if Stripe is not configured.
+- Handle checkout.session.completed from Stripe.
+- Handle customer.subscription.created and customer.subscription.updated.
+- Handle customer.subscription.deleted.
+- Update Company.plan, Company.subscriptionStatus, stripeCustomerId, and
+  stripeSubscriptionId from webhook events.
+- Record checkout_started, checkout_completed, and upgrade_requested
+  activation events.
 
 Current limitation:
 
-- Webhook handling is not implemented yet, so subscription status is not
-  automatically updated after payment confirmation.
+- Customer Portal and invoice display are not yet exposed in the dashboard.
 
 7. Report controller
 
@@ -1410,6 +1448,46 @@ Functions:
 Responsibilities:
 
 - Store lightweight analytics events.
+
+13. Admin funnel controller
+
+File:
+
+- server/src/controllers/adminFunnelController.js
+
+Functions:
+
+- getFunnelAnalytics
+
+Responsibilities:
+
+- Require INTERNAL_ANALYTICS_TOKEN rather than a regular user JWT.
+- Compute total signups for a selected date range.
+- Compute conversion to first vendor added, first waste signal viewed,
+  first report generated, checkout started, and checkout completed.
+- Compute median time from signup to first vendor added.
+- Compute median time from signup to first checkout.
+- Compute week-1, week-2, and week-4 retention using any later event.
+- Return total paying workspaces and MRR from checkout_completed events.
+
+14. Internal analytics page controller
+
+File:
+
+- server/src/controllers/internalAnalyticsPageController.js
+
+Functions:
+
+- renderInternalAnalyticsPage
+
+Responsibilities:
+
+- Serve /internal/analytics only when the token query parameter matches
+  INTERNAL_ANALYTICS_TOKEN.
+- Render an internal-only HTML analytics page.
+- Load Chart.js from CDN.
+- Call /api/admin/funnel with the same token.
+- Show funnel bars, retention, total signups, total paying, and MRR.
 
 
 ============================================================
@@ -1546,6 +1624,25 @@ Responsibilities:
 - Define plan limits.
 - Enforce usage limits.
 - Increment usage counters.
+
+6. Activation analytics service
+
+File:
+
+- server/src/services/activationAnalytics.js
+
+Functions:
+
+- trackActivationEvent
+
+Responsibilities:
+
+- Centralize server-side activation event writes.
+- Store eventName, metadata, user, company, IP address, and user agent in
+  AnalyticsEvent.
+- Add normalized userId, companyId, and timestamp to event metadata.
+- Swallow analytics write failures after logging so analytics cannot block
+  signup, checkout, or core product workflows.
 
 
 ============================================================
@@ -1724,6 +1821,24 @@ File:
 Purpose:
 
 - Stores product analytics events.
+- Stores structured activation funnel events in metadata.
+- Associates events with user and company where available.
+- Supports internal funnel, retention, paying workspace, and MRR reporting.
+
+Structured activation event names:
+
+- user_signed_up
+- vendor_added
+- csv_imported
+- waste_signal_viewed
+- action_item_created
+- report_generated
+- ai_email_generated
+- savings_confirmed
+- teammate_invited
+- checkout_started
+- checkout_completed
+- upgrade_requested
 
 10. ActivityLog
 
@@ -1937,16 +2052,20 @@ Current billing status:
 - Stripe checkout route exists.
 - Stripe customer creation exists.
 - Stripe subscription checkout session creation exists.
+- Stripe webhook route exists.
+- Successful checkout can update Company.plan and Company.subscriptionStatus.
 - UI buttons exist for Starter and Standard checkout.
 - Manual upgrade request remains available.
 
 Backend route:
 
 - POST /api/billing/checkout
+- POST /api/billing/webhook
 
 Required environment variables:
 
 - STRIPE_SECRET_KEY
+- STRIPE_WEBHOOK_SECRET
 - STRIPE_STARTER_PRICE_ID
 - STRIPE_STANDARD_PRICE_ID
 
@@ -1955,30 +2074,150 @@ Checkout session behavior:
 - Uses Stripe API version 2026-02-25.clover.
 - Uses mode=subscription.
 - Uses Stripe Price IDs, not deprecated plan objects.
-- Adds company and plan metadata.
+- Adds company, user, and plan metadata.
 - Uses APP_URL for success and cancel redirects.
+- Records checkout_started.
+- Records upgrade_requested when the selected plan differs from the current
+  company plan.
+
+Webhook behavior:
+
+- Verifies Stripe webhook signatures.
+- Handles checkout.session.completed.
+- Handles customer.subscription.created and customer.subscription.updated.
+- Handles customer.subscription.deleted.
+- Stores stripeCustomerId and stripeSubscriptionId.
+- Records checkout_completed from the Stripe webhook.
 
 Current billing limitation:
 
-- Stripe webhooks are not yet implemented.
-- Subscription status is not automatically activated after checkout.
 - No Stripe Customer Portal yet.
 - No invoice display in dashboard yet.
 
 Recommended billing next steps:
 
-- Add Stripe webhook route.
-- Verify checkout.session.completed.
-- Verify customer.subscription.updated.
-- Verify customer.subscription.deleted.
-- Update Company.plan and Company.subscriptionStatus from webhook events.
-- Store stripeSubscriptionId.
 - Add Stripe Customer Portal.
 - Add billing history/invoice links.
+- Add plan upgrade/downgrade handling through the Customer Portal or an
+  authenticated plan-change flow.
 
 
 ============================================================
-16A. GOOGLE OAUTH AND DEPLOYMENT ENVIRONMENT SETUP
+16A. ACTIVATION ANALYTICS AND INTERNAL FUNNEL DASHBOARD
+============================================================
+
+Purpose:
+
+- Give the founder investor-ready answers to activation and retention
+  questions.
+- Track activation server-side so the core funnel is not dependent on ad
+  blockers, frontend analytics, or page-close timing.
+- Measure "signup to first waste signal" and week-4 retention directly from
+  backend events.
+
+Tracked activation events:
+
+1. user_signed_up
+   Properties: userId, companyId, plan, authMethod, timestamp.
+
+2. vendor_added
+   Properties: userId, companyId, source, vendorCount.
+
+3. csv_imported
+   Properties: userId, companyId, vendorCount, successCount, failCount.
+
+4. waste_signal_viewed
+   Properties: userId, companyId, signalType, signalCount.
+
+5. action_item_created
+   Properties: userId, companyId, signalType, impact.
+
+6. report_generated
+   Properties: userId, companyId, reportType.
+
+7. ai_email_generated
+   Properties: userId, companyId, emailType, vendorId.
+
+8. savings_confirmed
+   Properties: userId, companyId, amount, vendorId.
+
+9. teammate_invited
+   Properties: userId, companyId, invitedRole.
+
+10. checkout_started
+    Properties: userId, companyId, plan.
+
+11. checkout_completed
+    Properties: userId, companyId, plan, amount.
+
+12. upgrade_requested
+    Properties: userId, companyId, fromPlan, toPlan.
+
+Server-side tracking locations:
+
+- user_signed_up is tracked from email signup and new Google OAuth workspace
+  creation.
+- vendor_added is tracked from manual vendor creation and CSV import.
+- csv_imported is tracked from vendor CSV import.
+- waste_signal_viewed is tracked from audit summary views and AI vendor
+  analysis.
+- action_item_created is tracked from action item creation.
+- report_generated is tracked from manual reports and AI monthly reports.
+- ai_email_generated is tracked from AI cancellation, renegotiation, and
+  seat-reduction email generation.
+- savings_confirmed is tracked when savings are created or updated as realized.
+- teammate_invited is tracked from team invite creation.
+- checkout_started and upgrade_requested are tracked when Stripe Checkout is
+  started.
+- checkout_completed is tracked from the Stripe webhook.
+
+Funnel endpoint:
+
+- GET /api/admin/funnel?token=INTERNAL_ANALYTICS_TOKEN
+
+Supported query parameters:
+
+- range=7d
+- range=30d
+- range=90d
+- range=all
+- startDate=YYYY-MM-DD
+- endDate=YYYY-MM-DD
+
+Returned metrics:
+
+- Total signups in the date range.
+- Percent who added first vendor.
+- Percent who viewed first waste signal.
+- Percent who generated first report.
+- Percent who started checkout.
+- Percent who completed checkout.
+- Median time from signup to first vendor added.
+- Median time from signup to first checkout.
+- Week-1, week-2, and week-4 retention.
+- Total paying workspaces.
+- MRR from checkout_completed events.
+
+Security:
+
+- Requires INTERNAL_ANALYTICS_TOKEN.
+- Accepts token through query parameter or x-admin-token header.
+- Does not accept a regular user JWT as authorization.
+- Intended for internal founder/admin use only.
+
+Dashboard:
+
+- URL: /internal/analytics?token=INTERNAL_ANALYTICS_TOKEN
+- Uses Chart.js via CDN.
+- Shows a vertical funnel bar chart.
+- Shows week-1, week-2, and week-4 retention.
+- Shows total signups, total paying, and MRR.
+- Includes date range selector for last 7 days, 30 days, 90 days, and all
+  time.
+
+
+============================================================
+16B. GOOGLE OAUTH AND DEPLOYMENT ENVIRONMENT SETUP
 ============================================================
 
 Google OAuth client setup:
@@ -2144,8 +2383,6 @@ Product limitations:
 
 Billing limitations:
 
-- Stripe checkout route exists, but webhooks are not implemented.
-- Subscription activation is not automated after successful checkout.
 - No Customer Portal.
 - No invoice list.
 - No payment method management UI.
@@ -2196,10 +2433,9 @@ Highest-priority user trust improvements:
 - Record captured savings.
 - Show total realized savings over time.
 
-3. Add Stripe webhooks and Customer Portal
+3. Add Stripe Customer Portal
 
 - Make billing truly self-service.
-- Update plan status automatically.
 - Let users manage payment methods and invoices.
 
 4. Add first read-only integration
@@ -2271,12 +2507,21 @@ Highest-priority investor trust improvements:
 
 2. Complete billing lifecycle
 
-- Stripe webhooks.
-- Subscription status sync.
 - Customer Portal.
 - Plan upgrade/downgrade handling.
+- Invoice links.
+- Billing history in dashboard.
 
-3. Build integration moat
+3. Use activation analytics in fundraising and growth
+
+- Monitor signup to first vendor.
+- Monitor signup to first waste signal.
+- Monitor first report generation.
+- Monitor checkout start and completion.
+- Monitor week-1, week-2, and week-4 retention.
+- Compare cohorts by source, plan, and activation behavior.
+
+4. Build integration moat
 
 - Google Workspace.
 - Microsoft 365.
@@ -2284,28 +2529,26 @@ Highest-priority investor trust improvements:
 - QuickBooks.
 - Stripe/Ramp/Brex/accounting feeds.
 
-4. Improve activation analytics
+5. Expand activation analytics
 
-- Track signup to first vendor.
-- Track first CSV import.
-- Track first waste signal.
-- Track first report generated.
-- Track first email draft copied.
-- Track upgrade request.
-- Track checkout start and completion.
+- Add cohort charts by signup week.
+- Add activation by acquisition source.
+- Add retention by plan.
+- Add savings-confirmed conversion.
+- Add dashboard export for investor updates.
 
-5. Add admin/team workflow
+6. Add admin/team workflow
 
 - Shows product can support real companies, not only solo users.
 
-6. Add customer proof
+7. Add customer proof
 
 - Testimonials.
 - Case studies.
 - Sample savings stories.
 - Founder-assisted onboarding outcomes.
 
-7. Add security maturity roadmap
+8. Add security maturity roadmap
 
 - MFA.
 - SSO.
@@ -2314,7 +2557,7 @@ Highest-priority investor trust improvements:
 - DPA.
 - SOC 2 readiness checklist.
 
-8. Improve reporting as a product artifact
+9. Improve reporting as a product artifact
 
 - Branded PDF.
 - CFO summary.
@@ -2361,7 +2604,7 @@ Phase 4: Enterprise trust
 
 Phase 5: Growth and investor story
 
-- Add activation analytics dashboard.
+- Expand activation analytics dashboard with cohort views.
 - Add savings captured dashboard.
 - Add customer case studies.
 - Add benchmark insights.
@@ -2406,6 +2649,8 @@ Trust strengths:
 - "Why flagged" evidence now exists in dashboard.
 - Report exports now exist.
 - Stripe-hosted checkout path now exists.
+- Stripe webhook subscription sync now exists.
+- Internal activation analytics dashboard now exists.
 
 
 ============================================================
@@ -2425,12 +2670,13 @@ evidence-backed workflow:
 5. Generate CFO-ready reports.
 6. Draft vendor action emails.
 7. Track plan limits and prepare paid activation through Stripe.
+8. Measure activation, checkout conversion, and retention internally.
 
 The strongest investor story is:
 
 "AutoAudit.ai does not just find SaaS waste. It shows the evidence, creates
-finance-ready reports, drafts the next vendor action, and is moving toward a
-measurable savings ledger that proves ROI."
+finance-ready reports, drafts the next vendor action, tracks activation, and is
+moving toward a measurable savings ledger that proves ROI."
 
 
 ============================================================
@@ -2541,8 +2787,13 @@ Sentry variables:
 Stripe variables:
 
 - STRIPE_SECRET_KEY
+- STRIPE_WEBHOOK_SECRET
 - STRIPE_STARTER_PRICE_ID
 - STRIPE_STANDARD_PRICE_ID
+
+Internal analytics variables:
+
+- INTERNAL_ANALYTICS_TOKEN
 
 Frontend variables:
 
@@ -2568,10 +2819,12 @@ The most important recent improvements are:
 5. Password strength enforcement, account lockout, and session invalidation.
 6. Email deliverability documentation and masked email send logs.
 7. Stripe Checkout-ready billing flow for Starter and Standard.
+8. Stripe webhook subscription sync.
+9. Internal activation funnel and retention dashboard.
 
 The next most important improvements are:
 
-1. Stripe webhook completion.
+1. Stripe Customer Portal and invoice links.
 2. Action item assignments, due dates, and approval states.
 3. Owner transfer and deeper team governance.
 4. First usage/spend integration.

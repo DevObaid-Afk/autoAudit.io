@@ -1,9 +1,10 @@
 import cors from "cors";
-import express from "express";
+import express, { type Request, type Response } from "express";
 import helmet from "helmet";
 import path from "node:path";
 import { env } from "./config/env.js";
 import { handleStripeWebhook } from "./controllers/billingController.js";
+import { renderInternalAnalyticsPage } from "./controllers/internalAnalyticsPageController.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import { apiRateLimit } from "./middleware/rateLimit.js";
 import { apiRouter } from "./routes/index.js";
@@ -24,7 +25,7 @@ export function createApp() {
   app.use(apiRateLimit);
   app.use(
     cors({
-      origin(origin, callback) {
+      origin(origin: string | undefined, callback) {
         if (!origin || isAllowedCorsOrigin(origin)) {
           callback(null, true);
           return;
@@ -41,6 +42,7 @@ export function createApp() {
 
   app.get("/health", healthCheck);
   app.get("/api/health", healthCheck);
+  app.get("/internal/analytics", renderInternalAnalyticsPage);
   app.use("/api", apiRouter);
 
   app.use(notFoundHandler);
@@ -49,7 +51,7 @@ export function createApp() {
   return app;
 }
 
-function isAllowedCorsOrigin(origin) {
+function isAllowedCorsOrigin(origin: string) {
   if (env.corsOrigins.includes(origin)) {
     return true;
   }
@@ -61,7 +63,7 @@ function isAllowedCorsOrigin(origin) {
   return false;
 }
 
-function healthCheck(_req, res) {
+function healthCheck(_req: Request, res: Response) {
   res.json({
     status: "ok",
     service: "autoaudit-api",

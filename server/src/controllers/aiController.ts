@@ -7,6 +7,7 @@ import { buildAuditSummary } from "../services/wasteDetection.js";
 import { generateAiText } from "../services/openaiService.js";
 import { AppError } from "../utils/AppError.js";
 import { recordActivity } from "../utils/activityLogger.js";
+import { recordAuditLog } from "../utils/auditLogger.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { completeOnboardingStep } from "../utils/onboarding.js";
 import {
@@ -15,6 +16,7 @@ import {
   assertCanGenerateReport,
   incrementPlanUsage,
 } from "../services/planLimits.js";
+import { trackActivationEvent } from "../services/activationAnalytics.js";
 
 const EMAIL_INSTRUCTIONS = `You are AutoAudit.ai, an expert SaaS spend operations assistant.
 Write polished B2B vendor emails for finance and operations teams.
@@ -36,6 +38,7 @@ export const generateCancelEmail = asyncHandler(async (req, res) => {
     vendorName,
     tone = "direct",
     requestedAction = "cancel renewal",
+    verifiedData,
   } = req.body;
   const vendor = await resolveVendor({
     companyId: req.companyId,
@@ -44,6 +47,13 @@ export const generateCancelEmail = asyncHandler(async (req, res) => {
     required: true,
   });
   const renewal = await findRenewalForVendor(req.companyId, vendor?._id);
+  const dataSentToAi = buildEmailPromptContext({
+    req,
+    vendor,
+    renewal,
+    verifiedData,
+    emailGoal: "cancel",
+  });
 
   const draft = await generateAiText({
     instructions: EMAIL_INSTRUCTIONS,
@@ -54,9 +64,7 @@ export const generateCancelEmail = asyncHandler(async (req, res) => {
         tone,
         requestedAction,
         workspace: await getWorkspaceContext(req),
-        vendor: vendorSnapshot(vendor),
-        renewal: renewalSnapshot(renewal),
-        evidence: buildWasteEvidence(vendor, renewal),
+        ...dataSentToAi.promptContext,
       },
     ),
   });
@@ -69,7 +77,23 @@ export const generateCancelEmail = asyncHandler(async (req, res) => {
     entityName: vendor?.name ?? vendorName,
     metadata: { kind: "cancel", tone, requestedAction },
   });
+  await recordAuditLog(req, {
+    action: "email_draft.ai_context_sent",
+    resourceType: "email_draft",
+    resourceId: vendor?._id,
+    metadata: {
+      kind: "cancel",
+      tone,
+      requestedAction,
+      dataSentToAi,
+    },
+  });
   await completeOnboardingStep(req.companyId, "createdEmailDraft");
+  await trackActivationEvent({
+    req,
+    eventName: "ai_email_generated",
+    properties: { emailType: "cancel", vendorId: vendor?._id },
+  });
 
   res.json({
     draft,
@@ -91,6 +115,7 @@ export const generateRenegotiateEmail = asyncHandler(async (req, res) => {
     renewalId,
     tone = "direct",
     negotiationGoal = "reduce renewal cost",
+    verifiedData,
   } = req.body;
   const renewal = renewalId
     ? await Renewal.findOne({
@@ -108,6 +133,13 @@ export const generateRenegotiateEmail = asyncHandler(async (req, res) => {
     }));
   const vendorRenewal =
     renewal ?? (await findRenewalForVendor(req.companyId, vendor?._id));
+  const dataSentToAi = buildEmailPromptContext({
+    req,
+    vendor,
+    renewal: vendorRenewal,
+    verifiedData,
+    emailGoal: negotiationGoal === "right-size seat count" ? "reduce_seats" : "renegotiate",
+  });
 
   const draft = await generateAiText({
     instructions: EMAIL_INSTRUCTIONS,
@@ -118,9 +150,7 @@ export const generateRenegotiateEmail = asyncHandler(async (req, res) => {
         tone,
         negotiationGoal,
         workspace: await getWorkspaceContext(req),
-        vendor: vendorSnapshot(vendor),
-        renewal: renewalSnapshot(vendorRenewal),
-        evidence: buildWasteEvidence(vendor, vendorRenewal),
+        ...dataSentToAi.promptContext,
         guidance: [
           "Ask for better pricing, right-sized seats, or a lower-commitment plan.",
           "Mention renewal timing only if provided.",
@@ -137,7 +167,26 @@ export const generateRenegotiateEmail = asyncHandler(async (req, res) => {
     entityName: vendor?.name ?? vendorName,
     metadata: { kind: "renegotiate", tone, negotiationGoal },
   });
+  await recordAuditLog(req, {
+    action: "email_draft.ai_context_sent",
+    resourceType: "email_draft",
+    resourceId: vendor?._id,
+    metadata: {
+      kind: "renegotiate",
+      tone,
+      negotiationGoal,
+      dataSentToAi,
+    },
+  });
   await completeOnboardingStep(req.companyId, "createdEmailDraft");
+  await trackActivationEvent({
+    req,
+    eventName: "ai_email_generated",
+    properties: {
+      emailType: negotiationGoal === "right-size seat count" ? "seat_reduction" : "renegotiate",
+      vendorId: vendor?._id,
+    },
+  });
 
   res.json({
     draft,
@@ -186,8 +235,8 @@ export const generateMonthlyReport = asyncHandler(async (req, res) => {
           requestedBy: req.user?.name,
         },
         auditSummary: summary,
-        topVendors: vendors.slice(0, 20).map(vendorSnapshot),
-        upcomingRenewals: renewals.slice(0, 15).map(renewalSnapshot),
+        topVendors: vendors.slice(0, 20).map((vendor) => vendorSnapshot(vendor)),
+        upcomingRenewals: renewals.slice(0, 15).map((renewal) => renewalSnapshot(renewal)),
         reportFormat: reportConfig.sections,
       },
     ),
@@ -215,6 +264,11 @@ export const generateMonthlyReport = asyncHandler(async (req, res) => {
     metadata: { type: report.type, reportType, audience },
   });
   await completeOnboardingStep(req.companyId, "generatedReport");
+  await trackActivationEvent({
+    req,
+    eventName: "report_generated",
+    properties: { reportType: "ai" },
+  });
 
   res.status(201).json({
     report: reportText,
@@ -317,6 +371,16 @@ export const analyzeVendor = asyncHandler(async (req, res) => {
   if (analysisMode === "waste_explanation") {
     await completeOnboardingStep(req.companyId, "reviewedWaste");
   }
+  if (summary.wasteSignals.length > 0) {
+    await trackActivationEvent({
+      req,
+      eventName: "waste_signal_viewed",
+      properties: {
+        signalType: vendor?.status ?? summary.wasteSignals[0]?.type ?? "unknown",
+        signalCount: summary.wasteSignals.length,
+      },
+    });
+  }
 
   res.json({
     analysis,
@@ -374,26 +438,113 @@ Data:
 ${JSON.stringify(data, null, 2)}`;
 }
 
-function vendorSnapshot(vendor) {
+function buildEmailPromptContext({
+  req,
+  vendor,
+  renewal,
+  verifiedData,
+  emailGoal,
+}: {
+  req: any;
+  vendor: any;
+  renewal: any;
+  verifiedData: any;
+  emailGoal: string;
+}) {
+  const sanitizedOverrides = sanitizeVerifiedEmailData(verifiedData);
+  const vendorData = vendorSnapshot(vendor, sanitizedOverrides);
+  const renewalData = renewalSnapshot(renewal, sanitizedOverrides);
+
+  return {
+    promptContext: {
+      vendor: vendorData,
+      renewal: renewalData,
+      evidence: buildWasteEvidenceFromSnapshot(vendorData, renewalData),
+      dataVerification: {
+        emailGoal,
+        verifiedAt: sanitizedOverrides.verifiedAt ?? new Date().toISOString(),
+        verifiedBy: req.user?.email,
+        source: "user_verified_pre_generation",
+        storedVendorUpdatedAt: vendor?.updatedAt,
+        overridesApplied: sanitizedOverrides,
+        note: "These values were confirmed in the pre-generation review step and may differ from the stored Vendor record.",
+      },
+    },
+    storedData: {
+      vendor: vendorSnapshot(vendor),
+      renewal: renewalSnapshot(renewal),
+    },
+    verifiedOverrides: sanitizedOverrides,
+  };
+}
+
+function sanitizeVerifiedEmailData(value: any) {
+  if (!value || typeof value !== "object") return {};
+
+  const overrides: Record<string, any> = {};
+  const vendorName = cleanNullableString(value.vendorName, 140);
+  const lastUsedAt = cleanNullableDate(value.lastUsedAt);
+  const renewalDate = cleanNullableDate(value.renewalDate);
+  const verifiedAt = cleanNullableDate(value.verifiedAt);
+
+  if (vendorName) overrides.vendorName = vendorName;
+  if (lastUsedAt) overrides.lastUsedAt = lastUsedAt;
+  if (renewalDate) overrides.renewalDate = renewalDate;
+  if (verifiedAt) overrides.verifiedAt = verifiedAt;
+  if (["cancel", "renegotiate", "reduce_seats"].includes(value.emailGoal)) {
+    overrides.emailGoal = value.emailGoal;
+  }
+
+  for (const field of ["monthlySpend", "seatsPurchased", "activeSeats"]) {
+    if (value[field] === "" || value[field] === null || value[field] === undefined) continue;
+    const parsed = Number(value[field]);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      overrides[field] = parsed;
+    }
+  }
+
+  return overrides;
+}
+
+function cleanNullableString(value: unknown, maxLength: number) {
+  if (typeof value !== "string") return "";
+  return value.trim().slice(0, maxLength);
+}
+
+function cleanNullableDate(value: unknown) {
+  if (!value) return undefined;
+  if (!(typeof value === "string" || typeof value === "number" || value instanceof Date)) return undefined;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return date.toISOString();
+}
+
+function vendorSnapshot(vendor: any, overrides: Record<string, any> = {}) {
   if (!vendor) return null;
+
+  const monthlySpend = Number(overrides.monthlySpend ?? vendor.monthlySpend ?? 0);
+  const seatsPurchased = Number(overrides.seatsPurchased ?? vendor.seatsPurchased ?? 0);
+  const activeSeats = Number(overrides.activeSeats ?? vendor.activeSeats ?? 0);
+  const lastUsedAt = overrides.lastUsedAt ?? vendor.lastUsedAt;
+  const renewalDate = overrides.renewalDate ?? vendor.renewalDate;
 
   return {
     id: vendor._id,
-    name: vendor.name,
+    name: overrides.vendorName ?? vendor.name,
     category: vendor.category,
     ownerName: vendor.ownerName,
     ownerEmail: vendor.ownerEmail,
-    monthlySpend: vendor.monthlySpend,
-    annualSpend: Number(vendor.monthlySpend ?? 0) * 12,
-    seatsPurchased: vendor.seatsPurchased,
-    activeSeats: vendor.activeSeats,
+    monthlySpend,
+    annualSpend: monthlySpend * 12,
+    seatsPurchased,
+    activeSeats,
     unusedSeats: Math.max(
-      Number(vendor.seatsPurchased ?? 0) - Number(vendor.activeSeats ?? 0),
+      seatsPurchased - activeSeats,
       0,
     ),
-    lastUsedAt: vendor.lastUsedAt,
-    daysSinceLastUse: vendor.lastUsedAt ? daysSince(vendor.lastUsedAt) : null,
-    renewalDate: vendor.renewalDate,
+    lastUsedAt,
+    daysSinceLastUse: lastUsedAt ? daysSince(lastUsedAt) : null,
+    renewalDate,
     status: vendor.status,
     riskScore: vendor.riskScore,
     source: vendor.source,
@@ -401,19 +552,63 @@ function vendorSnapshot(vendor) {
   };
 }
 
-function renewalSnapshot(renewal) {
+function renewalSnapshot(renewal: any, overrides: Record<string, any> = {}) {
   if (!renewal) return null;
 
   return {
     id: renewal._id,
     vendorName: renewal.vendor?.name,
-    renewalDate: renewal.renewalDate,
+    renewalDate: overrides.renewalDate ?? renewal.renewalDate,
     noticeDeadline: renewal.noticeDeadline,
     contractValue: renewal.contractValue,
     status: renewal.status,
     riskLevel: renewal.riskLevel,
     recommendation: renewal.recommendation,
   };
+}
+
+function buildWasteEvidenceFromSnapshot(vendor: any, renewal: any) {
+  if (!vendor) return [];
+
+  const evidence = [];
+
+  if (vendor.status !== "active") {
+    evidence.push(`Vendor status is ${vendor.status}.`);
+  }
+
+  if (vendor.riskScore) {
+    evidence.push(`Risk score is ${vendor.riskScore}/100.`);
+  }
+
+  if (vendor.unusedSeats > 0) {
+    evidence.push(
+      `${vendor.unusedSeats} of ${vendor.seatsPurchased} purchased seats appear unused.`,
+    );
+  }
+
+  if (vendor.lastUsedAt) {
+    evidence.push(
+      `Last verified usage date was ${new Date(vendor.lastUsedAt).toISOString().slice(0, 10)} (${daysSince(vendor.lastUsedAt)} days ago).`,
+    );
+  }
+
+  if (vendor.monthlySpend) {
+    evidence.push(
+      `Verified monthly spend is $${Number(vendor.monthlySpend).toLocaleString("en-US")}.`,
+    );
+  }
+
+  if (renewal?.renewalDate) {
+    evidence.push(
+      `Verified renewal date is ${new Date(renewal.renewalDate).toISOString().slice(0, 10)}.`,
+    );
+  } else if (vendor.renewalDate) {
+    evidence.push(
+      `Verified vendor renewal date is ${new Date(vendor.renewalDate).toISOString().slice(0, 10)}.`,
+    );
+  }
+
+  return evidence;
 }
 
 function buildWasteEvidence(vendor, renewal) {
